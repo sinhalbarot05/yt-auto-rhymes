@@ -10,7 +10,6 @@ from gtts import gTTS
 from pydub import AudioSegment
 import requests
 from datetime import datetime
-
 # -----------------------------
 # Configuration
 # -----------------------------
@@ -19,23 +18,18 @@ BG_IMAGES = "images/"
 OUTPUT_DIR = "videos/"
 Path(OUTPUT_DIR).mkdir(exist_ok=True)
 Path(BG_IMAGES).mkdir(exist_ok=True)
-
 # Load memory of used stories, rhymes, and images
 if os.path.exists(MEMORY_FILE):
     with open(MEMORY_FILE, "r", encoding="utf-8") as f:
         MEMORY = json.load(f)
 else:
     MEMORY = {"stories": [], "rhymes": [], "images": []}
-
-
 # -----------------------------
 # Helpers
 # -----------------------------
 def save_memory():
     with open(MEMORY_FILE, "w", encoding="utf-8") as f:
         json.dump(MEMORY, f, ensure_ascii=False, indent=2)
-
-
 def generate_story_rhyme():
     # Offline AI-like generation of a unique story + rhyme
     stories = [
@@ -59,8 +53,6 @@ def generate_story_rhyme():
     MEMORY["rhymes"].append(rhyme)
     save_memory()
     return story, rhyme
-
-
 def fetch_random_image():
     # Pixabay API for random images (kids safe)
     query = "kids story illustration"
@@ -74,39 +66,29 @@ def fetch_random_image():
             save_memory()
             return img_url
     return None
-
-
 def download_image(url, filename):
     r = requests.get(url)
     with open(filename, "wb") as f:
         f.write(r.content)
-
-
 def make_audio(text, filename, lang="hi"):
     tts = gTTS(text=text, lang=lang)
     tts.save(filename)
     # Ensure compatibility
     audio = AudioSegment.from_file(filename)
     audio.export(filename, format="mp3")
-
-
 def make_video(story_text, rhyme_text, duration=60, bg_image=None):
     # Background image
     clip_img = ImageClip(bg_image).set_duration(duration).resize(height=1080)
-
     # Audio
     audio_path = os.path.join(OUTPUT_DIR, "audio.mp3")
     make_audio(f"{story_text} {rhyme_text}", audio_path)
     audio_clip = AudioFileClip(audio_path)
-
     # Text overlay
     txt_clip = TextClip(rhyme_text, fontsize=70, color="yellow", font="DejaVu-Sans").set_position("center").set_duration(audio_clip.duration)
     video = CompositeVideoClip([clip_img, txt_clip]).set_audio(audio_clip)
     out_path = os.path.join(OUTPUT_DIR, f"video_{datetime.now().strftime('%Y%m%d%H%M%S')}.mp4")
     video.write_videofile(out_path, fps=24)
     return out_path
-
-
 # -----------------------------
 # Main Execution
 # -----------------------------
