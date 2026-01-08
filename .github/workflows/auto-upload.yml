@@ -15,7 +15,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg imagemagick fonts-dejavu-core
+          sudo apt-get install -y ffmpeg
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -24,7 +24,7 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install --upgrade pip
           python -m pip install \
             moviepy==1.0.3 \
             google-generativeai \
@@ -33,19 +33,13 @@ jobs:
             google-api-python-client \
             google-auth \
             google-auth-oauthlib \
-            google-auth-httplib2 \
-            pillow \
-            python-dotenv
+            google-auth-httplib2
 
-      - name: Restore YouTube OAuth token
+      - name: Restore OAuth token
         run: |
           echo "${{ secrets.YOUTUBE_TOKEN_JSON_B64 }}" | base64 -d > token.json
 
-      - name: Verify moviepy
-        run: |
-          python -c "from moviepy.editor import ImageClip; print('moviepy OK')"
-
-      - name: Run upload script
+      - name: Run automation
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PIXABAY_KEY: ${{ secrets.PIXABAY_KEY }}
