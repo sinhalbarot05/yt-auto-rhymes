@@ -7,9 +7,7 @@ from gtts import gTTS
 from moviepy import (
     ImageClip,
     AudioFileClip,
-    concatenate_videoclips,
-    CompositeVideoClip,
-    TextClip
+    concatenate_videoclips
 )
 
 from google.oauth2.credentials import Credentials
@@ -25,7 +23,7 @@ if not PIXABAY_KEY:
     raise RuntimeError("PIXABAY_KEY missing")
 
 # ======================================================
-# FESTIVAL CHECK (STATIC + SAFE)
+# FESTIVAL CHECK
 # ======================================================
 FESTIVALS = {
     "Holi": (3, 14),
@@ -43,7 +41,7 @@ def upcoming_festival():
     return None
 
 # ======================================================
-# SAFE PIXABAY IMAGE FETCH (NO CRASH)
+# SAFE PIXABAY FETCH
 # ======================================================
 def fetch_images(query, count=6):
     images = []
@@ -65,7 +63,7 @@ def fetch_images(query, count=6):
             raise RuntimeError("No images")
 
         for i, h in enumerate(hits[:count]):
-            path = f"img_{i}.jpg"
+            path = f"img_{query.replace(' ','_')}_{i}.jpg"
             with open(path, "wb") as f:
                 f.write(requests.get(h["largeImageURL"], timeout=20).content)
             images.append(path)
@@ -73,13 +71,13 @@ def fetch_images(query, count=6):
     except Exception:
         fallback = "fallback.jpg"
         if not os.path.exists(fallback):
-            ImageClip((1280, 720), color=(255, 200, 200)).save_frame(fallback)
+            ImageClip((1280, 720), color=(255, 220, 220)).save_frame(fallback)
         images = [fallback] * count
 
     return images
 
 # ======================================================
-# STORY & RHYME (NO REPETITION LOGIC)
+# CONTENT
 # ======================================================
 def rhyme():
     f = upcoming_festival()
@@ -90,7 +88,6 @@ def rhyme():
             "सीख यही है बच्चों प्यारी,\n"
             "मिलकर रहना सबसे भारी।"
         )
-
     return (
         "नन्ही चिड़िया उड़ना सीखे,\n"
         "मेहनत से सपने लिखे।\n"
@@ -107,7 +104,6 @@ def story():
             "मिल-जुलकर खुशियाँ बांटी,\n"
             "यही कहानी हमें सिखाती।"
         )
-
     return (
         "एक गाँव में एक बच्चा रहता था।\n"
         "वह सच्चाई से कभी नहीं डरता था।\n"
@@ -116,45 +112,34 @@ def story():
     )
 
 # ======================================================
-# TEXT TO SPEECH
+# TTS
 # ======================================================
-def tts(text, path):
-    gTTS(text=text, lang="hi", slow=False).save(path)
+def tts(text, out):
+    gTTS(text=text, lang="hi", slow=False).save(out)
 
 # ======================================================
-# VIDEO CREATION (MULTI IMAGE)
+# VIDEO CREATION
 # ======================================================
-def make_video(images, audio_path, size, out):
+def make_video(images, audio_path, height, out):
     audio = AudioFileClip(audio_path)
-    per_img = audio.duration / len(images)
+    per = audio.duration / len(images)
 
-    clips = []
-    for img in images:
-        clips.append(
-            ImageClip(img)
-            .with_duration(per_img)
-            .resized(height=size[1])
-        )
+    clips = [
+        ImageClip(img)
+        .with_duration(per)
+        .resized(height=height)
+        for img in images
+    ]
 
     concatenate_videoclips(clips, method="compose") \
         .with_audio(audio) \
         .write_videofile(out, fps=24)
 
 # ======================================================
-# THUMBNAIL (MOVIEPY 2.x SAFE)
+# THUMBNAIL (NO TEXT – 100% SAFE)
 # ======================================================
-def make_thumbnail(text, img):
-    bg = ImageClip(img).resized((1280, 720))
-
-    title = TextClip(
-        text,
-        fontsize=70,
-        color="yellow",
-        method="caption",
-        size=(1200, None)
-    ).with_position(("center", "bottom")).with_duration(1)
-
-    CompositeVideoClip([bg, title]).save_frame("thumbnail.jpg", 0)
+def make_thumbnail(img):
+    ImageClip(img).resized((1280, 720)).save_frame("thumbnail.jpg")
 
 # ======================================================
 # YOUTUBE AUTH
@@ -193,15 +178,14 @@ def upload(path, title, desc, tags, thumb=None):
         ).execute()
 
 # ======================================================
-# RUN PIPELINE
+# RUN
 # ======================================================
 
-# ---------- SHORT (REEL) ----------
+# SHORT
 short_text = rhyme()
 tts(short_text, "short.mp3")
-
-short_imgs = fetch_images("kids rhyme illustration")
-make_video(short_imgs, "short.mp3", (1080, 1920), "short.mp4")
+short_imgs = fetch_images("kids rhyme colorful illustration")
+make_video(short_imgs, "short.mp3", 1920, "short.mp4")
 
 upload(
     "short.mp4",
@@ -210,17 +194,13 @@ upload(
     ["hindi rhymes", "kids shorts", "nursery rhyme"]
 )
 
-# ---------- LONG (STORY) ----------
+# LONG
 long_text = story()
 tts(long_text, "long.mp3")
+long_imgs = fetch_images("kids story colorful illustration")
+make_video(long_imgs, "long.mp3", 1080, "long.mp4")
 
-long_imgs = fetch_images("kids story illustration")
-make_video(long_imgs, "long.mp3", (1920, 1080), "long.mp4")
-
-make_thumbnail(
-    "नई हिंदी बच्चों की कहानी\nNew Hindi Kids Story",
-    long_imgs[0]
-)
+make_thumbnail(long_imgs[0])
 
 upload(
     "long.mp4",
