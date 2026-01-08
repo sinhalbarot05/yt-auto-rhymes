@@ -37,8 +37,7 @@ jobs:
             google-api-python-client \
             google-auth \
             google-auth-oauthlib \
-            google-auth-httplib2 \
-            google-generativeai
+            google-auth-httplib2
 
       - name: Restore YouTube token
         run: |
@@ -46,6 +45,5 @@ jobs:
 
       - name: Run uploader
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PIXABAY_KEY: ${{ secrets.PIXABAY_KEY }}
         run: python upload_script.py
