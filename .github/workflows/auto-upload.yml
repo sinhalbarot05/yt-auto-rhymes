@@ -12,7 +12,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       # Install system dependencies for MoviePy and PIL
       - name: Install system dependencies
@@ -20,13 +21,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-dejavu-core libglib2.0-0
 
-      # Setup Python
-      - name: Setup Python 3.11
+      # Setup Python 3.11
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # Install Python packages including MoviePy
+      # Upgrade pip and install Python packages
       - name: Install Python packages
         run: |
           python -m pip install --upgrade pip
@@ -42,7 +43,7 @@ jobs:
             google-auth-oauthlib \
             google-auth-httplib2
 
-      # Test MoviePy installation
+      # Test MoviePy
       - name: Test MoviePy
         run: |
           python -c "from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips, CompositeVideoClip, TextClip; print('MoviePy OK')"
@@ -53,7 +54,7 @@ jobs:
           echo "${{ secrets.YOUTUBE_CLIENT_SECRETS }}" | base64 --decode > client_secret.json
 
       # Run uploader script
-      - name: Run uploader script
+      - name: Run uploader
         env:
           PIXABAY_KEY: ${{ secrets.PIXABAY_KEY }}
         run: python upload_script.py
