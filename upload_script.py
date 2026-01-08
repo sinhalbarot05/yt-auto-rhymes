@@ -1,7 +1,6 @@
 import os
-import random
 import time
-import json
+import random
 import requests
 
 from gtts import gTTS
@@ -14,134 +13,133 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
 
-# ---------------- ENV ----------------
+# ======================================================
+# CONFIG
+# ======================================================
+LANG = "hi"
+THEMES = [
+    "दोस्ती", "ईमानदारी", "प्रकृति", "परिवार", "सीखने की कहानी"
+]
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 PIXABAY_KEY = os.getenv("PIXABAY_KEY")
 
-if not GEMINI_API_KEY:
-    raise RuntimeError("GEMINI_API_KEY missing")
+# ======================================================
+# STORY (GEMINI + FALLBACK)
+# ======================================================
+def fallback_story(long=True):
+    if long:
+        return (
+            "एक समय की बात है, एक प्यारा सा बच्चा था जो हर दिन कुछ नया सीखना चाहता था। "
+            "उसके माता-पिता ने उसे सिखाया कि सच्चाई और मेहनत से जीवन में हमेशा सफलता मिलती है। "
+            "उसने अपने दोस्तों के साथ मिलकर समझा कि अच्छाई सबसे बड़ी ताकत होती है।"
+        )
+    return "सीखो, खेलो और हमेशा सच बोलो। यही है सबसे बड़ी जीत।"
 
-# ---------------- LANG CONFIG ----------------
-LANGUAGES = {
-    "hi": {
-        "name": "Hindi",
-        "voice": "hi",
-        "suffix": "हिंदी",
-        "tags": ["hindi kids", "kids stories"]
-    },
-    "en": {
-        "name": "English",
-        "voice": "en",
-        "suffix": "English",
-        "tags": ["english kids", "kids stories"]
-    }
-}
+story_long = None
+story_short = None
 
-THEMES = ["Friendship", "Nature", "Learning", "Adventure", "Family"]
+if GEMINI_API_KEY:
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel("gemini-pro")
 
-# ---------------- GEMINI (FIXED) ----------------
-genai.configure(api_key=GEMINI_API_KEY)
+        theme = random.choice(THEMES)
 
-model = genai.GenerativeModel(
-    model_name="gemini-pro",
-    generation_config={
-        "temperature": 0.7,
-        "max_output_tokens": 800
-    }
-)
+        story_long = model.generate_content(
+            f"300 शब्दों की हिंदी बच्चों की कहानी लिखो विषय: {theme}"
+        ).text
 
-def generate_story(prompt):
-    for attempt in range(5):
-        try:
-            response = model.generate_content(prompt)
-            if response and response.text:
-                return response.text
-        except Exception as e:
-            wait = 2 ** attempt
-            print(f"Gemini retry {attempt+1}, wait {wait}s")
-            time.sleep(wait)
-    raise RuntimeError("Gemini generation failed")
+        story_short = model.generate_content(
+            f"30 शब्दों की हिंदी बच्चों की कविता लिखो विषय: {theme}"
+        ).text
+    except Exception:
+        story_long = None
+        story_short = None
 
-# ---------------- AUTH (AUTO REFRESH) ----------------
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+if not story_long:
+    story_long = fallback_story(True)
+if not story_short:
+    story_short = fallback_story(False)
 
-creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-
-if creds.expired and creds.refresh_token:
-    creds.refresh(Request())
-    with open("token.json", "w") as f:
-        f.write(creds.to_json())
-
-youtube = build("youtube", "v3", credentials=creds)
-
-# ---------------- PICK LANG ----------------
-lang_code = random.choice(list(LANGUAGES))
-lang = LANGUAGES[lang_code]
-theme = random.choice(THEMES)
-
-# ---------------- STORY ----------------
-prompt = f"Write a 250 word kids story about {theme} in {lang['name']}."
-story = generate_story(prompt)
-
-# ---------------- IMAGE ----------------
-pix = requests.get(
+# ======================================================
+# IMAGE
+# ======================================================
+img = requests.get(
     "https://pixabay.com/api/",
     params={
         "key": PIXABAY_KEY,
         "q": "kids cartoon",
-        "image_type": "illustration",
-        "per_page": 3
+        "image_type": "illustration"
     },
     timeout=20
-).json()
+).json()["hits"][0]["largeImageURL"]
 
-img_url = pix["hits"][0]["largeImageURL"]
-open("bg.jpg", "wb").write(requests.get(img_url, timeout=20).content)
+open("bg.jpg", "wb").write(requests.get(img).content)
 
-# ---------------- AUDIO ----------------
-gTTS(text=story, lang=lang["voice"]).save("audio.mp3")
+# ======================================================
+# VIDEO CREATOR
+# ======================================================
+def make_video(text, out):
+    gTTS(text=text, lang="hi").save("audio.mp3")
+    audio = AudioFileClip("audio.mp3")
 
-audio = AudioFileClip("audio.mp3")
+    ImageClip("bg.jpg") \
+        .set_duration(audio.duration) \
+        .set_audio(audio) \
+        .resize(height=1080) \
+        .write_videofile(
+            out,
+            fps=24,
+            codec="libx264",
+            audio_codec="aac",
+            verbose=False,
+            logger=None
+        )
 
-# ---------------- VIDEO (FAST) ----------------
-ImageClip("bg.jpg") \
-    .set_duration(audio.duration) \
-    .set_audio(audio) \
-    .write_videofile(
-        "video.mp4",
-        fps=24,
-        codec="libx264",
-        audio_codec="aac",
-        verbose=False,
-        logger=None
-    )
+make_video(story_long, "long.mp4")
+make_video(story_short, "short.mp4")
 
-# ---------------- UPLOAD (HARDENED) ----------------
-def upload_video():
+# ======================================================
+# YOUTUBE AUTH (AUTO REFRESH)
+# ======================================================
+SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+
+if creds.expired and creds.refresh_token:
+    creds.refresh(Request())
+    open("token.json", "w").write(creds.to_json())
+
+yt = build("youtube", "v3", credentials=creds)
+
+# ======================================================
+# UPLOAD (RETRY SAFE)
+# ======================================================
+def upload(path, title, is_short=False):
     body = {
         "snippet": {
-            "title": f"{theme} Story | {lang['suffix']}",
-            "description": story[:4500],
-            "tags": lang["tags"],
+            "title": title + (" #Shorts" if is_short else ""),
+            "description": title,
+            "tags": ["हिंदी कहानी", "kids hindi", "moral story"],
+            "defaultLanguage": "hi",
+            "defaultAudioLanguage": "hi",
             "categoryId": "24"
         },
         "status": {"privacyStatus": "public"}
     }
 
-    for attempt in range(5):
+    for i in range(5):
         try:
-            youtube.videos().insert(
+            yt.videos().insert(
                 part="snippet,status",
                 body=body,
-                media_body=MediaFileUpload("video.mp4", resumable=True)
+                media_body=MediaFileUpload(path, resumable=True)
             ).execute()
-            print("Upload successful")
             return
-        except HttpError as e:
-            wait = 2 ** attempt
-            print(f"Upload retry {attempt+1}, wait {wait}s")
-            time.sleep(wait)
+        except HttpError:
+            time.sleep(2 ** i)
 
     raise RuntimeError("Upload failed")
 
-upload_video()
+upload("long.mp4", "नई हिंदी बच्चों की कहानी")
+upload("short.mp4", "मजेदार हिंदी राइम", True)
