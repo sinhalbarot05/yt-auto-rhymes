@@ -1,174 +1,223 @@
 import os
 import json
 import random
-import hashlib
+import time
+import requests
+from pathlib import Path
+
 from gtts import gTTS
 from moviepy.editor import (
     ImageClip,
     AudioFileClip,
     concatenate_videoclips,
+    CompositeVideoClip,
+    TextClip
 )
+
+from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-import pickle
-import requests
+from google.oauth2.credentials import Credentials
 
-# ---------------- CONFIG ---------------- #
+# ======================================================
+# CONFIG
+# ======================================================
+
+PIXABAY_KEY = os.getenv("PIXABAY_KEY")
+if not PIXABAY_KEY:
+    raise RuntimeError("PIXABAY_KEY missing")
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
-
-PIXABAY_KEY = os.environ.get("PIXABAY_KEY")
 
 SHORT_MEM = "short_mem.json"
 LONG_MEM = "long_mem.json"
 
-IMAGE_DIR = "images"
-os.makedirs(IMAGE_DIR, exist_ok=True)
+Path("assets").mkdir(exist_ok=True)
 
-# ---------------- MEMORY ---------------- #
+# ======================================================
+# MEMORY (NO REPEAT GUARANTEE)
+# ======================================================
 
-def load_memory(path):
+def load_mem(path):
     if os.path.exists(path):
-        with open(path, "r") as f:
-            return set(json.load(f))
+        return set(json.load(open(path)))
     return set()
 
-def save_memory(path, data):
-    with open(path, "w") as f:
-        json.dump(list(data), f)
+def save_mem(path, data):
+    json.dump(list(data), open(path, "w"), ensure_ascii=False, indent=2)
 
-# ---------------- TEXT GENERATOR (OFFLINE, UNIQUE) ---------------- #
+short_used = load_mem(SHORT_MEM)
+long_used = load_mem(LONG_MEM)
 
-NAMES = ["Chintu", "Pinku", "Guddu", "Munni", "Raju", "Gudiya"]
-ANIMALS = ["Sher", "Haathi", "Bandar", "Billi", "Kutta", "Mor"]
-MORALS = [
-    "Sach bolna achha hota hai",
-    "Mehnat ka phal milta hai",
-    "Dosti sabse badi taakat hai",
-    "Sabse pyaar se baat karo",
+# ======================================================
+# STORY GENERATORS (OFFLINE, SAFE)
+# ======================================================
+
+SHORT_RHYMES = [
+    "चिड़िया बोली चूँ चूँ चूँ, उठो बच्चों सूरज निकला यूँ",
+    "लाल गेंद उछली कूदे, हँसते बच्चे मन को छुए",
+    "पानी बचाओ जीवन बचाओ, धरती माँ को खुश बनाओ",
+    "सच बोलो रोज़ करो, अच्छे काम से नाम करो",
+    "मम्मी पापा की सुनो बात, खुश रहता है पूरा घर साथ"
 ]
 
-def unique_text(kind):
-    mem_file = SHORT_MEM if kind == "short" else LONG_MEM
-    memory = load_memory(mem_file)
+LONG_STORIES = [
+    "एक गाँव में छोटा सा हाथी रहता था जो सबकी मदद करता था। "
+    "एक दिन जंगल में आग लगी और हाथी ने नदी से पानी लाकर सबको बचाया। "
+    "सबने सीखा कि मदद करने से दोस्ती बढ़ती है।",
 
-    for _ in range(50):
-        name = random.choice(NAMES)
-        animal = random.choice(ANIMALS)
-        moral = random.choice(MORALS)
+    "रिया नाम की बच्ची रोज़ पेड़ को पानी देती थी। "
+    "एक दिन उसी पेड़ ने उसे छाया दी और फल दिए। "
+    "कहानी सिखाती है कि प्रकृति की सेवा जरूरी है।",
 
-        if kind == "short":
-            text = f"{name} aur {animal} ki pyari si kahani.\n{moral}."
-        else:
-            text = (
-                f"Ek baar ki baat hai, {name} naam ka ek bachcha tha.\n"
-                f"Uska dost ek {animal} tha.\n"
-                f"Dono ne milkar seekha ki {moral}.\n"
-                f"Is kahani se humein ye seekh milti hai."
-            )
+    "मोहन को झूठ बोलने की आदत थी। "
+    "एक दिन सच बोलने से उसकी मुश्किल हल हुई। "
+    "उसे समझ आया कि सच सबसे बड़ा सहारा है।"
+]
 
-        h = hashlib.sha256(text.encode()).hexdigest()
-        if h not in memory:
-            memory.add(h)
-            save_memory(mem_file, memory)
-            return text
+def unique_pick(pool, used):
+    choices = [x for x in pool if x not in used]
+    if not choices:
+        used.clear()
+        choices = pool[:]
+    item = random.choice(choices)
+    used.add(item)
+    return item
 
-    raise RuntimeError("Unique text exhausted")
+short_text = unique_pick(SHORT_RHYMES, short_used)
+long_text = unique_pick(LONG_STORIES, long_used)
 
-# ---------------- VOICE (FREE, NO BILLING) ---------------- #
+save_mem(SHORT_MEM, short_used)
+save_mem(LONG_MEM, long_used)
 
-def make_voice(text, out):
-    tts = gTTS(text=text, lang="hi", slow=False)
-    tts.save(out)
+# ======================================================
+# IMAGE FETCH (DIFFERENT IMAGES)
+# ======================================================
 
-# ---------------- IMAGE FETCH ---------------- #
+def fetch_image(query, out):
+    r = requests.get(
+        "https://pixabay.com/api/",
+        params={
+            "key": PIXABAY_KEY,
+            "q": query,
+            "image_type": "illustration",
+            "safesearch": "true"
+        },
+        timeout=20
+    ).json()
+    url = random.choice(r["hits"])["largeImageURL"]
+    img = requests.get(url).content
+    open(out, "wb").write(img)
 
-def fetch_images(query, count):
-    url = "https://pixabay.com/api/"
-    r = requests.get(url, params={
-        "key": PIXABAY_KEY,
-        "q": query,
-        "image_type": "illustration",
-        "per_page": count,
-        "safesearch": "true"
-    })
-    data = r.json()
-    files = []
+# ======================================================
+# VIDEO CREATION
+# ======================================================
 
-    for i, hit in enumerate(data.get("hits", [])):
-        img = requests.get(hit["largeImageURL"]).content
-        path = f"{IMAGE_DIR}/{query}_{i}.jpg"
-        with open(path, "wb") as f:
-            f.write(img)
-        files.append(path)
+def make_video(text, img_query, out, vertical=False):
+    audio_path = f"{out}.mp3"
+    gTTS(text=text, lang="hi", slow=False).save(audio_path)
 
-    return files
+    audio = AudioFileClip(audio_path)
 
-# ---------------- VIDEO ---------------- #
+    img_path = f"{out}.jpg"
+    fetch_image(img_query, img_path)
 
-def make_video(text, voice_file, out, duration_per_img=3):
-    images = fetch_images("kids story illustration", 5)
-    audio = AudioFileClip(voice_file)
+    clip = ImageClip(img_path).set_duration(audio.duration).set_audio(audio)
 
-    clips = [
-        ImageClip(img).set_duration(duration_per_img)
-        for img in images
-    ]
+    if vertical:
+        clip = clip.resize(height=1920).crop(x_center=clip.w/2, width=1080)
+    else:
+        clip = clip.resize(height=720)
 
-    video = concatenate_videoclips(clips).set_audio(audio)
-    video.write_videofile(out, fps=24)
+    clip.write_videofile(out, fps=24, codec="libx264", audio_codec="aac")
 
-# ---------------- YOUTUBE AUTH ---------------- #
+# ======================================================
+# THUMBNAIL (LONG VIDEO)
+# ======================================================
 
-def youtube_auth():
+def make_thumbnail(title):
+    fetch_image("kids story illustration", "thumb_bg.jpg")
+
+    bg = ImageClip("thumb_bg.jpg").resize((1280, 720))
+    txt = TextClip(
+        title,
+        fontsize=70,
+        color="yellow",
+        font="DejaVu-Sans-Bold",
+        method="caption",
+        size=(1100, None)
+    ).set_position("center").set_duration(1)
+
+    CompositeVideoClip([bg, txt]).save_frame("thumbnail.jpg")
+
+# ======================================================
+# YOUTUBE AUTH
+# ======================================================
+
+def youtube_client():
     creds = None
-    if os.path.exists("token.pickle"):
-        with open("token.pickle", "rb") as f:
-            creds = pickle.load(f)
-
+    if os.path.exists("token.json"):
+        creds = Credentials.from_authorized_user_file("token.json", SCOPES)
     if not creds or not creds.valid:
         flow = InstalledAppFlow.from_client_secrets_file(
             "client_secret.json", SCOPES
         )
         creds = flow.run_console()
-        with open("token.pickle", "wb") as f:
-            pickle.dump(creds, f)
-
+        json.dump(json.loads(creds.to_json()), open("token.json", "w"))
     return build("youtube", "v3", credentials=creds)
 
-# ---------------- UPLOAD ---------------- #
+yt = youtube_client()
 
-def upload(video, title, desc):
-    yt = youtube_auth()
-    req = yt.videos().insert(
-        part="snippet,status",
-        body={
-            "snippet": {
-                "title": title,
-                "description": desc,
-                "categoryId": "1",
-            },
-            "status": {"privacyStatus": "public"},
+# ======================================================
+# UPLOAD
+# ======================================================
+
+def upload(path, title, desc, tags, thumb=None, short=False):
+    body = {
+        "snippet": {
+            "title": title,
+            "description": desc,
+            "tags": tags,
+            "categoryId": "24"
         },
-        media_body=MediaFileUpload(video),
-    )
-    req.execute()
+        "status": {"privacyStatus": "public"}
+    }
 
-# ---------------- MAIN ---------------- #
+    res = yt.videos().insert(
+        part="snippet,status",
+        body=body,
+        media_body=MediaFileUpload(path, resumable=True)
+    ).execute()
 
-if __name__ == "__main__":
-    # SHORT
-    short_text = unique_text("short")
-    make_voice(short_text, "short.mp3")
-    make_video(short_text, "short.mp3", "short.mp4")
-    upload("short.mp4", "Hindi Kids Short Story", short_text)
+    if thumb:
+        yt.thumbnails().set(
+            videoId=res["id"],
+            media_body=MediaFileUpload(thumb)
+        ).execute()
 
-    # LONG
-    long_text = unique_text("long")
-    make_voice(long_text, "long.mp3")
-    make_video(long_text, "long.mp3", "long.mp4", 4)
-    upload("long.mp4", "Hindi Kids Moral Story", long_text)
+# ======================================================
+# RUN
+# ======================================================
 
-    print("✅ SUCCESS: Shorts and Long uploaded without repetition")
+make_video(short_text, "kids rhyme illustration", "short.mp4", vertical=True)
+make_video(long_text, "kids story illustration", "long.mp4", vertical=False)
+
+make_thumbnail("नई हिंदी बच्चों की कहानी\nNew Hindi Kids Story")
+
+upload(
+    "short.mp4",
+    "मजेदार हिंदी राइम | Majedar Hindi Rhymes",
+    short_text + "\n#kids #hindi #shorts",
+    ["hindi rhymes", "kids shorts"],
+    short=True
+)
+
+upload(
+    "long.mp4",
+    "नई हिंदी बच्चों की कहानी | New Hindi Kids Story",
+    long_text + "\n#kids #story #hindi",
+    ["hindi kids story", "moral story"],
+    thumb="thumbnail.jpg"
+)
+
+print("✅ DONE: 1 unique short + 1 unique long uploaded")
