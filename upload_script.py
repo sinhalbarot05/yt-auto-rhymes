@@ -1,185 +1,104 @@
-import os, json, random, hashlib, datetime
-import requests
+import os, json, random, hashlib, requests
+from PIL import Image, ImageDraw, ImageFont
 from gtts import gTTS
-from moviepy import ImageClip, AudioFileClip, concatenate_videoclips
+from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
 
-# =====================================================
-# CONFIG
-# =====================================================
 PIXABAY_KEY = os.getenv("PIXABAY_KEY")
-PROJECT_ID = os.getenv("GCP_PROJECT_ID")
-MEMORY_DIR = "memory"
 
-os.makedirs(MEMORY_DIR, exist_ok=True)
-
-FILES = {
-    "stories": f"{MEMORY_DIR}/stories.json",
-    "rhymes": f"{MEMORY_DIR}/rhymes.json",
-    "images": f"{MEMORY_DIR}/images.json"
-}
-
-def load(path):
+# ---------------- MEMORY ----------------
+def load_memory(path):
     if not os.path.exists(path):
-        with open(path, "w") as f:
-            json.dump([], f)
-    return json.load(open(path))
+        return set()
+    return set(json.load(open(path)))
 
-def save(path, data):
-    with open(path, "w") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+def save_memory(path, data):
+    json.dump(list(data), open(path, "w"))
 
-stories_used = load(FILES["stories"])
-rhymes_used = load(FILES["rhymes"])
-images_used = load(FILES["images"])
+# ---------------- TEXT ENGINE ----------------
+def unique_text(mode):
+    memory_file = f"{mode}_memory.json"
+    memory = load_memory(memory_file)
 
-# =====================================================
-# FESTIVAL LOGIC (simple & safe)
-# =====================================================
-def festival():
-    m = datetime.date.today().month
-    if m == 3:
-        return "होली"
-    if m == 8:
-        return "रक्षा बंधन"
-    if m in (10, 11):
-        return "दीवाली"
-    return "सामान्य दिन"
+    while True:
+        if mode == "short":
+            text = random.choice([
+                "Twinkle twinkle little star, learn and shine wherever you are",
+                "Happy rhyme for kids, clap and smile all the time",
+                "Fun rhyme with joy and play, learning grows every day"
+            ])
+        else:
+            text = random.choice([
+                "Once upon a time a clever rabbit taught a big lesson",
+                "A small bird learned courage and kindness",
+                "A magical forest showed the power of honesty"
+            ])
 
-# =====================================================
-# GEMINI (SAFE VERSION)
-# =====================================================
-def gemini(prompt):
-    from google.oauth2 import service_account
-    from google.auth.transport.requests import Request
+        h = hashlib.sha256(text.encode()).hexdigest()
+        if h not in memory:
+            memory.add(h)
+            save_memory(memory_file, memory)
+            return text
 
-    creds = service_account.Credentials.from_service_account_file(
-        "gcp-sa.json",
-        scopes=["https://www.googleapis.com/auth/cloud-platform"]
-    )
-    creds.refresh(Request())
+# ---------------- TITLE + TAGS ----------------
+def generate_metadata(text, mode):
+    if mode == "short":
+        title = f"Kids Rhyme | {text.split()[0]} Fun Song"
+        tags = ["kids rhyme", "nursery rhyme", "learning shorts", "kids song"]
+    else:
+        title = f"Kids Story | {text.split()[0]} Moral Story"
+        tags = ["kids story", "bedtime story", "moral story", "learning kids"]
 
-    url = (
-        f"https://us-central1-aiplatform.googleapis.com/v1/"
-        f"projects/{PROJECT_ID}/locations/us-central1/"
-        f"publishers/google/models/gemini-1.0-pro:generateContent"
-    )
+    desc = f"{title}\n\nSafe educational content for children."
+    return title, desc, tags
 
-    headers = {
-        "Authorization": f"Bearer {creds.token}",
-        "Content-Type": "application/json"
-    }
+# ---------------- IMAGE FETCH ----------------
+def pixabay_images(query, count):
+    url = f"https://pixabay.com/api/?key={PIXABAY_KEY}&q={query}&image_type=photo&per_page={count}"
+    r = requests.get(url).json()
+    return [h["largeImageURL"] for h in r.get("hits", [])]
 
-    payload = {
-        "contents": [
-            {"role": "user", "parts": [{"text": prompt}]}
-        ],
-        "generationConfig": {
-            "temperature": 0.8,
-            "maxOutputTokens": 600
-        }
-    }
+# ---------------- THUMBNAIL ----------------
+def make_thumbnail(text, out):
+    img = Image.new("RGB", (1280, 720), (255, 220, 180))
+    d = ImageDraw.Draw(img)
+    font = ImageFont.load_default()
+    d.text((50, 300), text[:40], fill=(0,0,0), font=font)
+    img.save(out)
 
-    resp = requests.post(url, headers=headers, json=payload, timeout=60)
-    data = resp.json()
+# ---------------- VIDEO ----------------
+def make_video(mode):
+    text = unique_text(mode)
+    title, desc, tags = generate_metadata(text, mode)
 
-    # 🔒 SAFE PARSING
-    try:
-        return data["candidates"][0]["content"]["parts"][0]["text"]
-    except Exception:
-        print("⚠️ Gemini failed, raw response:")
-        print(json.dumps(data, indent=2, ensure_ascii=False))
-        return None
+    images = pixabay_images("kids cartoon", 6 if mode=="short" else 10)
+    clips = []
 
-# =====================================================
-# FALLBACK TEXT (NO CRASH EVER)
-# =====================================================
-FALLBACK_RHYMES = [
-    "नन्हा सा तोता बोला, मीठी मीठी बात,\nअच्छे बनो बच्चों, यही है सही राह।",
-    "सूरज बोला उठो बच्चों, नया सवेरा आया,\nमेहनत करने वालों ने ही सपना सच पाया।"
-]
+    for i, url in enumerate(images):
+        img_path = f"img_{mode}_{i}.jpg"
+        open(img_path, "wb").write(requests.get(url).content)
+        clips.append(ImageClip(img_path).set_duration(2))
 
-FALLBACK_STORIES = [
-    "एक गाँव में छोटा सा बच्चा रहता था। वह हमेशा सच बोलता था और सबकी मदद करता था। "
-    "उसकी ईमानदारी ने उसे सबका प्यारा बना दिया।",
-    "एक जंगल में नन्हा खरगोश रहता था। वह सब जानवरों से दोस्ती करता था और मिलकर रहना सिखाता था।"
-]
+    tts = gTTS(text)
+    audio_file = f"{mode}.mp3"
+    tts.save(audio_file)
 
-# =====================================================
-# UNIQUE TEXT GENERATOR
-# =====================================================
-def unique_text(kind):
-    used = rhymes_used if kind == "rhyme" else stories_used
+    audio = AudioFileClip(audio_file)
+    video = concatenate_videoclips(clips).set_audio(audio)
+    out = f"{mode}.mp4"
+    video.write_videofile(out, fps=24)
 
-    for _ in range(3):  # try Gemini 3 times
-        text = gemini(
-            f"बच्चों के लिए नई हिंदी {kind} लिखो। "
-            f"विषय: {festival()}। "
-            f"सरल, प्यारी, सीख वाली, बिल्कुल नई।"
-        )
-        if text:
-            h = hashlib.sha256(text.encode()).hexdigest()
-            if h not in used:
-                used.append(h)
-                save(FILES["rhymes" if kind == "rhyme" else "stories"], used)
-                return text
+    thumb = f"{mode}_thumb.jpg"
+    make_thumbnail(title, thumb)
 
-    # 🔁 FALLBACK (guaranteed)
-    text = random.choice(FALLBACK_RHYMES if kind == "rhyme" else FALLBACK_STORIES)
-    return text
+    print("\n==============================")
+    print("VIDEO:", out)
+    print("THUMB :", thumb)
+    print("TITLE:", title)
+    print("DESC :", desc)
+    print("TAGS :", ", ".join(tags))
+    print("==============================\n")
 
-# =====================================================
-# PIXABAY IMAGES (NON-REPEATING)
-# =====================================================
-def images(query, n=5):
-    res = requests.get(
-        "https://pixabay.com/api/",
-        params={
-            "key": PIXABAY_KEY,
-            "q": query,
-            "image_type": "illustration",
-            "per_page": 20
-        },
-        timeout=20
-    ).json()
-
-    out = []
-    for h in res.get("hits", []):
-        if str(h["id"]) in images_used:
-            continue
-        img = f"img_{h['id']}.jpg"
-        open(img, "wb").write(requests.get(h["largeImageURL"]).content)
-        images_used.append(str(h["id"]))
-        out.append(img)
-        if len(out) == n:
-            break
-
-    save(FILES["images"], images_used)
-    return out
-
-# =====================================================
-# AUDIO
-# =====================================================
-def tts(text, out):
-    gTTS(text=text, lang="hi", slow=False).save(out)
-
-# =====================================================
-# VIDEO
-# =====================================================
-def make_video(imgs, audio, out, height):
-    aud = AudioFileClip(audio)
-    d = aud.duration / len(imgs)
-    clips = [ImageClip(i).with_duration(d).resized(height=height) for i in imgs]
-    concatenate_videoclips(clips).with_audio(aud).write_videofile(out, fps=24)
-
-# =====================================================
-# RUN
-# =====================================================
-short_text = unique_text("rhyme")
-tts(short_text, "short.mp3")
-make_video(images("kids cartoon happy"), "short.mp3", "short.mp4", 1920)
-
-long_text = unique_text("story")
-tts(long_text, "long.mp3")
-make_video(images("kids story illustration"), "long.mp3", "long.mp4", 1080)
-
-print("✅ SUCCESS: unique rhyme + unique story generated safely")
+# ---------------- RUN ----------------
+if __name__ == "__main__":
+    make_video("short")
+    make_video("long")
