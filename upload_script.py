@@ -5,12 +5,9 @@ import requests
 import datetime
 import hashlib
 import base64
-import subprocess
 import time
-
 from gtts import gTTS
-from moviepy import ImageClip, AudioFileClip, concatenate_videoclips, CompositeVideoClip
-
+from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
 from google.oauth2 import service_account
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
@@ -22,28 +19,27 @@ from googleapiclient.http import MediaFileUpload
 PROJECT_ID = os.getenv("GCP_PROJECT_ID")
 PIXABAY_KEY = os.getenv("PIXABAY_KEY")
 SA_KEY_B64 = os.getenv("GCP_SA_KEY_B64")
-
 MEMORY_DIR = "memory"
+
 USED_STORIES = os.path.join(MEMORY_DIR, "used_stories.json")
 USED_RHYMES = os.path.join(MEMORY_DIR, "used_rhymes.json")
 USED_TOPICS = os.path.join(MEMORY_DIR, "used_topics.json")
 USED_IMAGES = os.path.join(MEMORY_DIR, "used_images.json")
 
 # ======================================================
-# HELPER: Load / Save Memory
+# HELPER: Load / Save JSON memory
 # ======================================================
 def load_json(path):
     if not os.path.exists(path):
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump([], f)
-    with open(path) as f:
+    with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 def save_json(path, data):
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
-# Load memories
 stories_mem = load_json(USED_STORIES)
 rhymes_mem = load_json(USED_RHYMES)
 topics_mem = load_json(USED_TOPICS)
@@ -68,33 +64,40 @@ def upcoming_festival():
     return None
 
 # ======================================================
-# VERTEX GEMINI SETUP
+# VERTEX GEMINI (Text-Bison) SETUP
 # ======================================================
 sa_info = json.loads(base64.b64decode(SA_KEY_B64))
 credentials = service_account.Credentials.from_service_account_info(sa_info)
 scoped_creds = credentials.with_scopes(["https://www.googleapis.com/auth/cloud-platform"])
 
 def vertex_gemini_generate(prompt):
-    """Generate unique content via Vertex AI Gemini"""
+    """Generate content via Vertex AI Gemini (Text-Bison)"""
     from google.cloud import aiplatform
-    aiplatform.init(project=PROJECT_ID, credentials=scoped_creds, location="us-central1")
-    model = aiplatform.TextGenerationModel.from_pretrained("text-bison@001")
-    
-    # Retry loop for safety
+    from google.cloud.aiplatform.gapic import PredictionServiceClient
+
+    client = PredictionServiceClient(credentials=scoped_creds)
+    location = "us-central1"
+    model = f"projects/{PROJECT_ID}/locations/{location}/publishers/google/models/text-bison@001"
+
+    instance = {"content": prompt}
+    request = {
+        "endpoint": model,
+        "instances": [instance],
+        "parameters": {"temperature": 0.7, "max_output_tokens": 512},
+    }
+
     for _ in range(3):
         try:
-            response = model.predict(
-                prompt,
-                max_output_tokens=512,
-                temperature=0.7
-            )
-            return response.text
+            response = client.predict(request=request)
+            text = response.predictions[0]["content"]
+            return text
         except Exception as e:
+            print("Vertex retry due to error:", e)
             time.sleep(2)
     raise RuntimeError("Vertex AI Gemini generation failed")
 
 # ======================================================
-# IMAGE FETCHING (Pixabay, unique)
+# PIXABAY IMAGE FETCH (unique)
 # ======================================================
 def fetch_images(prompt, count=5):
     images = []
@@ -123,28 +126,27 @@ def fetch_images(prompt, count=5):
             if len(images) >= count:
                 break
     except Exception:
-        # fallback single color image
         fallback = "fallback.jpg"
         if not os.path.exists(fallback):
             ImageClip((1280,720), color=(255,200,200)).save_frame(fallback)
         images = [fallback]*count
+    save_json(USED_IMAGES, images_mem)
     return images
 
 # ======================================================
-# TTS with gTTS (Hindi, child-friendly)
+# TTS with gTTS (Hindi child-friendly)
 # ======================================================
 def tts(text, filename):
-    # Split long text into sentences
     sentences = [s.strip() for s in text.replace("\n"," ").split(".") if s.strip()]
     audio_files = []
     for i, s in enumerate(sentences):
         f = f"tts_{i}.mp3"
         gTTS(text=s, lang="hi", slow=False).save(f)
         audio_files.append(f)
-    # Concatenate
+    # Concatenate audio
     clips = [AudioFileClip(f) for f in audio_files]
-    final = concatenate_videoclips(clips, method="compose").audio
-    final.write_audiofile(filename)
+    final_audio = concatenate_videoclips(clips, method="compose").audio
+    final_audio.write_audiofile(filename)
     for f in audio_files:
         os.remove(f)
 
@@ -155,10 +157,11 @@ def make_video(images, audio_path, height, out):
     audio = AudioFileClip(audio_path)
     per = audio.duration / len(images)
     clips = [ImageClip(img).with_duration(per).resized(height=height) for img in images]
-    concatenate_videoclips(clips, method="compose").with_audio(audio).write_videofile(out, fps=24)
+    final_clip = concatenate_videoclips(clips, method="compose").with_audio(audio)
+    final_clip.write_videofile(out, fps=24)
 
 # ======================================================
-# THUMBNAIL (simplest, just first image)
+# THUMBNAIL
 # ======================================================
 def make_thumbnail(img):
     ImageClip(img).resized((1280,720)).save_frame("thumbnail.jpg")
@@ -166,8 +169,8 @@ def make_thumbnail(img):
 # ======================================================
 # YOUTUBE UPLOAD
 # ======================================================
-# Load token.json in repo manually
 from google.oauth2.credentials import Credentials
+
 creds = Credentials.from_authorized_user_file("token.json", ["https://www.googleapis.com/auth/youtube.upload"])
 if creds.expired and creds.refresh_token:
     creds.refresh(Request())
@@ -193,16 +196,15 @@ def upload(path, title, desc, tags, thumb=None):
         yt.thumbnails().set(videoId=res["id"], media_body=MediaFileUpload(thumb)).execute()
 
 # ======================================================
-# GENERATE NON-REPEATING CONTENT
+# GENERATE UNIQUE CONTENT
 # ======================================================
 def generate_unique_story():
     festival = upcoming_festival()
     prompt = f"Generate a unique, fun Hindi kids story. Festival: {festival}. Do NOT repeat any previous story or topic: {stories_mem}."
     story = vertex_gemini_generate(prompt)
-    # hash check
     h = hashlib.sha256(story.encode()).hexdigest()
     if h in stories_mem:
-        return generate_unique_story()  # retry
+        return generate_unique_story()
     stories_mem.append(h)
     save_json(USED_STORIES, stories_mem)
     return story
