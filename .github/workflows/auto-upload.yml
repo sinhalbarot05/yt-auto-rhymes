@@ -14,17 +14,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Install system dependencies for MoviePy
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          sudo apt-get install -y ffmpeg fonts-dejavu-core libglib2.0-0
 
+      # Setup Python
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Upgrade pip and install Python packages
+      # Install Python packages including MoviePy
+      - name: Install Python packages
         run: |
           python -m pip install --upgrade pip
           pip install --upgrade \
@@ -39,14 +42,17 @@ jobs:
             google-auth-oauthlib \
             google-auth-httplib2
 
-      - name: Verify MoviePy installation
+      # Verify MoviePy installation
+      - name: Test MoviePy
         run: |
           python -c "from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips, CompositeVideoClip, TextClip; print('MoviePy OK')"
 
+      # Restore YouTube client secret
       - name: Restore YouTube client secret
         run: |
           echo "${{ secrets.YOUTUBE_CLIENT_SECRETS }}" | base64 --decode > client_secret.json
 
+      # Run your uploader
       - name: Run uploader script
         env:
           PIXABAY_KEY: ${{ secrets.PIXABAY_KEY }}
