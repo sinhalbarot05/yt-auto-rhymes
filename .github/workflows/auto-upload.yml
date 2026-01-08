@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Install system dependencies for MoviePy
+      # Install system dependencies for MoviePy and PIL
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -42,7 +42,7 @@ jobs:
             google-auth-oauthlib \
             google-auth-httplib2
 
-      # Verify MoviePy installation
+      # Test MoviePy installation
       - name: Test MoviePy
         run: |
           python -c "from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips, CompositeVideoClip, TextClip; print('MoviePy OK')"
@@ -52,7 +52,7 @@ jobs:
         run: |
           echo "${{ secrets.YOUTUBE_CLIENT_SECRETS }}" | base64 --decode > client_secret.json
 
-      # Run your uploader
+      # Run uploader script
       - name: Run uploader script
         env:
           PIXABAY_KEY: ${{ secrets.PIXABAY_KEY }}
