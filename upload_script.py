@@ -4,7 +4,7 @@ import random
 import requests
 
 from gtts import gTTS
-from moviepy.editor import ImageClip, AudioFileClip
+from moviepy import ImageClip, AudioFileClip
 
 import google.generativeai as genai
 from google.oauth2.credentials import Credentials
@@ -17,9 +17,7 @@ from googleapiclient.errors import HttpError
 # CONFIG
 # ======================================================
 LANG = "hi"
-THEMES = [
-    "दोस्ती", "ईमानदारी", "प्रकृति", "परिवार", "सीखने की कहानी"
-]
+THEMES = ["दोस्ती", "ईमानदारी", "प्रकृति", "परिवार", "सीख"]
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 PIXABAY_KEY = os.getenv("PIXABAY_KEY")
@@ -30,21 +28,19 @@ PIXABAY_KEY = os.getenv("PIXABAY_KEY")
 def fallback_story(long=True):
     if long:
         return (
-            "एक समय की बात है, एक प्यारा सा बच्चा था जो हर दिन कुछ नया सीखना चाहता था। "
-            "उसके माता-पिता ने उसे सिखाया कि सच्चाई और मेहनत से जीवन में हमेशा सफलता मिलती है। "
-            "उसने अपने दोस्तों के साथ मिलकर समझा कि अच्छाई सबसे बड़ी ताकत होती है।"
+            "एक समय की बात है, एक बच्चा था जो हर दिन कुछ नया सीखता था। "
+            "उसने समझा कि सच्चाई, मेहनत और दया सबसे बड़ी ताकत होती है।"
         )
-    return "सीखो, खेलो और हमेशा सच बोलो। यही है सबसे बड़ी जीत।"
+    return "सच बोलो, अच्छा करो, हमेशा सीखते रहो।"
 
 story_long = None
 story_short = None
+theme = random.choice(THEMES)
 
 if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         model = genai.GenerativeModel("gemini-pro")
-
-        theme = random.choice(THEMES)
 
         story_long = model.generate_content(
             f"300 शब्दों की हिंदी बच्चों की कहानी लिखो विषय: {theme}"
@@ -78,7 +74,7 @@ img = requests.get(
 open("bg.jpg", "wb").write(requests.get(img).content)
 
 # ======================================================
-# VIDEO CREATOR
+# VIDEO CREATION
 # ======================================================
 def make_video(text, out):
     gTTS(text=text, lang="hi").save("audio.mp3")
@@ -113,14 +109,14 @@ if creds.expired and creds.refresh_token:
 yt = build("youtube", "v3", credentials=creds)
 
 # ======================================================
-# UPLOAD (RETRY SAFE)
+# UPLOAD
 # ======================================================
 def upload(path, title, is_short=False):
     body = {
         "snippet": {
             "title": title + (" #Shorts" if is_short else ""),
             "description": title,
-            "tags": ["हिंदी कहानी", "kids hindi", "moral story"],
+            "tags": ["हिंदी कहानी", "kids hindi"],
             "defaultLanguage": "hi",
             "defaultAudioLanguage": "hi",
             "categoryId": "24"
@@ -135,6 +131,7 @@ def upload(path, title, is_short=False):
                 body=body,
                 media_body=MediaFileUpload(path, resumable=True)
             ).execute()
+            print(f"Uploaded {path}")
             return
         except HttpError:
             time.sleep(2 ** i)
