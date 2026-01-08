@@ -1,4 +1,4 @@
-name: Auto Upload Hindi Videos
+name: Auto Upload Hindi Kids Videos
 
 on:
   schedule:
@@ -15,7 +15,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
       - name: Install system dependencies
         run: |
@@ -27,36 +28,17 @@ jobs:
         with:
           python-version: '3.11'
 
-      # 🔴 CRITICAL FIX: FORCE MoviePy v1
       - name: Install Python packages
         run: |
           python -m pip install --upgrade pip
-          pip uninstall -y moviepy || true
-          pip install moviepy==1.0.3
-          pip install imageio imageio-ffmpeg
-          pip install gtts requests
-          pip install google-api-python-client google-auth google-auth-oauthlib google-auth-httplib2
+          # Pillow downgrade for MoviePy compatibility
+          pip install --upgrade moviepy==2.0.0 gTTS requests google-api-python-client google-auth google-auth-oauthlib google-auth-httplib2 Pillow==10.0.1
 
-      # 🔍 HARD VERIFICATION (DO NOT REMOVE)
-      - name: Verify MoviePy
-        run: |
-          python - <<EOF
-          import moviepy
-          print("MoviePy version:", moviepy.__version__)
-          from moviepy.editor import ImageClip
-          print("moviepy.editor import OK")
-          EOF
-
-      # 🔐 Restore YouTube OAuth client
       - name: Restore YouTube client secret
         run: |
           echo "${{ secrets.YOUTUBE_CLIENT_SECRETS }}" | base64 --decode > client_secret.json
 
-      - name: Restore YouTube token
-        run: |
-          echo "${{ secrets.YOUTUBE_TOKEN_JSON_B64 }}" | base64 --decode > token.json
-
-      - name: Run uploader
+      - name: Run uploader script
         env:
           PIXABAY_KEY: ${{ secrets.PIXABAY_KEY }}
         run: python upload_script.py
