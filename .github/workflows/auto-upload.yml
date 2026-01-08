@@ -34,15 +34,15 @@ jobs:
       - name: Install Python packages
         run: |
           python -m pip install --upgrade pip
-          pip install \
-            moviepy \
+          pip install --upgrade \
+            moviepy>=2.0.0 \
             gtts \
             requests \
             google-api-python-client \
             google-auth \
             google-auth-oauthlib \
             google-auth-httplib2 \
-            google-cloud-aiplatform
+            google-cloud-aiplatform>=2.14.0
 
       # --- Restore YouTube token ---
       - name: Restore YouTube token
@@ -53,6 +53,10 @@ jobs:
       - name: Restore GCP key
         run: |
           echo "${{ secrets.GCP_SA_KEY_B64 }}" | base64 --decode > gcp-sa.json
+
+      # --- Test MoviePy import (optional) ---
+      - name: Test MoviePy import
+        run: python -c "from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips; print('MoviePy OK')"
 
       # --- Run uploader script ---
       - name: Run uploader
