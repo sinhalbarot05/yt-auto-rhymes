@@ -28,12 +28,12 @@ if not PIXABAY_KEY:
 def long_story(theme):
     return (
         f"एक समय की बात है, {theme} से जुड़ी एक सुंदर कहानी थी। "
-        "इस कहानी में बच्चों को सिखाया गया कि सच्चाई, मेहनत और दया "
-        "से जीवन में सफलता मिलती है।"
+        "इस कहानी से बच्चों को यह सीख मिलती है कि सच्चाई और मेहनत "
+        "हमेशा सफलता दिलाती है।"
     )
 
 def short_story(theme):
-    return f"{theme} से सीखो, अच्छे बनो, और हमेशा सच बोलो।"
+    return f"{theme} से सीखो, अच्छे बनो और हमेशा सच बोलो।"
 
 theme = random.choice(THEMES)
 story_long = long_story(theme)
@@ -53,7 +53,8 @@ resp = requests.get(
 ).json()
 
 img_url = resp["hits"][0]["largeImageURL"]
-open("bg.jpg", "wb").write(requests.get(img_url).content)
+with open("bg.jpg", "wb") as f:
+    f.write(requests.get(img_url).content)
 
 # ======================================================
 # VIDEO CREATION (MOVIEPY 2.x)
@@ -73,9 +74,7 @@ def make_video(text, out):
         out,
         fps=24,
         codec="libx264",
-        audio_codec="aac",
-        verbose=False,
-        logger=None
+        audio_codec="aac"
     )
 
 make_video(story_long, "long.mp4")
@@ -89,7 +88,8 @@ creds = Credentials.from_authorized_user_file("token.json", SCOPES)
 
 if creds.expired and creds.refresh_token:
     creds.refresh(Request())
-    open("token.json", "w").write(creds.to_json())
+    with open("token.json", "w") as f:
+        f.write(creds.to_json())
 
 youtube = build("youtube", "v3", credentials=creds)
 
