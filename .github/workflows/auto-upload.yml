@@ -8,30 +8,48 @@ on:
 jobs:
   upload:
     runs-on: ubuntu-latest
+
     steps:
+      # Checkout repo
       - uses: actions/checkout@v3
 
+      # Install system dependencies
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg imagemagick
+          sudo apt-get install -y ffmpeg imagemagick fonts-dejavu-core
 
+      # Set up Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
+      # Upgrade pip and install Python dependencies
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          python -m pip install --upgrade moviepy google-generativeai gtts requests google-api-python-client google-auth-oauthlib google-auth-httplib2 pillow
+          python -m pip install --upgrade \
+            moviepy==2.0.3 \
+            google-generativeai \
+            gtts \
+            requests \
+            google-api-python-client \
+            google-auth-oauthlib \
+            google-auth-httplib2 \
+            pillow \
+            python-dotenv
 
+      # Verify moviepy is working
       - name: Verify moviepy
-        run: python -c "from moviepy.editor import *; print('moviepy OK')"
+        run: |
+          python -c "from moviepy.editor import ImageClip; print('moviepy OK')"
 
+      # Run upload script
       - name: Run script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           YOUTUBE_CLIENT_SECRETS: ${{ secrets.YOUTUBE_CLIENT_SECRETS }}
           YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_TOKEN }}
+          PIXABAY_KEY: ${{ secrets.PIXABAY_KEY }}
         run: python upload_script.py
