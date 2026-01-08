@@ -1,0 +1,25 @@
+name: Auto Upload Videos
+
+on:
+  schedule:
+    - cron: '30 1 * * *'  # 1:30 AM UTC daily (which is 7 AM IST)
+  workflow_dispatch:  # For manual testing
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - name: Install dependencies
+        run: |
+          pip install google-generativeai gtts moviepy requests google-api-python-client google-auth-oauthlib google-auth-httplib2 pillow
+      - name: Run script
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          YOUTUBE_CLIENT_SECRETS: ${{ secrets.YOUTUBE_CLIENT_SECRETS }}
+          YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_TOKEN }}
+        run: python upload_script.py
