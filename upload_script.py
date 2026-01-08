@@ -6,7 +6,6 @@ import requests
 from gtts import gTTS
 from moviepy import ImageClip, AudioFileClip
 
-import google.generativeai as genai
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
@@ -19,49 +18,31 @@ from googleapiclient.errors import HttpError
 LANG = "hi"
 THEMES = ["दोस्ती", "ईमानदारी", "प्रकृति", "परिवार", "सीख"]
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 PIXABAY_KEY = os.getenv("PIXABAY_KEY")
+if not PIXABAY_KEY:
+    raise RuntimeError("PIXABAY_KEY missing")
 
 # ======================================================
-# STORY (GEMINI + FALLBACK)
+# STORY (LOCAL, STABLE)
 # ======================================================
-def fallback_story(long=True):
-    if long:
-        return (
-            "एक समय की बात है, एक बच्चा था जो हर दिन कुछ नया सीखता था। "
-            "उसने समझा कि सच्चाई, मेहनत और दया सबसे बड़ी ताकत होती है।"
-        )
-    return "सच बोलो, अच्छा करो, हमेशा सीखते रहो।"
+def long_story(theme):
+    return (
+        f"एक समय की बात है, {theme} से जुड़ी एक सुंदर कहानी थी। "
+        "इस कहानी में बच्चों को सिखाया गया कि सच्चाई, मेहनत और दया "
+        "से जीवन में सफलता मिलती है।"
+    )
 
-story_long = None
-story_short = None
+def short_story(theme):
+    return f"{theme} से सीखो, अच्छे बनो, और हमेशा सच बोलो।"
+
 theme = random.choice(THEMES)
-
-if GEMINI_API_KEY:
-    try:
-        genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel("gemini-pro")
-
-        story_long = model.generate_content(
-            f"300 शब्दों की हिंदी बच्चों की कहानी लिखो विषय: {theme}"
-        ).text
-
-        story_short = model.generate_content(
-            f"30 शब्दों की हिंदी बच्चों की कविता लिखो विषय: {theme}"
-        ).text
-    except Exception:
-        story_long = None
-        story_short = None
-
-if not story_long:
-    story_long = fallback_story(True)
-if not story_short:
-    story_short = fallback_story(False)
+story_long = long_story(theme)
+story_short = short_story(theme)
 
 # ======================================================
 # IMAGE
 # ======================================================
-img = requests.get(
+resp = requests.get(
     "https://pixabay.com/api/",
     params={
         "key": PIXABAY_KEY,
@@ -69,29 +50,33 @@ img = requests.get(
         "image_type": "illustration"
     },
     timeout=20
-).json()["hits"][0]["largeImageURL"]
+).json()
 
-open("bg.jpg", "wb").write(requests.get(img).content)
+img_url = resp["hits"][0]["largeImageURL"]
+open("bg.jpg", "wb").write(requests.get(img_url).content)
 
 # ======================================================
-# VIDEO CREATION
+# VIDEO CREATION (MOVIEPY 2.x)
 # ======================================================
 def make_video(text, out):
     gTTS(text=text, lang="hi").save("audio.mp3")
     audio = AudioFileClip("audio.mp3")
 
-    ImageClip("bg.jpg") \
-        .set_duration(audio.duration) \
-        .set_audio(audio) \
-        .resize(height=1080) \
-        .write_videofile(
-            out,
-            fps=24,
-            codec="libx264",
-            audio_codec="aac",
-            verbose=False,
-            logger=None
-        )
+    clip = (
+        ImageClip("bg.jpg")
+        .with_duration(audio.duration)
+        .with_audio(audio)
+        .resized(height=1080)
+    )
+
+    clip.write_videofile(
+        out,
+        fps=24,
+        codec="libx264",
+        audio_codec="aac",
+        verbose=False,
+        logger=None
+    )
 
 make_video(story_long, "long.mp4")
 make_video(story_short, "short.mp4")
@@ -106,10 +91,10 @@ if creds.expired and creds.refresh_token:
     creds.refresh(Request())
     open("token.json", "w").write(creds.to_json())
 
-yt = build("youtube", "v3", credentials=creds)
+youtube = build("youtube", "v3", credentials=creds)
 
 # ======================================================
-# UPLOAD
+# UPLOAD (RETRY SAFE)
 # ======================================================
 def upload(path, title, is_short=False):
     body = {
@@ -126,7 +111,7 @@ def upload(path, title, is_short=False):
 
     for i in range(5):
         try:
-            yt.videos().insert(
+            youtube.videos().insert(
                 part="snippet,status",
                 body=body,
                 media_body=MediaFileUpload(path, resumable=True)
