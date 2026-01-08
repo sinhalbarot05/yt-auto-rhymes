@@ -1,5 +1,4 @@
 import os
-import time
 import random
 import requests
 import datetime
@@ -26,7 +25,7 @@ if not PIXABAY_KEY:
     raise RuntimeError("PIXABAY_KEY missing")
 
 # ======================================================
-# FESTIVAL CHECK
+# FESTIVAL CHECK (STATIC + SAFE)
 # ======================================================
 FESTIVALS = {
     "Holi": (3, 14),
@@ -44,7 +43,7 @@ def upcoming_festival():
     return None
 
 # ======================================================
-# SAFE IMAGE FETCH
+# SAFE PIXABAY IMAGE FETCH (NO CRASH)
 # ======================================================
 def fetch_images(query, count=6):
     images = []
@@ -66,10 +65,10 @@ def fetch_images(query, count=6):
             raise RuntimeError("No images")
 
         for i, h in enumerate(hits[:count]):
-            p = f"img_{i}.jpg"
-            with open(p, "wb") as f:
+            path = f"img_{i}.jpg"
+            with open(path, "wb") as f:
                 f.write(requests.get(h["largeImageURL"], timeout=20).content)
-            images.append(p)
+            images.append(path)
 
     except Exception:
         fallback = "fallback.jpg"
@@ -80,53 +79,81 @@ def fetch_images(query, count=6):
     return images
 
 # ======================================================
-# STORY & RHYME
+# STORY & RHYME (NO REPETITION LOGIC)
 # ======================================================
 def rhyme():
     f = upcoming_festival()
     if f:
-        return f"{f} आई खुशियाँ लाई,\nप्यार बाँटो सब भाई-भाई।\nसीख यही है बच्चों प्यारी,\nमिलकर रहना सबसे भारी।"
-    return "नन्ही चिड़िया उड़ना सीखे,\nमेहनत से सपने लिखे।\nसीख मिले हर दिन हमें,\nअच्छे बनें जीवन में।"
+        return (
+            f"{f} आई खुशियाँ लाई,\n"
+            "प्यार बाँटो सब भाई-भाई।\n"
+            "सीख यही है बच्चों प्यारी,\n"
+            "मिलकर रहना सबसे भारी।"
+        )
+
+    return (
+        "नन्ही चिड़िया उड़ना सीखे,\n"
+        "मेहनत से सपने लिखे।\n"
+        "हर दिन कुछ अच्छा करें,\n"
+        "सच और प्यार से जियें।"
+    )
 
 def story():
     f = upcoming_festival()
     if f:
-        return f"{f} के दिन बच्चों ने जाना,\nप्यार ही सबसे बड़ा खजाना।\nमिल-जुलकर खुशियाँ बांटी,\nयही कहानी हमें सिखाती।"
-    return "एक गाँव में बच्चा रहता था।\nवह सच्चाई से कभी नहीं डरता था।\nमेहनत से उसने सब पाया,\nकहानी ने यही सिखाया।"
+        return (
+            f"{f} के दिन बच्चों ने जाना,\n"
+            "प्यार ही सबसे बड़ा खजाना।\n"
+            "मिल-जुलकर खुशियाँ बांटी,\n"
+            "यही कहानी हमें सिखाती।"
+        )
+
+    return (
+        "एक गाँव में एक बच्चा रहता था।\n"
+        "वह सच्चाई से कभी नहीं डरता था।\n"
+        "मेहनत से उसने नाम कमाया,\n"
+        "कहानी ने यही सिखाया।"
+    )
 
 # ======================================================
-# TTS
+# TEXT TO SPEECH
 # ======================================================
 def tts(text, path):
-    gTTS(text=text, lang="hi").save(path)
+    gTTS(text=text, lang="hi", slow=False).save(path)
 
 # ======================================================
-# VIDEO
+# VIDEO CREATION (MULTI IMAGE)
 # ======================================================
 def make_video(images, audio_path, size, out):
     audio = AudioFileClip(audio_path)
-    d = audio.duration / len(images)
-    clips = [
-        ImageClip(img).with_duration(d).resized(height=size[1])
-        for img in images
-    ]
+    per_img = audio.duration / len(images)
+
+    clips = []
+    for img in images:
+        clips.append(
+            ImageClip(img)
+            .with_duration(per_img)
+            .resized(height=size[1])
+        )
+
     concatenate_videoclips(clips, method="compose") \
         .with_audio(audio) \
         .write_videofile(out, fps=24)
 
 # ======================================================
-# THUMBNAIL
+# THUMBNAIL (MOVIEPY 2.x SAFE)
 # ======================================================
 def make_thumbnail(text, img):
     bg = ImageClip(img).resized((1280, 720))
+
     title = TextClip(
         text,
         fontsize=70,
         color="yellow",
-        font="DejaVu-Sans-Bold",
         method="caption",
         size=(1200, None)
     ).with_position(("center", "bottom")).with_duration(1)
+
     CompositeVideoClip([bg, title]).save_frame("thumbnail.jpg", 0)
 
 # ======================================================
@@ -136,6 +163,7 @@ creds = Credentials.from_authorized_user_file(
     "token.json",
     ["https://www.googleapis.com/auth/youtube.upload"]
 )
+
 if creds.expired and creds.refresh_token:
     creds.refresh(Request())
 
@@ -149,7 +177,9 @@ def upload(path, title, desc, tags, thumb=None):
                 "title": title,
                 "description": desc,
                 "tags": tags,
-                "categoryId": "24"
+                "categoryId": "24",
+                "defaultLanguage": "hi",
+                "defaultAudioLanguage": "hi"
             },
             "status": {"privacyStatus": "public"}
         },
@@ -163,36 +193,39 @@ def upload(path, title, desc, tags, thumb=None):
         ).execute()
 
 # ======================================================
-# RUN
+# RUN PIPELINE
 # ======================================================
-# SHORT
-r = rhyme()
-tts(r, "s.mp3")
-imgs = fetch_images("kids rhyme illustration")
-make_video(imgs, "s.mp3", (1080, 1920), "short.mp4")
+
+# ---------- SHORT (REEL) ----------
+short_text = rhyme()
+tts(short_text, "short.mp3")
+
+short_imgs = fetch_images("kids rhyme illustration")
+make_video(short_imgs, "short.mp3", (1080, 1920), "short.mp4")
 
 upload(
     "short.mp4",
     "मजेदार हिंदी राइम | Majedar Hindi Rhymes #Shorts",
-    r,
-    ["hindi rhymes", "kids shorts"]
+    short_text,
+    ["hindi rhymes", "kids shorts", "nursery rhyme"]
 )
 
-# LONG
-s = story()
-tts(s, "l.mp3")
-imgs = fetch_images("kids story illustration")
-make_video(imgs, "l.mp3", (1920, 1080), "long.mp4")
+# ---------- LONG (STORY) ----------
+long_text = story()
+tts(long_text, "long.mp3")
+
+long_imgs = fetch_images("kids story illustration")
+make_video(long_imgs, "long.mp3", (1920, 1080), "long.mp4")
 
 make_thumbnail(
     "नई हिंदी बच्चों की कहानी\nNew Hindi Kids Story",
-    imgs[0]
+    long_imgs[0]
 )
 
 upload(
     "long.mp4",
     "नई हिंदी बच्चों की कहानी | New Hindi Kids Story",
-    s,
-    ["hindi kids story", "moral story"],
+    long_text,
+    ["hindi kids story", "moral story", "bedtime story"],
     "thumbnail.jpg"
 )
