@@ -23,7 +23,6 @@ MEMORY_DIR = "memory"
 
 USED_STORIES = os.path.join(MEMORY_DIR, "used_stories.json")
 USED_RHYMES = os.path.join(MEMORY_DIR, "used_rhymes.json")
-USED_TOPICS = os.path.join(MEMORY_DIR, "used_topics.json")
 USED_IMAGES = os.path.join(MEMORY_DIR, "used_images.json")
 
 # ======================================================
@@ -42,7 +41,6 @@ def save_json(path, data):
 
 stories_mem = load_json(USED_STORIES)
 rhymes_mem = load_json(USED_RHYMES)
-topics_mem = load_json(USED_TOPICS)
 images_mem = load_json(USED_IMAGES)
 
 # ======================================================
@@ -64,15 +62,13 @@ def upcoming_festival():
     return None
 
 # ======================================================
-# VERTEX GEMINI (Text-Bison) SETUP
+# VERTEX GEMINI
 # ======================================================
 sa_info = json.loads(base64.b64decode(SA_KEY_B64))
 credentials = service_account.Credentials.from_service_account_info(sa_info)
 scoped_creds = credentials.with_scopes(["https://www.googleapis.com/auth/cloud-platform"])
 
 def vertex_gemini_generate(prompt):
-    """Generate content via Vertex AI Gemini (Text-Bison)"""
-    from google.cloud import aiplatform
     from google.cloud.aiplatform.gapic import PredictionServiceClient
 
     client = PredictionServiceClient(credentials=scoped_creds)
@@ -143,7 +139,6 @@ def tts(text, filename):
         f = f"tts_{i}.mp3"
         gTTS(text=s, lang="hi", slow=False).save(f)
         audio_files.append(f)
-    # Concatenate audio
     clips = [AudioFileClip(f) for f in audio_files]
     final_audio = concatenate_videoclips(clips, method="compose").audio
     final_audio.write_audiofile(filename)
@@ -200,7 +195,7 @@ def upload(path, title, desc, tags, thumb=None):
 # ======================================================
 def generate_unique_story():
     festival = upcoming_festival()
-    prompt = f"Generate a unique, fun Hindi kids story. Festival: {festival}. Do NOT repeat any previous story or topic: {stories_mem}."
+    prompt = f"Generate a unique Hindi kids story. Festival: {festival}. Do not repeat: {stories_mem}"
     story = vertex_gemini_generate(prompt)
     h = hashlib.sha256(story.encode()).hexdigest()
     if h in stories_mem:
@@ -211,7 +206,7 @@ def generate_unique_story():
 
 def generate_unique_rhyme():
     festival = upcoming_festival()
-    prompt = f"Generate a unique Hindi kids rhyme ≤60 seconds. Festival: {festival}. Do NOT repeat any previous rhyme or topic: {rhymes_mem}."
+    prompt = f"Generate a unique Hindi kids rhyme ≤60 sec. Festival: {festival}. Do not repeat: {rhymes_mem}"
     rhyme = vertex_gemini_generate(prompt)
     h = hashlib.sha256(rhyme.encode()).hexdigest()
     if h in rhymes_mem:
