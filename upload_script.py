@@ -35,7 +35,7 @@ short_response = model.generate_content(short_prompt)
 short_text = short_response.text
 
 # Get free image from Pixabay
-pixabay_key = 'YOUR_PIXABAY_API_KEY'  # Get free from https://pixabay.com/api/docs/
+pixabay_key = 54102811-cdbcbe721d88b9b67e97256b4  # Get free from https://pixabay.com/api/docs/
 image_query = f"kids cartoon {random_theme.lower().replace(' ', '+')}"
 image_url = requests.get(f"https://pixabay.com/api/?key={pixabay_key}&q={image_query}&image_type=illustration&orientation=horizontal").json()['hits'][0]['largeImageURL']
 image_data = requests.get(image_url).content
