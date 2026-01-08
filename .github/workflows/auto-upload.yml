@@ -10,8 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
       - name: Install system dependencies
         run: |
@@ -32,10 +31,15 @@ jobs:
             gtts \
             requests \
             google-api-python-client \
+            google-auth \
             google-auth-oauthlib \
             google-auth-httplib2 \
             pillow \
             python-dotenv
+
+      - name: Restore YouTube OAuth token
+        run: |
+          echo "${{ secrets.YOUTUBE_TOKEN_JSON_B64 }}" | base64 -d > token.json
 
       - name: Verify moviepy
         run: |
@@ -44,6 +48,5 @@ jobs:
       - name: Run upload script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_TOKEN }}
           PIXABAY_KEY: ${{ secrets.PIXABAY_KEY }}
         run: python upload_script.py
