@@ -1,104 +1,120 @@
-import os, json, random, hashlib, requests
+import os, json, random, hashlib, requests, pickle
 from PIL import Image, ImageDraw, ImageFont
 from gtts import gTTS
 from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+from google_auth_oauthlib.flow import InstalledAppFlow
 
 PIXABAY_KEY = os.getenv("PIXABAY_KEY")
+SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
 # ---------------- MEMORY ----------------
-def load_memory(path):
-    if not os.path.exists(path):
-        return set()
-    return set(json.load(open(path)))
-
-def save_memory(path, data):
-    json.dump(list(data), open(path, "w"))
-
-# ---------------- TEXT ENGINE ----------------
 def unique_text(mode):
-    memory_file = f"{mode}_memory.json"
-    memory = load_memory(memory_file)
+    mem = f"{mode}_mem.json"
+    data = set(json.load(open(mem))) if os.path.exists(mem) else set()
 
     while True:
-        if mode == "short":
-            text = random.choice([
-                "Twinkle twinkle little star, learn and shine wherever you are",
-                "Happy rhyme for kids, clap and smile all the time",
-                "Fun rhyme with joy and play, learning grows every day"
-            ])
-        else:
-            text = random.choice([
-                "Once upon a time a clever rabbit taught a big lesson",
-                "A small bird learned courage and kindness",
-                "A magical forest showed the power of honesty"
-            ])
-
+        text = random.choice(
+            ["Happy rhyme for kids learning joy",
+             "Twinkle rhyme fun play learn"] if mode=="short"
+            else ["A brave rabbit learned honesty",
+                  "A small bird learned kindness"]
+        )
         h = hashlib.sha256(text.encode()).hexdigest()
-        if h not in memory:
-            memory.add(h)
-            save_memory(memory_file, memory)
+        if h not in data:
+            data.add(h)
+            json.dump(list(data), open(mem,"w"))
             return text
 
-# ---------------- TITLE + TAGS ----------------
-def generate_metadata(text, mode):
-    if mode == "short":
-        title = f"Kids Rhyme | {text.split()[0]} Fun Song"
-        tags = ["kids rhyme", "nursery rhyme", "learning shorts", "kids song"]
-    else:
-        title = f"Kids Story | {text.split()[0]} Moral Story"
-        tags = ["kids story", "bedtime story", "moral story", "learning kids"]
-
-    desc = f"{title}\n\nSafe educational content for children."
-    return title, desc, tags
-
-# ---------------- IMAGE FETCH ----------------
-def pixabay_images(query, count):
-    url = f"https://pixabay.com/api/?key={PIXABAY_KEY}&q={query}&image_type=photo&per_page={count}"
-    r = requests.get(url).json()
-    return [h["largeImageURL"] for h in r.get("hits", [])]
+# ---------------- METADATA ----------------
+def meta(text, mode):
+    if mode=="short":
+        return (
+            f"Kids Rhyme 🎵 {text.split()[0]}",
+            "Educational rhyme for kids.",
+            ["kids rhyme","nursery rhyme","shorts"]
+        )
+    return (
+        f"Kids Story 📖 {text.split()[0]}",
+        "Safe moral bedtime story.",
+        ["kids story","bedtime story","learning"]
+    )
 
 # ---------------- THUMBNAIL ----------------
-def make_thumbnail(text, out):
-    img = Image.new("RGB", (1280, 720), (255, 220, 180))
+def thumbnail(title, out):
+    img = Image.new("RGB",(1280,720),(255,210,160))
     d = ImageDraw.Draw(img)
-    font = ImageFont.load_default()
-    d.text((50, 300), text[:40], fill=(0,0,0), font=font)
+    f = ImageFont.load_default()
+    d.text((100,300),title[:40],font=f,fill=(0,0,0))
     img.save(out)
 
 # ---------------- VIDEO ----------------
 def make_video(mode):
     text = unique_text(mode)
-    title, desc, tags = generate_metadata(text, mode)
+    title, desc, tags = meta(text,mode)
 
-    images = pixabay_images("kids cartoon", 6 if mode=="short" else 10)
-    clips = []
+    images=[]
+    r=requests.get(f"https://pixabay.com/api/?key={PIXABAY_KEY}&q=cartoon kids&per_page=6").json()
+    for i,h in enumerate(r.get("hits",[])):
+        p=f"{mode}_{i}.jpg"
+        open(p,"wb").write(requests.get(h["largeImageURL"]).content)
+        images.append(ImageClip(p).set_duration(2))
 
-    for i, url in enumerate(images):
-        img_path = f"img_{mode}_{i}.jpg"
-        open(img_path, "wb").write(requests.get(url).content)
-        clips.append(ImageClip(img_path).set_duration(2))
+    tts=gTTS(text)
+    mp3=f"{mode}.mp3"
+    tts.save(mp3)
 
-    tts = gTTS(text)
-    audio_file = f"{mode}.mp3"
-    tts.save(audio_file)
+    video=concatenate_videoclips(images).set_audio(AudioFileClip(mp3))
+    out=f"{mode}.mp4"
+    video.write_videofile(out,fps=24)
 
-    audio = AudioFileClip(audio_file)
-    video = concatenate_videoclips(clips).set_audio(audio)
-    out = f"{mode}.mp4"
-    video.write_videofile(out, fps=24)
+    thumb=f"{mode}_thumb.jpg"
+    thumbnail(title,thumb)
 
-    thumb = f"{mode}_thumb.jpg"
-    make_thumbnail(title, thumb)
+    return out, title, desc, tags, thumb
 
-    print("\n==============================")
-    print("VIDEO:", out)
-    print("THUMB :", thumb)
-    print("TITLE:", title)
-    print("DESC :", desc)
-    print("TAGS :", ", ".join(tags))
-    print("==============================\n")
+# ---------------- YOUTUBE AUTH ----------------
+def youtube_auth():
+    if os.path.exists("token.pickle"):
+        return pickle.load(open("token.pickle","rb"))
+    flow = InstalledAppFlow.from_client_secrets_file(
+        "client_secret.json", SCOPES
+    )
+    creds = flow.run_console()
+    pickle.dump(creds,open("token.pickle","wb"))
+    return creds
+
+# ---------------- UPLOAD ----------------
+def upload(video, title, desc, tags, thumb):
+    yt = build("youtube","v3",credentials=youtube_auth())
+    req = yt.videos().insert(
+        part="snippet,status",
+        body={
+            "snippet":{
+                "title":title,
+                "description":desc,
+                "tags":tags,
+                "categoryId":"1"
+            },
+            "status":{
+                "privacyStatus":"public",
+                "selfDeclaredMadeForKids":True
+            }
+        },
+        media_body=MediaFileUpload(video)
+    )
+    res=req.execute()
+
+    yt.thumbnails().set(
+        videoId=res["id"],
+        media_body=MediaFileUpload(thumb)
+    ).execute()
+
+    print("UPLOADED:",res["id"])
 
 # ---------------- RUN ----------------
-if __name__ == "__main__":
-    make_video("short")
-    make_video("long")
+if __name__=="__main__":
+    for mode in ["short","long"]:
+        v,t,d,tg,th = make_video(mode)
+        upload(v,t,d,tg,th)
