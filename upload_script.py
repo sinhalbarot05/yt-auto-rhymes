@@ -1,173 +1,185 @@
 import os
-import json
 import time
 import random
+import json
 import requests
 from pathlib import Path
-
 from gtts import gTTS
+from PIL import Image
+
+# Patch for Pillow 10+ (ANTIALIAS removed)
+if not hasattr(Image, "ANTIALIAS") and hasattr(Image, "Resampling"):
+    Image.ANTIALIAS = Image.Resampling.LANCZOS
+
 from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips, CompositeVideoClip, TextClip
 
 from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
+from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from googleapiclient.errors import HttpError
 
 # ======================================================
 # CONFIG
 # ======================================================
 LANG = "hi"
 THEMES = ["दोस्ती", "ईमानदारी", "प्रकृति", "परिवार", "सीख", "त्योहार"]
+VIDEO_DIR = Path("videos")
+VIDEO_DIR.mkdir(exist_ok=True)
+
 PIXABAY_KEY = os.getenv("PIXABAY_KEY")
 if not PIXABAY_KEY:
     raise RuntimeError("PIXABAY_KEY missing")
 
-VIDEO_DIR = Path("videos")
-VIDEO_DIR.mkdir(exist_ok=True)
+YOUTUBE_SECRETS = Path("client_secret.json")
+SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
 # ======================================================
-# OFFLINE STORY/RHYME GENERATOR
+# OFFLINE STORY / RHYME GENERATOR
 # ======================================================
-USED_STORIES_FILE = Path("memory_used_stories.json")
-if USED_STORIES_FILE.exists():
-    with open(USED_STORIES_FILE, "r", encoding="utf-8") as f:
-        USED_STORIES = json.load(f)
+used_memory = Path("memory.json")
+if used_memory.exists():
+    memory = json.loads(used_memory.read_text())
 else:
-    USED_STORIES = {"story": [], "rhyme": []}
+    memory = {"stories": [], "rhyme": []}
 
-def save_used():
-    with open(USED_STORIES_FILE, "w", encoding="utf-8") as f:
-        json.dump(USED_STORIES, f, ensure_ascii=False, indent=2)
+def save_memory():
+    used_memory.write_text(json.dumps(memory, ensure_ascii=False))
 
 def generate_story():
-    """Generate a unique story (offline, random)."""
-    while True:
+    theme = random.choice(THEMES)
+    story = f"एक समय की बात है, {theme} से जुड़ी एक मजेदार और सीखने वाली कहानी। बच्चों को यह सिखाती है कि सच्चाई और मेहनत हमेशा काम आती है।"
+    # Avoid repetition
+    while story in memory["stories"]:
         theme = random.choice(THEMES)
-        story = f"एक बार की बात है, {theme} से जुड़ी यह मजेदार कहानी बच्चों को सिखाती है कि सच्चाई और मेहनत हमेशा काम आती है।"
-        if story not in USED_STORIES["story"]:
-            USED_STORIES["story"].append(story)
-            save_used()
-            return story
+        story = f"एक समय की बात है, {theme} से जुड़ी एक मजेदार और सीखने वाली कहानी। बच्चों को यह सिखाती है कि सच्चाई और मेहनत हमेशा काम आती है।"
+    memory["stories"].append(story)
+    save_memory()
+    return story, theme
 
 def generate_rhyme():
-    """Generate a unique 1-min rhyme (offline, random)."""
-    while True:
+    theme = random.choice(THEMES)
+    rhyme = f"{theme} से सीखो, अच्छे बनो और हमेशा सच बोलो। यह बच्चों के लिए एक प्यारी राइम है।"
+    # Avoid repetition
+    while rhyme in memory["rhyme"]:
         theme = random.choice(THEMES)
-        rhyme = f"{theme} से सीखो, अच्छे बनो, हमेशा सच बोलो, खुशी से खेलो और हंसते रहो।"
-        if rhyme not in USED_STORIES["rhyme"]:
-            USED_STORIES["rhyme"].append(rhyme)
-            save_used()
-            return rhyme
+        rhyme = f"{theme} से सीखो, अच्छे बनो और हमेशा सच बोलो। यह बच्चों के लिए एक प्यारी राइम है।"
+    memory["rhyme"].append(rhyme)
+    save_memory()
+    return rhyme, theme
 
 # ======================================================
-# IMAGE FETCHER
+# PIXABAY IMAGE FETCHER
 # ======================================================
-def fetch_image(query="kids cartoon illustration"):
+def fetch_image(query="kids cartoon"):
     resp = requests.get(
         "https://pixabay.com/api/",
-        params={"key": PIXABAY_KEY, "q": query, "image_type": "illustration"},
+        params={
+            "key": PIXABAY_KEY,
+            "q": query,
+            "image_type": "illustration",
+            "orientation": "horizontal"
+        },
         timeout=20
     ).json()
-    if resp.get("hits"):
-        return resp["hits"][0]["largeImageURL"]
-    else:
-        raise RuntimeError("No Pixabay image found for query: " + query)
-
-def download_image(url, filename):
-    r = requests.get(url)
-    with open(filename, "wb") as f:
-        f.write(r.content)
+    if not resp.get("hits"):
+        raise RuntimeError("No images found for query: " + query)
+    img_url = resp["hits"][0]["largeImageURL"]
+    img_path = VIDEO_DIR / f"{query.replace(' ','_')}.jpg"
+    with open(img_path, "wb") as f:
+        f.write(requests.get(img_url).content)
+    return str(img_path)
 
 # ======================================================
 # VIDEO CREATION
 # ======================================================
-def make_video(text, out_path, duration=60, bg_image=None):
-    # Voice generation
-    gTTS(text=text, lang=LANG).save("audio.mp3")
-    audio_clip = AudioFileClip("audio.mp3")
+def make_video(text, out_path, duration=None, bg_image=None):
+    audio_path = VIDEO_DIR / "audio.mp3"
+    gTTS(text=text, lang="hi").save(audio_path)
+    audio_clip = AudioFileClip(str(audio_path))
 
-    # Image
+    if duration:
+        audio_clip = audio_clip.subclip(0, duration)
+
     if not bg_image:
-        bg_image = "bg.jpg"
-    clip_img = ImageClip(bg_image).set_duration(audio_clip.duration).resize(height=1080)
-    
-    # Optional: Add title text on top
-    title_clip = TextClip(text, fontsize=60, color="white", bg_color="purple", size=(clip_img.w, 150))
-    title_clip = title_clip.set_position(("center", "top")).set_duration(audio_clip.duration)
+        bg_image = fetch_image("kids cartoon")
 
-    video = CompositeVideoClip([clip_img, title_clip]).set_audio(audio_clip)
-    video.write_videofile(out_path, fps=24, codec="libx264", audio_codec="aac")
+    clip_img = ImageClip(bg_image).set_duration(audio_clip.duration).resize(height=1080)
+    clip = clip_img.set_audio(audio_clip)
+    clip.write_videofile(str(out_path), fps=24, codec="libx264", audio_codec="aac")
+    return out_path
 
 # ======================================================
-# YOUTUBE UPLOAD CLIENT
+# THUMBNAIL CREATION
+# ======================================================
+def make_thumbnail(title, image_path):
+    bg = ImageClip(image_path).resize((1280,720))
+    txt_clip = TextClip(title, fontsize=60, color='white', font='DejaVu-Sans-Bold').set_position('center').set_duration(5)
+    thumb = CompositeVideoClip([bg, txt_clip])
+    thumb_path = str(VIDEO_DIR / "thumb.jpg")
+    thumb.save_frame(thumb_path)
+    return thumb_path
+
+# ======================================================
+# YOUTUBE CLIENT
 # ======================================================
 def youtube_client():
-    SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
-    if not Path("token.json").exists():
-        raise RuntimeError("token.json missing! Generate locally and save as secret.")
-    creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-    if creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-        with open("token.json", "w", encoding="utf-8") as f:
-            f.write(creds.to_json())
+    flow = InstalledAppFlow.from_client_secrets_file(str(YOUTUBE_SECRETS), SCOPES)
+    creds = flow.run_local_server(port=0)
     return build("youtube", "v3", credentials=creds)
 
-def upload_video(path, title, description, is_short=False):
-    yt = youtube_client()
+youtube = youtube_client()
+
+# ======================================================
+# UPLOAD FUNCTION
+# ======================================================
+def upload(path, title, description, tags=None, thumbnail=None, is_short=False):
     body = {
         "snippet": {
             "title": title + (" #Shorts" if is_short else ""),
             "description": description,
-            "tags": ["हिंदी कहानी", "kids hindi", "hindi rhymes"],
+            "tags": tags or ["हिंदी कहानी", "kids hindi"],
             "defaultLanguage": "hi",
             "defaultAudioLanguage": "hi",
             "categoryId": "24"
         },
         "status": {"privacyStatus": "public"}
     }
+
+    media = MediaFileUpload(str(path), resumable=True)
+    request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
+    response = None
     for i in range(5):
         try:
-            yt.videos().insert(
-                part="snippet,status",
-                body=body,
-                media_body=MediaFileUpload(path, resumable=True)
-            ).execute()
-            print(f"Uploaded {path}")
-            return
-        except Exception as e:
-            print(f"Upload attempt {i+1} failed: {e}")
+            response = request.execute()
+            break
+        except HttpError as e:
+            print("Upload failed, retrying...", i, e)
             time.sleep(2 ** i)
-    raise RuntimeError("Upload failed")
+    if thumbnail and response:
+        youtube.thumbnails().set(videoId=response['id'], media_body=MediaFileUpload(thumbnail)).execute()
+    print(f"Uploaded: {path}")
 
 # ======================================================
-# THUMBNAIL CREATION
-# ======================================================
-def make_thumbnail(text, filename="thumbnail.jpg"):
-    img_url = fetch_image("kids story illustration")
-    download_image(img_url, "thumb_bg.jpg")
-    bg_clip = ImageClip("thumb_bg.jpg").resize((1280, 720))
-    title_clip = TextClip(text, fontsize=70, color="yellow", bg_color="purple", size=(bg_clip.w, 150))
-    title_clip = title_clip.set_position("center")
-    thumb = CompositeVideoClip([bg_clip, title_clip])
-    thumb.save_frame(filename)
-
-# ======================================================
-# MAIN EXECUTION
+# MAIN
 # ======================================================
 if __name__ == "__main__":
-    # 1-minute short
-    rhyme_text = generate_rhyme()
-    short_bg = fetch_image("kids cartoon playful")
-    download_image(short_bg, "bg_short.jpg")
-    short_path = VIDEO_DIR / "short.mp4"
-    make_video(rhyme_text, str(short_path), duration=60, bg_image="bg_short.jpg")
-    upload_video(str(short_path), "मज़ेदार हिंदी राइम / Majedar Hindi Rhymes", rhyme_text, is_short=True)
+    # Generate unique story + rhyme
+    story_text, story_theme = generate_story()
+    rhyme_text, rhyme_theme = generate_rhyme()
 
-    # 4-5 minute long story
-    story_text = generate_story()
-    long_bg = fetch_image("kids story illustration")
-    download_image(long_bg, "bg_long.jpg")
-    long_path = VIDEO_DIR / "long.mp4"
-    make_video(story_text, str(long_path), duration=300, bg_image="bg_long.jpg")
-    make_thumbnail(story_text, "thumbnail_long.jpg")
-    upload_video(str(long_path), "नई हिंदी बच्चों की कहानी / New Hindi Kids Story", story_text, is_short=False)
+    # Fetch images
+    story_bg = fetch_image(story_theme)
+    rhyme_bg = fetch_image(rhyme_theme)
+
+    # Make videos
+    long_video_path = make_video(story_text, VIDEO_DIR / "long.mp4", bg_image=story_bg)
+    short_video_path = make_video(rhyme_text, VIDEO_DIR / "short.mp4", duration=60, bg_image=rhyme_bg)
+
+    # Make thumbnails
+    long_thumb = make_thumbnail("नई हिंदी बच्चों की कहानी / New Hindi Kids Story", story_bg)
+    short_thumb = make_thumbnail("मजेदार हिंदी राइम / Majedar Hindi Rhymes", rhyme_bg)
+
+    # Upload
+    upload(long_video_path, "नई हिंदी बच्चों की कहानी / New Hindi Kids Story", story_text, thumbnail=long_thumb)
+    upload(short_video_path, "मजेदार हिंदी राइम / Majedar Hindi Rhymes", rhyme_text, thumbnail=short_thumb, is_short=True)
