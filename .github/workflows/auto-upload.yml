@@ -19,7 +19,7 @@ jobs:
       # Update ImageMagick policy
       - name: Update ImageMagick policy
         run: |
-          sudo sed -i 's/<policy domain="path" rights="none" pattern="@\*" \/>/<policy domain="path" rights="read | write" pattern="@*" \/>/' /etc/ImageMagick-6/policy.xml
+          sudo sed -i '/pattern="@\*" /s/rights="none"/rights="read|write"/' /etc/ImageMagick-6/policy.xml
       # Setup Python 3.11
       - name: Setup Python
         uses: actions/setup-python@v5
