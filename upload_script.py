@@ -84,7 +84,7 @@ def make_video(story_text, rhyme_text, duration=60, bg_image=None):
     make_audio(f"{story_text} {rhyme_text}", audio_path)
     audio_clip = AudioFileClip(audio_path)
     # Text overlay
-    txt_clip = TextClip(rhyme_text, fontsize=70, color="yellow", font="DejaVu-Sans").set_position("center").set_duration(audio_clip.duration)
+    txt_clip = TextClip(rhyme_text, fontsize=70, color="yellow", font="Noto-Sans-Devanagari").set_position("center").set_duration(audio_clip.duration)
     video = CompositeVideoClip([clip_img, txt_clip]).set_audio(audio_clip)
     out_path = os.path.join(OUTPUT_DIR, f"video_{datetime.now().strftime('%Y%m%d%H%M%S')}.mp4")
     video.write_videofile(out_path, fps=24)
