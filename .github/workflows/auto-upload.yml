@@ -1,4 +1,3 @@
-# .github/workflows/auto-upload.yml
 name: Auto Upload Hindi Kids Videos
 
 on:
@@ -47,7 +46,7 @@ jobs:
       - name: Decode YouTube credentials
         run: |
           echo "${{ secrets.YOUTUBE_CLIENT_SECRET_JSON }}" | base64 --decode > client_secret.json
-          echo "${{ secrets.YOUTUBE_TOKEN_PICKLE }}" | base64 --decode > youtube_token.pickle || true
+          echo "${{ secrets.YOUTUBE_TOKEN_JSON_B64 }}" | base64 --decode > youtube_token.pickle
 
       - name: Generate and Upload Video
         env:
