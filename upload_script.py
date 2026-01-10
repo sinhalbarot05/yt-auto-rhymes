@@ -10,6 +10,7 @@ from datetime import datetime
 from moviepy.editor import (
     ImageClip, AudioFileClip, CompositeVideoClip, TextClip
 )
+from moviepy.video.fx.all import resize
 from gtts import gTTS
 from pydub import AudioSegment
 import requests
@@ -21,48 +22,60 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
 # ─── CONFIGURATION ──────────────────────────────────────────────────────────────
-MEMORY_FILE = "memory.json"
-BG_IMAGES_DIR = "images/"
+MEMORY_DIR = "memory/"
+Path(MEMORY_DIR).mkdir(exist_ok=True)
+
 OUTPUT_DIR = "videos/"
 Path(OUTPUT_DIR).mkdir(exist_ok=True)
+
+BG_IMAGES_DIR = "images/"
 Path(BG_IMAGES_DIR).mkdir(exist_ok=True)
 
 CLIENT_SECRETS_FILE = "client_secret.json"
-TOKEN_FILE = "youtube_token.pickle"  # We'll write JSON here, but name stays same
+TOKEN_FILE = "youtube_token.pickle"  # Treated as JSON
 
-# ─── Load or initialize memory ─────────────────────────────────────────────────
-if os.path.exists(MEMORY_FILE):
-    with open(MEMORY_FILE, "r", encoding="utf-8") as f:
-        MEMORY = json.load(f)
-else:
-    MEMORY = {"stories": [], "rhymes": [], "images": []}
+SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
-def save_memory():
+def load_used(file_name):
+    path = os.path.join(MEMORY_DIR, file_name)
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+def save_used(file_name, data):
+    path = os.path.join(MEMORY_DIR, file_name)
     try:
-        with open(MEMORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(MEMORY, f, ensure_ascii=False, indent=2)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        print(f"Failed to save memory: {e}")
+        print(f"Failed to save {file_name}: {e}")
+
+used_stories = load_used("used_stories.json")
+used_rhymes = load_used("used_rhymes.json")
+used_images = load_used("used_images.json")
+used_topics = load_used("used_topics.json")
 
 # ─── CONTENT GENERATION ─────────────────────────────────────────────────────────
-def generate_story_rhyme():
-    stories = [
-        "एक छोटा खरगोश था जो जादुई जंगल में खो गया।",
-        "सूरज और चाँद की दोस्ती की मधुर कहानी।",
-        "नन्हा तोता जो नया गाना सीख रहा था।",
-        "रंगों की दुनिया में एक मजेदार सफर।",
-        "छोटी मछली और बड़ा समंदर की कहानी।"
-    ]
-    rhymes = [
-        "छोटी-छोटी बातें, बड़ी-बड़ी सीख।",
-        "हँसो, खेलो, और मुस्कुराओ यार।",
-        "सपनों की उड़ान, खुशियों का संसार।",
-        "सूरज की किरण, चाँद की चाँदनी।",
-        "दोस्ती का रंग, प्यार का संगीत।"
-    ]
+stories = [
+    "एक छोटा खरगोश था जो जादुई जंगल में खो गया था। वहां उसने कई अद्भुत चीजें देखीं और नए दोस्त बनाए। अंत में वह घर लौट आया और सबको अपनी कहानी सुनाई।",
+    "सूरज और चाँद की दोस्ती की मधुर कहानी। वे दोनों आकाश में साथ रहते हैं लेकिन मिलते कम हैं। एक दिन उन्होंने मिलकर एक बड़ा उत्सव मनाया।",
+    "नन्हा तोता जो नया गाना सीख रहा था। वह रोज अभ्यास करता और अपने दोस्तों को सुनाता। आखिरकार वह एक बड़ा गायक बन गया।",
+    "रंगों की दुनिया में एक मजेदार सफर। छोटी लड़की ने रंगों के साथ खेला और नई चीजें सीखीं। हर रंग ने उसे एक सबक दिया।",
+    "छोटी मछली और बड़ा समंदर की कहानी। मछली ने साहसिक यात्रा की और कई खतरे पार किए। अंत में वह समझदार हो गई।"
+]
 
-    avail_stories = [s for s in stories if s not in MEMORY["stories"]]
-    avail_rhymes = [r for r in rhymes if r not in MEMORY["rhymes"]]
+rhymes = [
+    "छोटी-छोटी बातें, बड़ी-बड़ी सीख।\nखेलो कूदो, खुश रहो हर पल।\nदोस्त बनाओ, प्यार बांटो सबको।",
+    "हँसो, खेलो, और मुस्कुराओ यार।\nसपनों को पकड़ो, उड़ो ऊंचे आकाश में।\nजीवन है सुंदर, जीयो खुलकर।",
+    "सपनों की उड़ान, खुशियों का संसार।\nफूलों जैसे खिलो, बारिश जैसे बरसो।\nप्यार की बूंदें, सबको भिगो दो।",
+    "सूरज की किरण, चाँद की चाँदनी।\nतारों से बातें करो, रातें गुजारो।\nसुबह की ओस, जीवन का रस।",
+    "दोस्ती का रंग, प्यार का संगीत।\nगाओ बजाओ, नाचो गाओ।\nखुशियां मनाओ, हर दिन त्योहार।"
+]
+
+def generate_unique_content(used_stories_list, used_rhymes_list, used_images_list, used_topics_list):
+    avail_stories = [s for s in stories if s not in used_stories_list]
+    avail_rhymes = [r for r in rhymes if r not in used_rhymes_list]
 
     if not avail_stories or not avail_rhymes:
         print("No more unique content left!")
@@ -70,25 +83,25 @@ def generate_story_rhyme():
 
     story = random.choice(avail_stories)
     rhyme = random.choice(avail_rhymes)
+    topic = story.split()[0] + " " + rhyme.split()[0]  # Simple topic generation
 
-    MEMORY["stories"].append(story)
-    MEMORY["rhymes"].append(rhyme)
-    save_memory()
+    if topic in used_topics_list:
+        print("Topic already used, skipping to avoid repeat.")
+        sys.exit(1)
 
-    return story, rhyme
+    return story, rhyme, topic
 
-def fetch_random_image():
+def fetch_random_image(orientation="horizontal"):
     query = "cute kids story illustration cartoon"
-    url = f"https://pixabay.com/api/?key={os.getenv('PIXABAY_KEY')}&q={query}&image_type=illustration&orientation=horizontal&per_page=30&safesearch=true"
+    url = f"https://pixabay.com/api/?key={os.getenv('PIXABAY_KEY')}&q={query}&image_type=illustration&orientation={orientation}&per_page=30&safesearch=true"
 
     try:
         resp = requests.get(url).json()
         hits = resp.get("hits", [])
+        random.shuffle(hits)  # Randomize to avoid repeats
         for hit in hits:
             img_url = hit.get("largeImageURL")
-            if img_url and img_url not in MEMORY["images"]:
-                MEMORY["images"].append(img_url)
-                save_memory()
+            if img_url and img_url not in used_images:
                 return img_url
         print("No suitable new image found.")
         sys.exit(1)
@@ -108,7 +121,7 @@ def download_image(url, path):
 
 def create_audio(text, output_path, lang="hi"):
     try:
-        tts = gTTS(text=text, lang=lang, slow=False)
+        tts = gTTS(text=text, lang=lang, slow=True)  # Slow for better, less robotic
         temp_mp3 = "temp_audio.mp3"
         tts.save(temp_mp3)
 
@@ -119,31 +132,48 @@ def create_audio(text, output_path, lang="hi"):
         print(f"Audio creation failed: {e}")
         sys.exit(1)
 
-def create_video(story, rhyme, bg_image_path, duration=65):
+def create_video(story, rhyme, bg_image_path, is_short=False):
     try:
-        bg_clip = ImageClip(bg_image_path).set_duration(duration).resize(height=1080)
+        full_text = f"नमस्ते छोटे दोस्तों! आज की मजेदार कहानी है: {story}। और अब सुनिए यह प्यारी राइम: {rhyme}। पसंद आई? लाइक और सब्सक्राइब करें!"
 
         audio_path = os.path.join(OUTPUT_DIR, "narration.mp3")
-        full_text = f"{story} ... अब सुनो ये प्यारा राइम: {rhyme}"
         create_audio(full_text, audio_path)
 
         audio_clip = AudioFileClip(audio_path)
+        duration = audio_clip.duration
+
+        bg_clip = ImageClip(bg_image_path).set_duration(duration)
+        if is_short:
+            bg_clip = bg_clip.resize(width=1080)  # Vertical for shorts
+        else:
+            bg_clip = bg_clip.resize(height=1080)  # Horizontal for videos
+
+        # Add zoom animation
+        bg_clip = bg_clip.fx(resize, lambda t: 1 + 0.01 * t)  # Slow zoom in
 
         txt_clip = TextClip(
             rhyme,
-            fontsize=65,
+            fontsize=70 if is_short else 65,
             color='yellow',
             font='Noto-Sans-Devanagari',
             stroke_color='black',
             stroke_width=2.5,
             method='caption',
-            size=(900, None)
-        ).set_position(('center', 'center')).set_duration(audio_clip.duration)
+            size=(700 if is_short else 900, None)
+        ).set_position(('center', 'center')).set_duration(duration)
 
         final = CompositeVideoClip([bg_clip, txt_clip]).set_audio(audio_clip)
 
-        output_file = os.path.join(OUTPUT_DIR, f"kids_video_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4")
-        final.write_videofile(output_file, fps=24, codec='libx264', audio_codec='aac', threads=2)
+        output_file = os.path.join(OUTPUT_DIR, f"{'short' if is_short else 'video'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4")
+        final.write_videofile(
+            output_file,
+            fps=24,
+            codec='libx264',
+            audio_codec='aac',
+            bitrate="5000k",
+            preset='medium',
+            threads=4
+        )
 
         return output_file
 
@@ -166,7 +196,7 @@ def get_authenticated_service():
                 token_uri=token_data.get('token_uri'),
                 client_id=token_data.get('client_id'),
                 client_secret=token_data.get('client_secret'),
-                scopes=token_data.get('scopes', ["https://www.googleapis.com/auth/youtube.upload"])
+                scopes=token_data.get('scopes', SCOPES)
             )
         except json.JSONDecodeError as e:
             print(f"Token file is not valid JSON: {e}")
@@ -179,7 +209,7 @@ def get_authenticated_service():
     if creds and creds.expired and creds.refresh_token:
         try:
             creds.refresh(Request())
-            # Save updated token back to file (keep JSON format)
+            # Save updated token back to file
             updated_data = {
                 'token': creds.token,
                 'refresh_token': creds.refresh_token,
@@ -197,23 +227,26 @@ def get_authenticated_service():
 
     if not creds or not creds.valid:
         print("No valid credentials available.")
-        print("You need to authorize once locally to get refresh_token.")
         sys.exit(1)
 
     return build('youtube', 'v3', credentials=creds)
 
-def upload_to_youtube(video_file, title, description):
+def upload_to_youtube(video_file, title, description, is_short=False):
     youtube = get_authenticated_service()
+
+    tags = ['hindi', 'kids', 'rhymes', 'storytime', 'bacchon ki kahani']
+    if is_short:
+        tags.append('shorts')
 
     body = {
         'snippet': {
             'title': title,
             'description': description,
-            'tags': ['hindi', 'kids', 'rhymes', 'storytime', 'bacchon ki kahani'],
+            'tags': tags,
             'categoryId': '24'  # Entertainment
         },
         'status': {
-            'privacyStatus': 'private'  # Change to 'public' when ready
+            'privacyStatus': 'public'
         }
     }
 
@@ -223,7 +256,7 @@ def upload_to_youtube(video_file, title, description):
         resumable=True
     )
 
-    print("Starting YouTube upload...")
+    print(f"Starting YouTube {'short' if is_short else 'video'} upload...")
     request = youtube.videos().insert(
         part="snippet,status",
         body=body,
@@ -257,27 +290,57 @@ if __name__ == "__main__":
     try:
         print("Starting Hindi Kids Video Generator & Uploader...")
 
-        story, rhyme = generate_story_rhyme()
-        print(f"Story: {story}")
-        print(f"Rhyme: {rhyme}")
+        # Generate for full video
+        story_video, rhyme_video, topic_video = generate_unique_content(used_stories, used_rhymes, used_images, used_topics)
+        print(f"Video Story: {story_video}")
+        print(f"Video Rhyme: {rhyme_video}")
 
-        img_url = fetch_random_image()
-        img_path = os.path.join(BG_IMAGES_DIR, "bg.jpg")
-        download_image(img_url, img_path)
+        img_url_video = fetch_random_image(orientation="horizontal")
+        img_path_video = os.path.join(BG_IMAGES_DIR, "bg_video.jpg")
+        download_image(img_url_video, img_path_video)
 
-        video_path = create_video(story, rhyme, img_path)
+        video_path = create_video(story_video, rhyme_video, img_path_video, is_short=False)
 
-        print(f"Video successfully created → {video_path}")
+        title_video = f"मजेदार हिंदी कहानी और राइम बच्चों के लिए | {topic_video}"
+        description_video = f"बच्चों की पसंदीदा कहानी: {story_video}\nराइम: {rhyme_video}\n#HindiStories #KidsRhymes"
 
-        # Upload
-        title = f"मजेदार हिंदी कहानी + राइम | {rhyme[:40]}... | Kids Story Time"
-        description = f"""नन्हे बच्चों के लिए एक प्यारी कहानी और मजेदार राइम!
-Story: {story}
-Rhyme: {rhyme}
+        upload_to_youtube(video_path, title_video, description_video, is_short=False)
 
-#HindiRhymes #KidsStories #BacchonKiKahani"""
+        used_stories.append(story_video)
+        used_rhymes.append(rhyme_video)
+        used_images.append(img_url_video)
+        used_topics.append(topic_video)
 
-        upload_to_youtube(video_path, title, description)
+        save_used("used_stories.json", used_stories)
+        save_used("used_rhymes.json", used_rhymes)
+        save_used("used_images.json", used_images)
+        save_used("used_topics.json", used_topics)
+
+        # Generate for short
+        story_short, rhyme_short, topic_short = generate_unique_content(used_stories, used_rhymes, used_images, used_topics)
+        print(f"Short Story: {story_short}")
+        print(f"Short Rhyme: {rhyme_short}")
+
+        img_url_short = fetch_random_image(orientation="vertical")
+        img_path_short = os.path.join(BG_IMAGES_DIR, "bg_short.jpg")
+        download_image(img_url_short, img_path_short)
+
+        short_path = create_video(story_short, rhyme_short, img_path_short, is_short=True)
+
+        title_short = f"छोटी हिंदी राइम बच्चों के लिए | {topic_short} #shorts"
+        description_short = f"मजेदार राइम: {rhyme_short}\nकहानी स्निपेट: {story_short[:50]}...\n#Shorts #KidsRhymes"
+
+        upload_to_youtube(short_path, title_short, description_short, is_short=True)
+
+        used_stories.append(story_short)
+        used_rhymes.append(rhyme_short)
+        used_images.append(img_url_short)
+        used_topics.append(topic_short)
+
+        save_used("used_stories.json", used_stories)
+        save_used("used_rhymes.json", used_rhymes)
+        save_used("used_images.json", used_images)
+        save_used("used_topics.json", used_topics)
 
         print("Job completed successfully!")
 
