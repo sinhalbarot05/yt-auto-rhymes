@@ -12,16 +12,13 @@ from moviepy.editor import (
 )
 from gtts import gTTS
 from pydub import AudioSegment
-
 import requests
 
 # ─── YouTube Upload ─────────────────────────────────────────────────────────────
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-import pickle
 
 # ─── CONFIGURATION ──────────────────────────────────────────────────────────────
 MEMORY_FILE = "memory.json"
@@ -31,11 +28,9 @@ Path(OUTPUT_DIR).mkdir(exist_ok=True)
 Path(BG_IMAGES_DIR).mkdir(exist_ok=True)
 
 CLIENT_SECRETS_FILE = "client_secret.json"
-TOKEN_FILE = "youtube_token.pickle"
+TOKEN_FILE = "youtube_token.pickle"  # We'll write JSON here, but name stays same
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
-
-# Load or initialize memory
+# ─── Load or initialize memory ─────────────────────────────────────────────────
 if os.path.exists(MEMORY_FILE):
     with open(MEMORY_FILE, "r", encoding="utf-8") as f:
         MEMORY = json.load(f)
@@ -126,17 +121,14 @@ def create_audio(text, output_path, lang="hi"):
 
 def create_video(story, rhyme, bg_image_path, duration=65):
     try:
-        # Background
         bg_clip = ImageClip(bg_image_path).set_duration(duration).resize(height=1080)
 
-        # Audio
         audio_path = os.path.join(OUTPUT_DIR, "narration.mp3")
         full_text = f"{story} ... अब सुनो ये प्यारा राइम: {rhyme}"
         create_audio(full_text, audio_path)
 
         audio_clip = AudioFileClip(audio_path)
 
-        # Text overlay (rhyme only)
         txt_clip = TextClip(
             rhyme,
             fontsize=65,
@@ -148,7 +140,6 @@ def create_video(story, rhyme, bg_image_path, duration=65):
             size=(900, None)
         ).set_position(('center', 'center')).set_duration(audio_clip.duration)
 
-        # Final video
         final = CompositeVideoClip([bg_clip, txt_clip]).set_audio(audio_clip)
 
         output_file = os.path.join(OUTPUT_DIR, f"kids_video_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4")
@@ -160,30 +151,54 @@ def create_video(story, rhyme, bg_image_path, duration=65):
         print(f"Video creation failed: {e}")
         sys.exit(1)
 
-# ─── YOUTUBE UPLOAD ─────────────────────────────────────────────────────────────
+# ─── YOUTUBE AUTH & UPLOAD (JSON version) ───────────────────────────────────────
 def get_authenticated_service():
     creds = None
 
-    # Try to load existing token
     if os.path.exists(TOKEN_FILE):
-        with open(TOKEN_FILE, 'rb') as token_file:
-            creds = pickle.load(token_file)
+        try:
+            with open(TOKEN_FILE, 'r', encoding='utf-8') as f:
+                token_data = json.load(f)
 
-    # If no/invalid credentials → refresh or new flow
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
+            creds = Credentials(
+                token=token_data.get('token'),
+                refresh_token=token_data.get('refresh_token'),
+                token_uri=token_data.get('token_uri'),
+                client_id=token_data.get('client_id'),
+                client_secret=token_data.get('client_secret'),
+                scopes=token_data.get('scopes', ["https://www.googleapis.com/auth/youtube.upload"])
+            )
+        except json.JSONDecodeError as e:
+            print(f"Token file is not valid JSON: {e}")
+            sys.exit(1)
+        except Exception as e:
+            print(f"Error loading credentials from JSON: {e}")
+            sys.exit(1)
+
+    # Refresh if expired
+    if creds and creds.expired and creds.refresh_token:
+        try:
             creds.refresh(Request())
-        else:
-            if not os.path.exists(CLIENT_SECRETS_FILE):
-                print("client_secret.json not found!")
-                sys.exit(1)
+            # Save updated token back to file (keep JSON format)
+            updated_data = {
+                'token': creds.token,
+                'refresh_token': creds.refresh_token,
+                'token_uri': creds.token_uri,
+                'client_id': creds.client_id,
+                'client_secret': creds.client_secret,
+                'scopes': creds.scopes
+            }
+            with open(TOKEN_FILE, 'w', encoding='utf-8') as f:
+                json.dump(updated_data, f, indent=2)
+            print("Token refreshed successfully")
+        except Exception as e:
+            print(f"Token refresh failed: {e}")
+            sys.exit(1)
 
-            flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRETS_FILE, SCOPES)
-            creds = flow.run_local_server(port=0)  # ← This needs browser → first run locally!
-
-        # Save updated credentials
-        with open(TOKEN_FILE, 'wb') as token_file:
-            pickle.dump(creds, token_file)
+    if not creds or not creds.valid:
+        print("No valid credentials available.")
+        print("You need to authorize once locally to get refresh_token.")
+        sys.exit(1)
 
     return build('youtube', 'v3', credentials=creds)
 
@@ -194,11 +209,11 @@ def upload_to_youtube(video_file, title, description):
         'snippet': {
             'title': title,
             'description': description,
-            'tags': ['hindi', 'kids', 'rhymes', 'storytime', 'bacchon ki kahani', 'hindi rhymes'],
+            'tags': ['hindi', 'kids', 'rhymes', 'storytime', 'bacchon ki kahani'],
             'categoryId': '24'  # Entertainment
         },
         'status': {
-            'privacyStatus': 'private'   # Change to 'public' / 'unlisted' when ready
+            'privacyStatus': 'private'  # Change to 'public' when ready
         }
     }
 
@@ -216,7 +231,6 @@ def upload_to_youtube(video_file, title, description):
     )
 
     response = None
-    error = None
     retry = 0
 
     while response is None:
@@ -225,20 +239,18 @@ def upload_to_youtube(video_file, title, description):
             if status:
                 print(f"Uploaded {int(status.progress() * 100)}%")
         except Exception as e:
-            print(f"Upload chunk error: {e}")
-            error = e
+            print(f"Upload error: {e}")
             retry += 1
             if retry > 5:
-                raise Exception("Upload failed after multiple retries")
+                raise Exception("Upload failed after retries")
 
     if response:
         video_id = response['id']
-        print(f"Upload SUCCESSFUL!")
-        print(f"Video ID: {video_id}")
+        print(f"Upload SUCCESS! Video ID: {video_id}")
         print(f"Link: https://youtu.be/{video_id}")
         return video_id
     else:
-        raise Exception("Upload failed - no response from YouTube")
+        raise Exception("No response from YouTube")
 
 # ─── MAIN ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
@@ -257,13 +269,13 @@ if __name__ == "__main__":
 
         print(f"Video successfully created → {video_path}")
 
-        # ── Upload ───────────────────────────────────────────────────────────────
+        # Upload
         title = f"मजेदार हिंदी कहानी + राइम | {rhyme[:40]}... | Kids Story Time"
         description = f"""नन्हे बच्चों के लिए एक प्यारी कहानी और मजेदार राइम!
 Story: {story}
 Rhyme: {rhyme}
 
-#HindiRhymes #KidsStories #BacchonKiKahani #HindiStory #NurseryRhymes"""
+#HindiRhymes #KidsStories #BacchonKiKahani"""
 
         upload_to_youtube(video_path, title, description)
 
