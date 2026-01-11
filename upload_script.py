@@ -95,7 +95,7 @@ def dl_image(url, path):
     with open(path, "wb") as f:
         f.write(requests.get(url, timeout=15).content)
 
-# AUDIO (eSpeak)
+# AUDIO (eSpeak-ng)
 def make_audio(txt, out):
     wav = "temp.wav"
     subprocess.run(["espeak-ng", "-v", "hi", "-s", "130", "-p", "60", "-a", "180", "-w", wav, txt], check=True)
@@ -111,7 +111,7 @@ def make_video(txt, bg_path, short=False):
     size = (1080, 1920) if short else (1920, 1080)
     img = cv2.resize(img, size)
 
-    # Text
+    # Text overlay
     font, scale, col, thick = cv2.FONT_HERSHEY_DUPLEX, 1.6 if short else 1.4, (0,255,255), 5
     lines = txt.split('\n')
     y, dy = 400 if short else 300, 80
@@ -120,7 +120,7 @@ def make_video(txt, bg_path, short=False):
         x = (size[0] - tw) // 2
         cv2.putText(img, line, (x, y + i*dy), font, scale, col, thick)
 
-    # Frames (zoom)
+    # Zoom frames
     frames = []
     n = 1500
     for i in range(n):
@@ -142,22 +142,22 @@ def make_video(txt, bg_path, short=False):
     mid = "कहानी" if "कहानी" in txt else "राइम"
     out = "। लाइक, सब्सक्राइब करो!"
     full = intro + mid + " है: " + txt + out
-    aud_path = os.path.join(OUTPUT_DIR, "aud.mp3")
-    make_audio(full, aud_path)
+    aud = os.path.join(OUTPUT_DIR, "aud.mp3")
+    make_audio(full, aud)
 
-    # Final merge
+    # Final
     final = os.path.join(OUTPUT_DIR, f"{'s' if short else 'v'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4")
     subprocess.run([
-        "ffmpeg", "-y", "-i", tmp_vid, "-i", aud_path,
+        "ffmpeg", "-y", "-i", tmp_vid, "-i", aud,
         "-c:v", "libx264", "-c:a", "aac", "-shortest",
         "-pix_fmt", "yuv420p", "-b:v", "8000k", final
     ], check=True)
 
     os.remove(tmp_vid)
-    os.remove(aud_path)
+    os.remove(aud)
     return final
 
-# ─── YOUTUBE ────────────────────────────────────────────────────────────────────
+# YOUTUBE
 def yt_service():
     creds = None
     if os.path.exists(TOKEN_FILE):
@@ -194,7 +194,7 @@ def upload(vid, title, desc, tags, short=False):
     print(f"Done: https://youtu.be/{vid_id}")
     return vid_id
 
-# ─── MAIN ───────────────────────────────────────────────────────────────────────
+# MAIN
 if __name__ == "__main__":
     print("Starting...")
     try:
@@ -205,7 +205,7 @@ if __name__ == "__main__":
 
         url_v = get_image(top_v, "horizontal")
         p_v = os.path.join(BG_IMAGES_DIR, "bg_v.jpg")
-        download_image(url_v, p_v)
+        dl_image(url_v, p_v)
 
         v_path = make_video(txt_v, p_v, False)
 
@@ -221,7 +221,7 @@ if __name__ == "__main__":
 
         url_s = get_image(top_s, "vertical")
         p_s = os.path.join(BG_IMAGES_DIR, "bg_s.jpg")
-        download_image(url_s, p_s)
+        dl_image(url_s, p_s)
 
         s_path = make_video(txt_s, p_s, True)
 
