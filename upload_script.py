@@ -36,11 +36,11 @@ TOKEN_FILE = "youtube_token.pickle"
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
-# Load Piper voice (natural Hindi female)
+# Load Piper voice once
 try:
     piper_voice = PiperVoice.load(VOICE_MODEL_PATH)
 except Exception as e:
-    print(f"Failed to load Piper voice: {e}")
+    print(f"Failed to load Piper voice model: {e}")
     sys.exit(1)
 
 def load_used(file_name):
@@ -63,7 +63,7 @@ used_rhymes = load_used("used_rhymes.json")
 used_images = load_used("used_images.json")
 used_topics = load_used("used_topics.json")
 
-# ─── CONTENT GENERATION ─────────────────────────────────────────────────────────
+# ─── CONTENT GENERATION (same as before) ────────────────────────────────────────
 animals = ["खरगोश", "तोता", "मछली", "हाथी", "शेर", "मोर", "बिल्ली", "कुत्ता"]
 places = ["जंगल", "समंदर", "पहाड़", "नदी", "गाँव", "बाग", "झील"]
 actions = ["खो गया", "सीखा", "मिला", "खेला", "तैरा", "दौड़ा", "गाया"]
@@ -157,7 +157,7 @@ def create_audio(text, output_path):
         audio = audio._spawn(audio.raw_data, overrides={
             "frame_rate": int(audio.frame_rate * 1.15)
         }).set_frame_rate(audio.frame_rate)
-        audio = audio + 5  # slight volume boost
+        audio = audio + 5
         
         audio.export(output_path, format="mp3")
         os.remove(temp_wav)
@@ -220,7 +220,7 @@ def create_video(content_text, bg_image_path, is_short=False):
         print(f"Video creation failed: {e}")
         sys.exit(1)
 
-# ─── YOUTUBE SEO OPTIMIZED UPLOAD ───────────────────────────────────────────────
+# ─── YOUTUBE ────────────────────────────────────────────────────────────────────
 def get_authenticated_service():
     creds = None
     if os.path.exists(TOKEN_FILE):
@@ -253,7 +253,7 @@ def upload_to_youtube(video_file, title, description, tags, is_short=False):
             'title': title,
             'description': description,
             'tags': tags,
-            'categoryId': '24'  # Entertainment
+            'categoryId': '24'
         },
         'status': {
             'privacyStatus': 'public'
@@ -289,9 +289,9 @@ def upload_to_youtube(video_file, title, description, tags, is_short=False):
 # ─── MAIN ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     try:
-        print("Starting SEO-optimized generation & upload...")
+        print("Starting generation & upload...")
 
-        # ── Video (Horizontal, longer) ──────────────────────────────────────────
+        # Video
         is_story_video = random.random() > 0.4
         content_video = generate_story() if is_story_video else generate_rhyme()
         topic_video = generate_topic(content_video)
@@ -302,38 +302,30 @@ if __name__ == "__main__":
 
         video_path = create_video(content_video, img_path_v, is_short=False)
 
-        # SEO Title
         title_video = f"मजेदार नई {'हिंदी कहानी' if is_story_video else 'राइम'} बच्चों के लिए | {topic_video} | 2026"
-
-        # SEO Description
-        desc_video = f"""नमस्ते छोटे दोस्तों! 😍 आज सुनिए बहुत प्यारी { 'कहानी' if is_story_video else 'राइम' } जो आपको बहुत पसंद आएगी!
+        desc_video = f"""नमस्ते छोटे दोस्तों! 😍 आज सुनिए बहुत प्यारी {'कहानी' if is_story_video else 'राइम'}!
 
 {content_video[:150]}...
 
 00:00 नमस्ते छोटे दोस्तों!
 00:15 {'कहानी' if is_story_video else 'राइम'} शुरू
 03:00 मजेदार अंत 🎉
-05:00 Moral of the story
 
 पसंद आए तो लाइक 👍, सब्सक्राइब करें 🔔 और कमेंट में बताएं अगली बार कौन सी कहानी सुनना चाहते हो!
 
-#HindiKahani #BacchonKiKahani #NurseryRhymes #HindiRhymes #KidsStories #Shorts
+#HindiKahani #BacchonKiKahani #NurseryRhymes #HindiRhymes #KidsStories
 
 Business/Collaboration: sinhalbarot05@gmail.com
 """
-
-        # Dynamic tags from content
-        base_tags = [
+        tags_video = [
             "हिंदी कहानी", "बच्चों की कहानी", "नई हिंदी कहानी 2026", "मजेदार कहानी",
             "bacchon ki kahani", "hindi story for kids", "nursery rhymes hindi", "hindi rhymes",
             "kids stories hindi", "moral stories hindi"
-        ]
-        extra_tags = [word for word in topic_video.split() if len(word) > 3][:5]
-        tags_video = base_tags + extra_tags
+        ] + [w for w in topic_video.split() if len(w) > 3][:5]
 
         upload_to_youtube(video_path, title_video, desc_video, tags_video, is_short=False)
 
-        # ── Short (Vertical) ─────────────────────────────────────────────────────
+        # Short
         is_story_short = random.random() > 0.5
         content_short = generate_story() if is_story_short else generate_rhyme()
         topic_short = generate_topic(content_short)
@@ -345,8 +337,7 @@ Business/Collaboration: sinhalbarot05@gmail.com
         short_path = create_video(content_short, img_path_s, is_short=True)
 
         title_short = f"प्यारी {'कहानी' if is_story_short else 'राइम'} बच्चों के लिए #shorts | {topic_short}"
-
-        desc_short = f"""नमस्ते दोस्तों! 😊 यहाँ है मजेदार { 'कहानी' if is_story_short else 'राइम' }!
+        desc_short = f"""नमस्ते दोस्तों! 😊 यहाँ है मजेदार {'कहानी' if is_story_short else 'राइम'}!
 
 {content_short[:80]}...
 
@@ -355,11 +346,11 @@ Business/Collaboration: sinhalbarot05@gmail.com
 
 #Shorts #HindiRhymes #BacchonKiKahani"""
 
-        tags_short = base_tags + extra_tags + ["shorts", "hindi shorts", "kids shorts"]
+        tags_short = tags_video + ["shorts", "hindi shorts", "kids shorts"]
 
         upload_to_youtube(short_path, title_short, desc_short, tags_short, is_short=True)
 
-        print("All done! Videos uploaded with full SEO optimization.")
+        print("All done! Videos uploaded successfully.")
 
     except Exception as e:
         print(f"ERROR: {e}")
