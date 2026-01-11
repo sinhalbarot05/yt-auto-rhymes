@@ -29,38 +29,20 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Python dependencies
+      - name: Install Python dependencies (Coqui XTTS-v2)
         run: |
           python -m pip install --upgrade pip
           pip install --upgrade \
             moviepy==1.0.3 \
             Pillow==10.4.0 \
-            piper-tts \
+            coqui-tts \
             pydub \
             requests \
+            torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu \
             google-api-python-client \
             google-auth \
             google-auth-oauthlib \
             google-auth-httplib2
-
-      - name: Download Piper Hindi voice model (working 2026 alternative)
-        run: |
-          mkdir -p voices
-          cd voices
-          # Download Swara medium model (natural female Hindi voice)
-          [ ! -f hi_IN-swara-medium.onnx ] && \
-            wget -q --no-check-certificate \
-            https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/swara/medium/hi_IN-swara-medium.onnx \
-            -O hi_IN-swara-medium.onnx
-          
-          [ ! -f hi_IN-swara-medium.onnx.json ] && \
-            wget -q --no-check-certificate \
-            https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/swara/medium/hi_IN-swara-medium.onnx.json \
-            -O hi_IN-swara-medium.onnx.json
-          
-          # Debug output
-          ls -la
-          du -sh *
 
       - name: Decode YouTube credentials
         run: |
