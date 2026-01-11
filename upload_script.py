@@ -11,7 +11,7 @@ from moviepy.editor import (
     ImageClip, AudioFileClip, CompositeVideoClip, TextClip
 )
 from moviepy.video.fx.all import resize
-from gtts import gTTS
+from gTTS import gTTS
 from pydub import AudioSegment
 import requests
 
@@ -56,52 +56,75 @@ used_rhymes = load_used("used_rhymes.json")
 used_images = load_used("used_images.json")
 used_topics = load_used("used_topics.json")
 
-# ─── CONTENT GENERATION ─────────────────────────────────────────────────────────
-stories = [
-    "एक छोटा खरगोश था जो जादुई जंगल में खो गया था। वहां उसने कई अद्भुत चीजें देखीं और नए दोस्त बनाए। अंत में वह घर लौट आया और सबको अपनी कहानी सुनाई।",
-    "सूरज और चाँद की दोस्ती की मधुर कहानी। वे दोनों आकाश में साथ रहते हैं लेकिन मिलते कम हैं। एक दिन उन्होंने मिलकर एक बड़ा उत्सव मनाया।",
-    "नन्हा तोता जो नया गाना सीख रहा था। वह रोज अभ्यास करता और अपने दोस्तों को सुनाता। आखिरकार वह एक बड़ा गायक बन गया।",
-    "रंगों की दुनिया में एक मजेदार सफर। छोटी लड़की ने रंगों के साथ खेला और नई चीजें सीखीं। हर रंग ने उसे एक सबक दिया।",
-    "छोटी मछली और बड़ा समंदर की कहानी। मछली ने साहसिक यात्रा की और कई खतरे पार किए। अंत में वह समझदार हो गई।"
-]
+# Word lists for generation
+animals = ["खरगोश", "तोता", "मछली", "हाथी", "शेर", "मोर", "बिल्ली", "कुत्ता", "गिलहरी", "मेंढक", "चीता", "मोरनी", "घोड़ा", "गाय", "बकरी"]
+places = ["जंगल", "समंदर", "पहाड़", "नदी", "आकाश", "गाँव", "शहर", "बाग", "स्कूल", "घर", "मंदिर", "पार्क", "झील", "रेगिस्तान", "जंगल का किनारा"]
+actions = ["खो गया", "सीखा", "मिला", "खेला", "उड़ा", "तैरा", "दौड़ा", "गाया", "नाचा", "पढ़ा", "कूदा", "छिपा", "ढूंढा", "बचाया", "जीता"]
+adventures = ["कई अद्भुत चीजें देखीं", "नए दोस्त बनाए", "खजाना पाया", "जादू सीखा", "साहसिक कार्य किया", "रहस्य सुलझाया", "पार्टी की", "यात्रा की", "खेल खेले", "सीखा सबक", "मदद की", "हंसी", "रोया", "उत्सव मनाया", "सपना देखा"]
+endings = ["घर लौट आया", "खुश रहा", "दोस्तों के साथ रहा", "नई शुरुआत की", "सपना पूरा किया", "समझदार हो गया", "जीत गया", "प्यार पाया", "शांति मिली", "उत्सव मनाया", "बड़ा हो गया", "दुनिया घूमा", "राजा बना", "रानी बनी", "खुशी से जिया"]
+lessons = ["साहस", "दोस्ती", "सीखने", "खुशी", "प्यार", "ईमानदारी", "मेहनत", "धैर्य", "साझेदारी", "क्षमा"]
 
-rhymes = [
-    "छोटी-छोटी बातें, बड़ी-बड़ी सीख।\nखेलो कूदो, खुश रहो हर पल।\nदोस्त बनाओ, प्यार बांटो सबको।",
-    "हँसो, खेलो, और मुस्कुराओ यार।\nसपनों को पकड़ो, उड़ो ऊंचे आकाश में।\nजीवन है सुंदर, जीयो खुलकर।",
-    "सपनों की उड़ान, खुशियों का संसार।\nफूलों जैसे खिलो, बारिश जैसे बरसो।\nप्यार की बूंदें, सबको भिगो दो।",
-    "सूरज की किरण, चाँद की चाँदनी।\nतारों से बातें करो, रातें गुजारो।\nसुबह की ओस, जीवन का रस।",
-    "दोस्ती का रंग, प्यार का संगीत।\nगाओ बजाओ, नाचो गाओ।\nखुशियां मनाओ, हर दिन त्योहार।"
-]
+adj = ["छोटी", "बड़ी", "प्यारी", "मजेदार", "रंगीन", "चमकीली", "नरम", "कड़ी", "मीठी", "खुश"]
+noun = ["बातें", "सीख", "खुशियां", "सपने", "किरणें", "चाँदनी", "दोस्ती", "रंग", "संगीत", "उड़ान"]
+verb = ["खेलो", "हँसो", "मुस्कुराओ", "उड़ो", "बरसो", "बांटो", "गाओ", "नाचो", "पढ़ो", "सीखो"]
 
-def generate_unique_content(used_stories_list, used_rhymes_list, used_images_list, used_topics_list):
-    avail_stories = [s for s in stories if s not in used_stories_list]
-    avail_rhymes = [r for r in rhymes if r not in used_rhymes_list]
+def generate_story():
+    while True:
+        animal = random.choice(animals)
+        place = random.choice(places)
+        action = random.choice(actions)
+        adventure1 = random.choice(adventures)
+        adventure2 = random.choice(adventures)
+        adventure3 = random.choice(adventures)
+        ending1 = random.choice(endings)
+        ending2 = random.choice(endings)
+        lesson = random.choice(lessons)
+        story = f"एक छोटा {animal} था जो {place} में {action}। वहां उसने {adventure1}, {adventure2} और {adventure3}। अंत में वह {ending1} और {ending2}। यह कहानी बच्चों को {lesson} का महत्व सिखाती है। वहाँ से लौटकर उसने सबको अपनी कहानी सुनाई और सभी खुश हुए। कहानी का अंत खुशी से हुआ।"
+        if story not in used_stories:
+            used_stories.append(story)
+            save_used("used_stories.json", used_stories)
+            return story
 
-    if not avail_stories or not avail_rhymes:
-        print("No more unique content left!")
-        sys.exit(1)
+def generate_rhyme():
+    while True:
+        line1 = f"{random.choice(adj)}-{random.choice(adj)} {random.choice(noun)}, {random.choice(adj)}-{random.choice(adj)} {random.choice(lesson)}।"
+        line2 = f"{random.choice(verb)} {random.choice(noun)}, {random.choice(verb)} {random.choice(noun)} हर पल।"
+        line3 = f"{random.choice(adj)} {random.choice(noun)}, {random.choice(adj)} {random.choice(noun)} सबको।"
+        line4 = f"{random.choice(verb)} {random.choice(noun)}, जीवन {random.choice(adj)} बनाओ।"
+        rhyme = f"{line1}\n{line2}\n{line3}\n{line4}"
+        if rhyme not in used_rhymes:
+            used_rhymes.append(rhyme)
+            save_used("used_rhymes.json", used_rhymes)
+            return rhyme
 
-    story = random.choice(avail_stories)
-    rhyme = random.choice(avail_rhymes)
-    topic = story.split()[0] + " " + rhyme.split()[0]  # Simple topic generation
+def generate_topic(text):
+    words = text.split()[:3]
+    topic = " ".join(words)
+    while topic in used_topics:
+        topic += " " + random.choice(lessons)
+    used_topics.append(topic)
+    save_used("used_topics.json", used_topics)
+    return topic
 
-    if topic in used_topics_list:
-        print("Topic already used, skipping to avoid repeat.")
-        sys.exit(1)
+def generate_content(type):
+    if type == 'story':
+        return generate_story()
+    else:
+        return generate_rhyme()
 
-    return story, rhyme, topic
-
-def fetch_random_image(orientation="horizontal"):
-    query = "cute kids story illustration cartoon"
+def fetch_random_image(topic, orientation="horizontal"):
+    query = f"illustration of {topic} for kids hindi cartoon"
     url = f"https://pixabay.com/api/?key={os.getenv('PIXABAY_KEY')}&q={query}&image_type=illustration&orientation={orientation}&per_page=30&safesearch=true"
 
     try:
         resp = requests.get(url).json()
         hits = resp.get("hits", [])
-        random.shuffle(hits)  # Randomize to avoid repeats
+        random.shuffle(hits)
         for hit in hits:
             img_url = hit.get("largeImageURL")
             if img_url and img_url not in used_images:
+                used_images.append(img_url)
+                save_used("used_images.json", used_images)
                 return img_url
         print("No suitable new image found.")
         sys.exit(1)
@@ -109,50 +132,49 @@ def fetch_random_image(orientation="horizontal"):
         print(f"Pixabay error: {e}")
         sys.exit(1)
 
-def download_image(url, path):
-    try:
-        r = requests.get(url, timeout=15)
-        r.raise_for_status()
-        with open(path, "wb") as f:
-            f.write(r.content)
-    except Exception as e:
-        print(f"Image download failed: {e}")
-        sys.exit(1)
+# Pitch shift for female voice
+def shift_pitch(audio, semitones=5):
+    factor = 2 ** (semitones / 12)
+    shifted = audio._spawn(audio.raw_data, overrides={"frame_rate": int(audio.frame_rate * factor)})
+    shifted = shifted.set_frame_rate(audio.frame_rate)
+    return shifted
 
 def create_audio(text, output_path, lang="hi"):
     try:
-        tts = gTTS(text=text, lang=lang, slow=True)  # Slow for better, less robotic
+        tts = gTTS(text=text, lang=lang, slow=True)
         temp_mp3 = "temp_audio.mp3"
         tts.save(temp_mp3)
 
         audio = AudioSegment.from_mp3(temp_mp3)
+        audio = shift_pitch(audio)
         audio.export(output_path, format="mp3")
         os.remove(temp_mp3)
     except Exception as e:
         print(f"Audio creation failed: {e}")
         sys.exit(1)
 
-def create_video(story, rhyme, bg_image_path, is_short=False):
+def create_video(text, bg_image_path, is_short=False):
     try:
-        full_text = f"नमस्ते छोटे दोस्तों! आज की मजेदार कहानी है: {story}। और अब सुनिए यह प्यारी राइम: {rhyme}। पसंद आई? लाइक और सब्सक्राइब करें!"
-
         audio_path = os.path.join(OUTPUT_DIR, "narration.mp3")
-        create_audio(full_text, audio_path)
+        create_audio(text, audio_path)
 
         audio_clip = AudioFileClip(audio_path)
         duration = audio_clip.duration
+        if is_short:
+            duration = min(duration, 60)
+        else:
+            duration = max(duration, 65)
 
         bg_clip = ImageClip(bg_image_path).set_duration(duration)
         if is_short:
-            bg_clip = bg_clip.resize(width=1080)  # Vertical for shorts
+            bg_clip = bg_clip.resize(width=1080, height=1920)
         else:
-            bg_clip = bg_clip.resize(height=1080)  # Horizontal for videos
+            bg_clip = bg_clip.resize(width=1920, height=1080)
 
-        # Add zoom animation
-        bg_clip = bg_clip.fx(resize, lambda t: 1 + 0.01 * t)  # Slow zoom in
+        bg_clip = bg_clip.fx(resize, lambda t: 1 + 0.02 * t)  # Slower zoom
 
         txt_clip = TextClip(
-            rhyme,
+            text,
             fontsize=70 if is_short else 65,
             color='yellow',
             font='Noto-Sans-Devanagari',
@@ -170,7 +192,7 @@ def create_video(story, rhyme, bg_image_path, is_short=False):
             fps=24,
             codec='libx264',
             audio_codec='aac',
-            bitrate="5000k",
+            bitrate="8000k",
             preset='medium',
             threads=4
         )
@@ -181,7 +203,7 @@ def create_video(story, rhyme, bg_image_path, is_short=False):
         print(f"Video creation failed: {e}")
         sys.exit(1)
 
-# ─── YOUTUBE AUTH & UPLOAD (JSON version) ───────────────────────────────────────
+# ─── YOUTUBE AUTH & UPLOAD ──────────────────────────────────────────────────────
 def get_authenticated_service():
     creds = None
 
@@ -205,11 +227,9 @@ def get_authenticated_service():
             print(f"Error loading credentials from JSON: {e}")
             sys.exit(1)
 
-    # Refresh if expired
     if creds and creds.expired and creds.refresh_token:
         try:
             creds.refresh(Request())
-            # Save updated token back to file
             updated_data = {
                 'token': creds.token,
                 'refresh_token': creds.refresh_token,
@@ -290,57 +310,41 @@ if __name__ == "__main__":
     try:
         print("Starting Hindi Kids Video Generator & Uploader...")
 
-        # Generate for full video
-        story_video, rhyme_video, topic_video = generate_unique_content(used_stories, used_rhymes, used_images, used_topics)
-        print(f"Video Story: {story_video}")
-        print(f"Video Rhyme: {rhyme_video}")
+        # For video
+        type_video = random.choice(['story', 'rhyme'])
+        text_video = generate_content(type_video)
+        topic_video = generate_topic(text_video)
+        print(f"Video Type: {type_video}")
+        print(f"Video Text: {text_video}")
 
-        img_url_video = fetch_random_image(orientation="horizontal")
+        img_url_video = fetch_random_image(topic_video, orientation="horizontal")
         img_path_video = os.path.join(BG_IMAGES_DIR, "bg_video.jpg")
         download_image(img_url_video, img_path_video)
 
-        video_path = create_video(story_video, rhyme_video, img_path_video, is_short=False)
+        video_path = create_video(text_video, img_path_video, is_short=False)
 
-        title_video = f"मजेदार हिंदी कहानी और राइम बच्चों के लिए | {topic_video}"
-        description_video = f"बच्चों की पसंदीदा कहानी: {story_video}\nराइम: {rhyme_video}\n#HindiStories #KidsRhymes"
+        title_video = f"मजेदार हिंदी {'कहानी' if type_video == 'story' else 'राइम'} बच्चों के लिए | {topic_video}"
+        description_video = f"बच्चों की पसंदीदा {'कहानी' if type_video == 'story' else 'राइम'}: {text_video}\n#HindiStories #KidsRhymes"
 
         upload_to_youtube(video_path, title_video, description_video, is_short=False)
 
-        used_stories.append(story_video)
-        used_rhymes.append(rhyme_video)
-        used_images.append(img_url_video)
-        used_topics.append(topic_video)
+        # For short
+        type_short = random.choice(['story', 'rhyme'])
+        text_short = generate_content(type_short)
+        topic_short = generate_topic(text_short)
+        print(f"Short Type: {type_short}")
+        print(f"Short Text: {text_short}")
 
-        save_used("used_stories.json", used_stories)
-        save_used("used_rhymes.json", used_rhymes)
-        save_used("used_images.json", used_images)
-        save_used("used_topics.json", used_topics)
-
-        # Generate for short
-        story_short, rhyme_short, topic_short = generate_unique_content(used_stories, used_rhymes, used_images, used_topics)
-        print(f"Short Story: {story_short}")
-        print(f"Short Rhyme: {rhyme_short}")
-
-        img_url_short = fetch_random_image(orientation="vertical")
+        img_url_short = fetch_random_image(topic_short, orientation="vertical")
         img_path_short = os.path.join(BG_IMAGES_DIR, "bg_short.jpg")
         download_image(img_url_short, img_path_short)
 
-        short_path = create_video(story_short, rhyme_short, img_path_short, is_short=True)
+        short_path = create_video(text_short, img_path_short, is_short=True)
 
-        title_short = f"छोटी हिंदी राइम बच्चों के लिए | {topic_short} #shorts"
-        description_short = f"मजेदार राइम: {rhyme_short}\nकहानी स्निपेट: {story_short[:50]}...\n#Shorts #KidsRhymes"
+        title_short = f"छोटी हिंदी {'कहानी' if type_short == 'story' else 'राइम'} | {topic_short} #shorts"
+        description_short = f"मजेदार {'कहानी' if type_short == 'story' else 'राइम'}: {text_short}\n#Shorts #KidsRhymes"
 
         upload_to_youtube(short_path, title_short, description_short, is_short=True)
-
-        used_stories.append(story_short)
-        used_rhymes.append(rhyme_short)
-        used_images.append(img_url_short)
-        used_topics.append(topic_short)
-
-        save_used("used_stories.json", used_stories)
-        save_used("used_rhymes.json", used_rhymes)
-        save_used("used_images.json", used_images)
-        save_used("used_topics.json", used_topics)
 
         print("Job completed successfully!")
 
