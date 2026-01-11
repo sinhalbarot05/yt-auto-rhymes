@@ -43,23 +43,22 @@ jobs:
             google-auth-oauthlib \
             google-auth-httplib2
 
-      - name: Download Piper Hindi voice model (Option 1 - reliable)
+      - name: Download Piper Hindi voice model (working 2026 alternative)
         run: |
           mkdir -p voices
           cd voices
-          # Download model file
-          [ ! -f hi_IN-kiran-medium.onnx ] && \
+          # Download Swara medium model (natural female Hindi voice)
+          [ ! -f hi_IN-swara-medium.onnx ] && \
             wget -q --no-check-certificate \
-            https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/kiran/medium/hi_IN-kiran-medium.onnx \
-            -O hi_IN-kiran-medium.onnx
+            https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/swara/medium/hi_IN-swara-medium.onnx \
+            -O hi_IN-swara-medium.onnx
           
-          # Download config file
-          [ ! -f hi_IN-kiran-medium.onnx.json ] && \
+          [ ! -f hi_IN-swara-medium.onnx.json ] && \
             wget -q --no-check-certificate \
-            https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/kiran/medium/hi_IN-kiran-medium.onnx.json \
-            -O hi_IN-kiran-medium.onnx.json
+            https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/swara/medium/hi_IN-swara-medium.onnx.json \
+            -O hi_IN-swara-medium.onnx.json
           
-          # Show what we got (debug in logs)
+          # Debug output
           ls -la
           du -sh *
 
