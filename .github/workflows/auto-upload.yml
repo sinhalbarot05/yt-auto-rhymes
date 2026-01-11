@@ -43,13 +43,25 @@ jobs:
             google-auth-oauthlib \
             google-auth-httplib2
 
-      - name: Download Piper Hindi voice model
+      - name: Download Piper Hindi voice model (Option 1 - reliable)
         run: |
           mkdir -p voices
           cd voices
+          # Download model file
           [ ! -f hi_IN-kiran-medium.onnx ] && \
-            wget -q https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/kiran/medium/hi_IN-kiran-medium.onnx?download=true -O hi_IN-kiran-medium.onnx && \
-            wget -q https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/kiran/medium/hi_IN-kiran-medium.onnx.json?download=true -O hi_IN-kiran-medium.onnx.json
+            wget -q --no-check-certificate \
+            https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/kiran/medium/hi_IN-kiran-medium.onnx \
+            -O hi_IN-kiran-medium.onnx
+          
+          # Download config file
+          [ ! -f hi_IN-kiran-medium.onnx.json ] && \
+            wget -q --no-check-certificate \
+            https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/kiran/medium/hi_IN-kiran-medium.onnx.json \
+            -O hi_IN-kiran-medium.onnx.json
+          
+          # Show what we got (debug in logs)
+          ls -la
+          du -sh *
 
       - name: Decode YouTube credentials
         run: |
