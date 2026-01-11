@@ -15,12 +15,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install system dependencies
+      - name: Install system dependencies (FFmpeg + OpenCV)
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg imagemagick fonts-noto-core fonts-dejavu-core
+          sudo apt-get install -y ffmpeg libopencv-dev python3-opencv
 
-      - name: Fix ImageMagick policy
+      - name: Fix ImageMagick policy (still needed for some fallback)
         run: |
           sudo sed -i '/domain="path"/d' /etc/ImageMagick-6/policy.xml
 
@@ -29,16 +29,14 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Python dependencies (Coqui XTTS-v2 + fixed MoviePy)
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install --upgrade \
-            moviepy==2.1.2 \
+            opencv-python-headless \
             Pillow==10.4.0 \
-            coqui-tts \
             pydub \
             requests \
-            torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu \
             google-api-python-client \
             google-auth \
             google-auth-oauthlib \
