@@ -1,5 +1,3 @@
-# upload_script.py
-
 import os
 import random
 import json
@@ -12,8 +10,9 @@ from moviepy.video.fx.all import resize
 from pydub import AudioSegment
 import requests
 
-# Piper TTS
-from piper.voice import PiperVoice
+# Coqui XTTS-v2
+from TTS.api import TTS
+import torch
 
 # YouTube API
 from googleapiclient.discovery import build
@@ -31,21 +30,22 @@ Path(OUTPUT_DIR).mkdir(exist_ok=True)
 BG_IMAGES_DIR = "images/"
 Path(BG_IMAGES_DIR).mkdir(exist_ok=True)
 
-# Use working Swara voice model
-VOICE_MODEL_PATH = "voices/hi_IN-swara-medium.onnx"
+REFERENCE_VOICE = "reference_female.wav"  # Upload this 10–30s female Hindi WAV file to repo
 
 CLIENT_SECRETS_FILE = "client_secret.json"
 TOKEN_FILE = "youtube_token.pickle"
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
-# Load Piper voice (natural Hindi female)
-try:
-    piper_voice = PiperVoice.load(VOICE_MODEL_PATH)
-except Exception as e:
-    print(f"Failed to load Piper voice model: {e}")
-    sys.exit(1)
+# Load XTTS-v2 (downloads ~1.2–2GB on first run)
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"Loading XTTS-v2 on {device}...")
+tts = TTS(
+    model_name="tts_models/multilingual/multi-dataset/xtts_v2",
+    progress_bar=True
+).to(device)
 
+# ─── MEMORY FUNCTIONS (unchanged) ───────────────────────────────────────────────
 def load_used(file_name):
     path = os.path.join(MEMORY_DIR, file_name)
     if os.path.exists(path):
@@ -66,7 +66,7 @@ used_rhymes = load_used("used_rhymes.json")
 used_images = load_used("used_images.json")
 used_topics = load_used("used_topics.json")
 
-# ─── CONTENT GENERATION ─────────────────────────────────────────────────────────
+# ─── CONTENT GENERATION (unchanged) ─────────────────────────────────────────────
 animals = ["खरगोश", "तोता", "मछली", "हाथी", "शेर", "मोर", "बिल्ली", "कुत्ता"]
 places = ["जंगल", "समंदर", "पहाड़", "नदी", "गाँव", "बाग", "झील"]
 actions = ["खो गया", "सीखा", "मिला", "खेला", "तैरा", "दौड़ा", "गाया"]
@@ -118,7 +118,7 @@ def generate_topic(text):
     save_used("used_topics.json", used_topics)
     return topic
 
-# ─── IMAGE & AUDIO ──────────────────────────────────────────────────────────────
+# ─── IMAGE & AUDIO (XTTS-v2) ────────────────────────────────────────────────────
 def fetch_random_image(topic, orientation="horizontal"):
     query = f"cute hindi kids cartoon illustration {topic}"
     url = f"https://pixabay.com/api/?key={os.getenv('PIXABAY_KEY')}&q={query}&image_type=illustration&orientation={orientation}&per_page=20&safesearch=true"
@@ -151,24 +151,24 @@ def download_image(url, path):
 
 def create_audio(text, output_path):
     try:
-        # Piper TTS synthesis
-        wav_bytes = piper_voice.synthesize(text)
-        
         temp_wav = "temp_audio.wav"
-        with open(temp_wav, "wb") as f:
-            f.write(wav_bytes)
+        
+        # XTTS-v2 with voice cloning
+        tts.tts_to_file(
+            text=text,
+            speaker_wav=REFERENCE_VOICE,   # Your female reference clip
+            language="hi",
+            file_path=temp_wav
+        )
         
         audio = AudioSegment.from_wav(temp_wav)
-        # Sweeten female voice
-        audio = audio._spawn(audio.raw_data, overrides={
-            "frame_rate": int(audio.frame_rate * 1.15)
-        }).set_frame_rate(audio.frame_rate)
-        audio = audio + 5  # volume boost
-        
+        # Sweeten voice slightly (optional)
+        audio = audio + 4  # volume boost
         audio.export(output_path, format="mp3")
         os.remove(temp_wav)
+        
     except Exception as e:
-        print(f"Audio failed: {e}")
+        print(f"XTTS-v2 audio generation failed: {e}")
         sys.exit(1)
 
 def create_video(content_text, bg_image_path, is_short=False):
@@ -226,7 +226,7 @@ def create_video(content_text, bg_image_path, is_short=False):
         print(f"Video creation failed: {e}")
         sys.exit(1)
 
-# ─── YOUTUBE UPLOAD ─────────────────────────────────────────────────────────────
+# ─── YOUTUBE UPLOAD (SEO optimized) ─────────────────────────────────────────────
 def get_authenticated_service():
     creds = None
     if os.path.exists(TOKEN_FILE):
@@ -295,9 +295,9 @@ def upload_to_youtube(video_file, title, description, tags, is_short=False):
 # ─── MAIN ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     try:
-        print("Starting generation & upload...")
+        print("Starting XTTS-v2 generation & upload...")
 
-        # Video (horizontal)
+        # Video
         is_story_video = random.random() > 0.4
         content_video = generate_story() if is_story_video else generate_rhyme()
         topic_video = generate_topic(content_video)
@@ -331,7 +331,7 @@ Business/Collaboration: sinhalbarot05@gmail.com
 
         upload_to_youtube(video_path, title_video, desc_video, tags_video, is_short=False)
 
-        # Short (vertical)
+        # Short
         is_story_short = random.random() > 0.5
         content_short = generate_story() if is_story_short else generate_rhyme()
         topic_short = generate_topic(content_short)
