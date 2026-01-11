@@ -6,7 +6,7 @@ import json
 import sys
 import subprocess
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import cv2
 import numpy as np
@@ -217,6 +217,21 @@ def create_video(content_text, bg_image_path, is_short=False):
         
         audio_path = os.path.join(OUTPUT_DIR, "narration.mp3")
         create_audio(full_text, audio_path)
+
+        # Calculate duration from audio (in seconds)
+        audio = AudioSegment.from_mp3(audio_path)
+        audio_duration_sec = len(audio) / 1000.0  # pydub length in ms → sec
+
+        # Desired video duration should match audio (or be slightly longer)
+        desired_fps = 24
+        desired_frames = int(audio_duration_sec * desired_fps) + 100  # extra frames for safety
+
+        # Re-write temp video with correct duration
+        out = cv2.VideoWriter(temp_video, fourcc, desired_fps, (img.shape[1], img.shape[0]))
+        for i in range(desired_frames):
+            frame_idx = min(i, len(frames) - 1)
+            out.write(frames[frame_idx])
+        out.release()
 
         # Merge with FFmpeg
         final_output = os.path.join(OUTPUT_DIR, f"{'short' if is_short else 'video'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4")
