@@ -105,7 +105,7 @@ def generate_topic(text):
     save_used("used_topics.json", used_topics)
     return topic
 
-# ─── IMAGE & AUDIO ──────────────────────────────────────────────────────────────
+# ─── IMAGE & AUDIO (using eSpeak-ng) ────────────────────────────────────────────
 def fetch_random_image(topic, orientation="horizontal"):
     query = f"cute hindi kids cartoon illustration {topic}"
     url = f"https://pixabay.com/api/?key={os.getenv('PIXABAY_KEY')}&q={query}&image_type=illustration&orientation={orientation}&per_page=20&safesearch=true"
@@ -138,18 +138,26 @@ def download_image(url, path):
 
 def create_audio(text, output_path):
     try:
-        # Use any TTS you prefer here (gTTS example)
-        from gtts import gTTS
-        tts = gTTS(text=text, lang="hi", slow=True)
-        temp_mp3 = "temp_audio.mp3"
-        tts.save(temp_mp3)
+        temp_wav = "temp_audio.wav"
         
-        audio = AudioSegment.from_mp3(temp_mp3)
-        audio = audio + 5  # slight volume boost
+        # Use eSpeak-ng (offline, Hindi support)
+        subprocess.run([
+            "espeak-ng",
+            "-v", "hi",           # Hindi voice
+            "-s", "140",          # Speed (slower for kids)
+            "-p", "50",           # Pitch (higher = more female/child-like)
+            "-a", "150",          # Amplitude/volume
+            "-w", temp_wav,
+            text
+        ], check=True)
+        
+        audio = AudioSegment.from_wav(temp_wav)
+        audio = audio + 8  # Boost volume (eSpeak is quiet)
         audio.export(output_path, format="mp3")
-        os.remove(temp_mp3)
+        os.remove(temp_wav)
+        
     except Exception as e:
-        print(f"Audio creation failed: {e}")
+        print(f"eSpeak-ng audio failed: {e}")
         sys.exit(1)
 
 def create_video(content_text, bg_image_path, is_short=False):
@@ -178,7 +186,7 @@ def create_video(content_text, bg_image_path, is_short=False):
             x = (img.shape[1] - text_size[0]) // 2  # Center
             cv2.putText(img, line, (x, y), font, font_scale, color, thickness, cv2.LINE_AA)
 
-        # Add gentle zoom effect (simple frame-by-frame)
+        # Add gentle zoom effect (frame-by-frame)
         frames = []
         num_frames = 1500  # ~62 seconds at 24fps
         for i in range(num_frames):
@@ -186,13 +194,12 @@ def create_video(content_text, bg_image_path, is_short=False):
             h, w = img.shape[:2]
             new_h, new_w = int(h * scale), int(w * scale)
             zoomed = cv2.resize(img, (new_w, new_h))
-            # Crop center
             start_y = (new_h - h) // 2
             start_x = (new_w - w) // 2
             cropped = zoomed[start_y:start_y+h, start_x:start_x+w]
             frames.append(cropped)
 
-        # Write video without audio
+        # Write temp video (no audio)
         temp_video = os.path.join(OUTPUT_DIR, "temp_video.mp4")
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(temp_video, fourcc, 24.0, (img.shape[1], img.shape[0]))
@@ -200,16 +207,16 @@ def create_video(content_text, bg_image_path, is_short=False):
             out.write(frame)
         out.release()
 
-        # Add audio using FFmpeg
+        # Generate audio
+        intro = "नमस्ते छोटे दोस्तों! आज फिर आई एक नई मजेदार "
+        middle = "कहानी" if "कहानी" in content_text else "राइम"
+        outro = "। बहुत पसंद आए तो लाइक करें, सब्सक्राइब करें और बेल आइकन दबाएं!"
+        full_text = intro + middle + " है: " + content_text + outro
+        
         audio_path = os.path.join(OUTPUT_DIR, "narration.mp3")
-        create_audio(
-            "नमस्ते छोटे दोस्तों! 😍 आज फिर आई एक नई मजेदार " +
-            ("कहानी" if "कहानी" in content_text else "राइम") +
-            " है: " + content_text +
-            "। बहुत पसंद आए तो लाइक करें, सब्सक्राइब करें और बेल आइकन दबाएं! 🔔",
-            audio_path
-        )
+        create_audio(full_text, audio_path)
 
+        # Merge with FFmpeg
         final_output = os.path.join(OUTPUT_DIR, f"{'short' if is_short else 'video'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4")
         cmd = [
             "ffmpeg", "-y",
@@ -301,7 +308,7 @@ def upload_to_youtube(video_file, title, description, tags, is_short=False):
 # ─── MAIN ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     try:
-        print("Starting OpenCV + FFmpeg generation & upload...")
+        print("Starting OpenCV + FFmpeg + eSpeak-ng generation & upload...")
 
         # Video
         is_story_video = random.random() > 0.4
