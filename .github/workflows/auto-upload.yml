@@ -29,11 +29,11 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Python dependencies (Coqui XTTS-v2)
+      - name: Install Python dependencies (Coqui XTTS-v2 + fixed MoviePy)
         run: |
           python -m pip install --upgrade pip
           pip install --upgrade \
-            moviepy==1.0.3 \
+            moviepy==2.1.2 \
             Pillow==10.4.0 \
             coqui-tts \
             pydub \
