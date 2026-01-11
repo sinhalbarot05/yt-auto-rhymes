@@ -1,3 +1,5 @@
+# upload_script.py
+
 import os
 import random
 import json
@@ -140,19 +142,19 @@ def create_audio(text, output_path):
     try:
         temp_wav = "temp_audio.wav"
         
-        # Use eSpeak-ng (offline, Hindi support)
+        # eSpeak-ng with Hindi voice + child-friendly settings
         subprocess.run([
             "espeak-ng",
             "-v", "hi",           # Hindi voice
-            "-s", "140",          # Speed (slower for kids)
-            "-p", "50",           # Pitch (higher = more female/child-like)
-            "-a", "150",          # Amplitude/volume
+            "-s", "130",          # Slightly slower speed
+            "-p", "60",           # Higher pitch (more female/child-like)
+            "-a", "180",          # Louder volume
             "-w", temp_wav,
             text
         ], check=True)
         
         audio = AudioSegment.from_wav(temp_wav)
-        audio = audio + 8  # Boost volume (eSpeak is quiet)
+        audio = audio + 10  # Extra volume boost
         audio.export(output_path, format="mp3")
         os.remove(temp_wav)
         
@@ -239,7 +241,7 @@ def create_video(content_text, bg_image_path, is_short=False):
         print(f"Video creation failed: {e}")
         sys.exit(1)
 
-# ─── YOUTUBE UPLOAD (SEO optimized) ─────────────────────────────────────────────
+# ─── YOUTUBE UPLOAD ─────────────────────────────────────────────────────────────
 def get_authenticated_service():
     creds = None
     if os.path.exists(TOKEN_FILE):
