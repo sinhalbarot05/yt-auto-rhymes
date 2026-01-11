@@ -18,9 +18,9 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg imagemagick fonts-noto-core
+          sudo apt-get install -y ffmpeg imagemagick fonts-noto-core fonts-dejavu-core
 
-      - name: Fix ImageMagick policy (allow @ indirect files)
+      - name: Fix ImageMagick policy
         run: |
           sudo sed -i '/domain="path"/d' /etc/ImageMagick-6/policy.xml
 
@@ -34,8 +34,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install --upgrade \
             moviepy==1.0.3 \
-            Pillow==9.5.0 \
-            gTTS \
+            Pillow==10.4.0 \
+            piper-tts \
             pydub \
             requests \
             google-api-python-client \
@@ -43,12 +43,20 @@ jobs:
             google-auth-oauthlib \
             google-auth-httplib2
 
+      - name: Download Piper Hindi voice model
+        run: |
+          mkdir -p voices
+          cd voices
+          [ ! -f hi_IN-kiran-medium.onnx ] && \
+            wget -q https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/kiran/medium/hi_IN-kiran-medium.onnx?download=true -O hi_IN-kiran-medium.onnx && \
+            wget -q https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/kiran/medium/hi_IN-kiran-medium.onnx.json?download=true -O hi_IN-kiran-medium.onnx.json
+
       - name: Decode YouTube credentials
         run: |
           echo "${{ secrets.YOUTUBE_CLIENT_SECRET_JSON }}" | base64 --decode > client_secret.json
           echo "${{ secrets.YOUTUBE_TOKEN_JSON_B64 }}" | base64 --decode > youtube_token.pickle
 
-      - name: Generate and Upload Video
+      - name: Generate and Upload Content
         env:
           PIXABAY_KEY: ${{ secrets.PIXABAY_KEY }}
         run: python upload_script.py
