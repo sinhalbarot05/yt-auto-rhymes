@@ -1,398 +1,236 @@
-# upload_script.py
-
 import os
 import random
 import json
 import sys
 import subprocess
 from pathlib import Path
-from datetime import datetime
 
 import cv2
 import numpy as np
 from pydub import AudioSegment
 import requests
 
-# YouTube API
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
-# ─── CONFIGURATION ──────────────────────────────────────────────────────────────
+# CONFIG
 MEMORY_DIR = "memory/"
-Path(MEMORY_DIR).mkdir(exist_ok=True)
-
 OUTPUT_DIR = "videos/"
-Path(OUTPUT_DIR).mkdir(exist_ok=True)
-
 BG_IMAGES_DIR = "images/"
-Path(BG_IMAGES_DIR).mkdir(exist_ok=True)
 
-CLIENT_SECRETS_FILE = "client_secret.json"
-TOKEN_FILE = "youtube_token.pickle"
+for d in [MEMORY_DIR, OUTPUT_DIR, BG_IMAGES_DIR]:
+    Path(d).mkdir(exist_ok=True)
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+# MEMORY
+def load_used(f):
+    p = os.path.join(MEMORY_DIR, f)
+    return json.load(open(p, encoding="utf-8")) if os.path.exists(p) else []
 
-# ─── MEMORY FUNCTIONS ───────────────────────────────────────────────────────────
-def load_used(file_name):
-    path = os.path.join(MEMORY_DIR, file_name)
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return []
-
-def save_used(file_name, data):
-    path = os.path.join(MEMORY_DIR, file_name)
+def save_used(f, data):
     try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"Failed to save {file_name}: {e}")
+        json.dump(data, open(os.path.join(MEMORY_DIR, f), "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    except:
+        pass
 
 used_stories = load_used("used_stories.json")
 used_rhymes = load_used("used_rhymes.json")
 used_images = load_used("used_images.json")
 used_topics = load_used("used_topics.json")
 
-# ─── CONTENT GENERATION ─────────────────────────────────────────────────────────
-animals = ["खरगोश", "तोता", "मछली", "हाथी", "शेर", "मोर", "बिल्ली", "कुत्ता"]
-places = ["जंगल", "समंदर", "पहाड़", "नदी", "गाँव", "बाग", "झील"]
-actions = ["खो गया", "सीखा", "मिला", "खेला", "तैरा", "दौड़ा", "गाया"]
-adventures = ["अद्भुत चीजें देखीं", "नए दोस्त बनाए", "खजाना पाया", "जादू सीखा"]
-endings = ["घर लौट आया", "खुश रहा", "समझदार हो गया", "जीत गया"]
-lessons = ["दोस्ती", "साहस", "मेहनत", "प्यार", "ईमानदारी"]
+# CONTENT
+animals = ["खरगोश", "तोता", "मछली", "हाथी", "शेर"]
+places = ["जंगल", "समंदर", "पहाड़", "नदी", "गाँव"]
+actions = ["खो गया", "सीखा", "मिला", "खेला"]
+adventures = ["दोस्त बनाए", "जादू सीखा", "खजाना पाया"]
+endings = ["घर लौट आया", "खुश रहा", "समझदार हो गया"]
+lessons = ["दोस्ती", "साहस", "मेहनत", "प्यार"]
 
-def generate_story():
+def gen_story():
+    global used_stories
     while True:
-        animal = random.choice(animals)
-        place = random.choice(places)
-        action = random.choice(actions)
-        adv = random.sample(adventures, 3)
-        end = random.sample(endings, 2)
-        lesson = random.choice(lessons)
-        
-        story = (
-            f"एक छोटा {animal} था जो {place} में {action}। "
-            f"वहाँ उसने {adv[0]}, {adv[1]} और {adv[2]}। "
-            f"अंत में वह {end[0]} और {end[1]}। "
-            f"यह कहानी बच्चों को {lesson} का महत्व सिखाती है।"
-        )
-        if story not in used_stories:
-            used_stories.append(story)
+        s = f"एक छोटा {random.choice(animals)} {random.choice(places)} में {random.choice(actions)}। {random.choice(adventures)}। अंत में {random.choice(endings)}। {random.choice(lessons)} सिखाती है।"
+        if s not in used_stories:
+            used_stories.append(s)
             save_used("used_stories.json", used_stories)
-            return story
+            return s
 
-def generate_rhyme():
+def gen_rhyme():
+    global used_rhymes
     while True:
-        line1 = f"छोटी-छोटी {random.choice(['बातें','खुशियाँ','सपने'])}, बड़ी-बड़ी {random.choice(lessons)}।"
-        line2 = f"{random.choice(['खेलो','हँसो','गाओ','नाचो'])} {random.choice(['दोस्तों','सबके साथ'])}।"
-        line3 = f"सपनों को पकड़ो, ऊँचा {random.choice(['उड़ो','जाओ'])}।"
-        line4 = f"प्यार बाँटो, जीवन को {random.choice(['सुंदर','खुशहाल'])} बनाओ।"
-        
-        rhyme = f"{line1}\n{line2}\n{line3}\n{line4}"
-        if rhyme not in used_rhymes:
-            used_rhymes.append(rhyme)
+        r = f"छोटी-छोटी बातें, बड़ी सीख।\nखेलो हँसो मुस्कुराओ यार।\nसपनों को पकड़ो उड़ो ऊँचा।\nप्यार बाँटो जीवन सुंदर बनाओ।"
+        if r not in used_rhymes:
+            used_rhymes.append(r)
             save_used("used_rhymes.json", used_rhymes)
-            return rhyme
+            return r
 
-def generate_topic(text):
-    words = text.split()[:5]
-    topic = " ".join(words)
-    i = 0
-    while topic in used_topics and i < 10:
-        topic += f" {random.choice(['नई','मजेदार','प्यारी','2026'])}"
-        i += 1
-    used_topics.append(topic)
+def gen_topic(txt):
+    global used_topics
+    t = " ".join(txt.split()[:4])
+    while t in used_topics:
+        t += f" {random.choice(['नई','मजेदार'])}"
+    used_topics.append(t)
     save_used("used_topics.json", used_topics)
-    return topic
+    return t
 
-# ─── IMAGE & AUDIO (using eSpeak-ng) ────────────────────────────────────────────
-def fetch_random_image(topic, orientation="horizontal"):
-    query = f"cute hindi kids cartoon illustration {topic}"
-    url = f"https://pixabay.com/api/?key={os.getenv('PIXABAY_KEY')}&q={query}&image_type=illustration&orientation={orientation}&per_page=20&safesearch=true"
-    
+# IMAGE
+def get_image(topic, orient="horizontal"):
+    q = f"cute hindi kids cartoon {topic}"
+    u = f"https://pixabay.com/api/?key={os.getenv('PIXABAY_KEY')}&q={q}&image_type=illustration&orientation={orient}&per_page=10&safesearch=true"
     try:
-        resp = requests.get(url).json()
-        hits = resp.get("hits", [])
-        random.shuffle(hits)
-        for hit in hits:
-            img_url = hit.get("largeImageURL")
-            if img_url and img_url not in used_images:
-                used_images.append(img_url)
+        h = requests.get(u).json().get("hits", [])
+        random.shuffle(h)
+        for i in h:
+            url = i.get("largeImageURL")
+            if url and url not in used_images:
+                used_images.append(url)
                 save_used("used_images.json", used_images)
-                return img_url
-        print("No new image found.")
-        sys.exit(1)
-    except Exception as e:
-        print(f"Pixabay error: {e}")
-        sys.exit(1)
+                return url
+        sys.exit("No image")
+    except:
+        sys.exit("Pixabay fail")
 
-def download_image(url, path):
-    try:
-        r = requests.get(url, timeout=20)
-        r.raise_for_status()
-        with open(path, "wb") as f:
-            f.write(r.content)
-    except Exception as e:
-        print(f"Download failed: {e}")
-        sys.exit(1)
+def dl_image(url, path):
+    with open(path, "wb") as f:
+        f.write(requests.get(url, timeout=15).content)
 
-def create_audio(text, output_path):
-    try:
-        temp_wav = "temp_audio.wav"
-        
-        # eSpeak-ng with Hindi voice + child-friendly settings
-        subprocess.run([
-            "espeak-ng",
-            "-v", "hi",           # Hindi voice
-            "-s", "130",          # Slightly slower speed
-            "-p", "60",           # Higher pitch (more female/child-like)
-            "-a", "180",          # Louder volume
-            "-w", temp_wav,
-            text
-        ], check=True)
-        
-        audio = AudioSegment.from_wav(temp_wav)
-        audio = audio + 10  # Extra volume boost
-        audio.export(output_path, format="mp3")
-        os.remove(temp_wav)
-        
-    except Exception as e:
-        print(f"eSpeak-ng audio failed: {e}")
-        sys.exit(1)
+# AUDIO (eSpeak)
+def make_audio(txt, out):
+    wav = "temp.wav"
+    subprocess.run(["espeak-ng", "-v", "hi", "-s", "130", "-p", "60", "-a", "180", "-w", wav, txt], check=True)
+    AudioSegment.from_wav(wav).export(out, format="mp3")
+    os.remove(wav)
 
-def create_video(content_text, bg_image_path, is_short=False):
-    try:
-        # Load background image
-        img = cv2.imread(bg_image_path)
-        if img is None:
-            raise ValueError("Failed to load background image")
+# VIDEO (OpenCV + FFmpeg)
+def make_video(txt, bg_path, short=False):
+    img = cv2.imread(bg_path)
+    if img is None:
+        sys.exit("Image load fail")
 
-        # Resize
-        if is_short:
-            img = cv2.resize(img, (1080, 1920))
-        else:
-            img = cv2.resize(img, (1920, 1080))
+    size = (1080, 1920) if short else (1920, 1080)
+    img = cv2.resize(img, size)
 
-        # Add multi-line text overlay
-        font = cv2.FONT_HERSHEY_DUPLEX
-        font_scale = 1.8 if is_short else 1.5
-        color = (0, 255, 255)  # Yellow
-        thickness = 5
-        lines = content_text.split('\n')
-        y0, dy = 400 if is_short else 300, 90
-        for i, line in enumerate(lines):
-            y = y0 + i * dy
-            text_size = cv2.getTextSize(line, font, font_scale, thickness)[0]
-            x = (img.shape[1] - text_size[0]) // 2  # Center
-            cv2.putText(img, line, (x, y), font, font_scale, color, thickness, cv2.LINE_AA)
+    # Text
+    font, scale, col, thick = cv2.FONT_HERSHEY_DUPLEX, 1.6 if short else 1.4, (0,255,255), 5
+    lines = txt.split('\n')
+    y, dy = 400 if short else 300, 80
+    for i, line in enumerate(lines):
+        (tw, _), _ = cv2.getTextSize(line, font, scale, thick)
+        x = (size[0] - tw) // 2
+        cv2.putText(img, line, (x, y + i*dy), font, scale, col, thick)
 
-        # Add gentle zoom effect (frame-by-frame)
-        frames = []
-        num_frames = 1500  # ~62 seconds at 24fps (fallback default)
-        for i in range(num_frames):
-            scale = 1 + 0.015 * (i / num_frames)  # Slow zoom-in
-            h, w = img.shape[:2]
-            new_h, new_w = int(h * scale), int(w * scale)
-            zoomed = cv2.resize(img, (new_w, new_h))
-            start_y = (new_h - h) // 2
-            start_x = (new_w - w) // 2
-            cropped = zoomed[start_y:start_y+h, start_x:start_x+w]
-            frames.append(cropped)
+    # Frames (zoom)
+    frames = []
+    n = 1500
+    for i in range(n):
+        s = 1 + 0.015 * (i / n)
+        h, w = img.shape[:2]
+        nh, nw = int(h*s), int(w*s)
+        z = cv2.resize(img, (nw, nh))
+        frames.append(z[(nh-h)//2:(nh-h)//2+h, (nw-w)//2:(nw-w)//2+w])
 
-        # Write temp video (no audio)
-        temp_video = os.path.join(OUTPUT_DIR, "temp_video.mp4")
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(temp_video, fourcc, 24.0, (img.shape[1], img.shape[0]))
-        for frame in frames:
-            out.write(frame)
-        out.release()
+    # Temp video
+    tmp_vid = os.path.join(OUTPUT_DIR, "tmp.mp4")
+    out = cv2.VideoWriter(tmp_vid, cv2.VideoWriter_fourcc(*'mp4v'), 24, size)
+    for f in frames:
+        out.write(f)
+    out.release()
 
-        # Generate audio
-        intro = "नमस्ते छोटे दोस्तों! आज फिर आई एक नई मजेदार "
-        middle = "कहानी" if "कहानी" in content_text else "राइम"
-        outro = "। बहुत पसंद आए तो लाइक करें, सब्सक्राइब करें और बेल आइकन दबाएं!"
-        full_text = intro + middle + " है: " + content_text + outro
-        
-        audio_path = os.path.join(OUTPUT_DIR, "narration.mp3")
-        create_audio(full_text, audio_path)
+    # Audio
+    intro = "नमस्ते छोटे दोस्तों! आज नई "
+    mid = "कहानी" if "कहानी" in txt else "राइम"
+    out = "। लाइक, सब्सक्राइब करो!"
+    full = intro + mid + " है: " + txt + out
+    aud_path = os.path.join(OUTPUT_DIR, "aud.mp3")
+    make_audio(full, aud_path)
 
-        # Use FFmpeg to get audio duration and create video of matching length
-        cmd_duration = [
-            "ffprobe", "-v", "error", "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1", audio_path
-        ]
-        duration_str = subprocess.check_output(cmd_duration).decode().strip()
-        audio_duration = float(duration_str) if duration_str else 60.0  # fallback 60s
+    # Final merge
+    final = os.path.join(OUTPUT_DIR, f"{'s' if short else 'v'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4")
+    subprocess.run([
+        "ffmpeg", "-y", "-i", tmp_vid, "-i", aud_path,
+        "-c:v", "libx264", "-c:a", "aac", "-shortest",
+        "-pix_fmt", "yuv420p", "-b:v", "8000k", final
+    ], check=True)
 
-        # Desired frames based on audio duration
-        desired_fps = 24
-        desired_frames = int(audio_duration * desired_fps) + 50  # small buffer
+    os.remove(tmp_vid)
+    os.remove(aud_path)
+    return final
 
-        # Re-write temp video with correct number of frames
-        out = cv2.VideoWriter(temp_video, fourcc, desired_fps, (img.shape[1], img.shape[0]))
-        for i in range(desired_frames):
-            frame_idx = min(i, len(frames) - 1)
-            out.write(frames[frame_idx])
-        out.release()
-
-        # Merge with FFmpeg
-        final_output = os.path.join(OUTPUT_DIR, f"{'short' if is_short else 'video'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4")
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", temp_video,
-            "-i", audio_path,
-            "-c:v", "libx264", "-c:a", "aac",
-            "-shortest", "-pix_fmt", "yuv420p",
-            "-b:v", "8000k",
-            final_output
-        ]
-        subprocess.run(cmd, check=True)
-
-        # Cleanup
-        if os.path.exists(temp_video):
-            os.remove(temp_video)
-        if os.path.exists(audio_path):
-            os.remove(audio_path)
-
-        return final_output
-
-    except Exception as e:
-        print(f"Video creation failed: {e}")
-        sys.exit(1)
-
-# ─── YOUTUBE UPLOAD ─────────────────────────────────────────────────────────────
-def get_authenticated_service():
+# ─── YOUTUBE ────────────────────────────────────────────────────────────────────
+def yt_service():
     creds = None
     if os.path.exists(TOKEN_FILE):
-        try:
-            with open(TOKEN_FILE, 'r', encoding='utf-8') as f:
-                token_data = json.load(f)
-            creds = Credentials(**token_data)
-        except Exception as e:
-            print(f"Credentials load error: {e}")
+        with open(TOKEN_FILE, 'r', encoding='utf-8') as f:
+            creds = Credentials(**json.load(f))
 
     if creds and creds.expired and creds.refresh_token:
-        try:
-            creds.refresh(Request())
-            with open(TOKEN_FILE, 'w', encoding='utf-8') as f:
-                json.dump(vars(creds), f, indent=2)
-        except Exception as e:
-            print(f"Refresh failed: {e}")
+        creds.refresh(Request())
+        with open(TOKEN_FILE, 'w', encoding='utf-8') as f:
+            json.dump(vars(creds), f, indent=2)
 
     if not creds or not creds.valid:
-        print("No valid credentials. Need manual OAuth first.")
+        print("No credentials")
         sys.exit(1)
 
     return build('youtube', 'v3', credentials=creds)
 
-def upload_to_youtube(video_file, title, description, tags, is_short=False):
-    youtube = get_authenticated_service()
-
+def upload(vid, title, desc, tags, short=False):
+    yt = yt_service()
     body = {
-        'snippet': {
-            'title': title,
-            'description': description,
-            'tags': tags,
-            'categoryId': '24'
-        },
-        'status': {
-            'privacyStatus': 'public'
-        }
+        'snippet': {'title': title, 'description': desc, 'tags': tags, 'categoryId': '24'},
+        'status': {'privacyStatus': 'public'}
     }
+    media = MediaFileUpload(vid, mimetype='video/mp4', resumable=True)
+    req = yt.videos().insert(part="snippet,status", body=body, media_body=media)
 
-    media = MediaFileUpload(video_file, mimetype='video/mp4', resumable=True)
+    resp = None
+    while resp is None:
+        status, resp = req.next_chunk()
+        if status:
+            print(f"Uploaded {int(status.progress()*100)}%")
 
-    print(f"Uploading {'Short' if is_short else 'Video'}...")
-    request = youtube.videos().insert(
-        part="snippet,status",
-        body=body,
-        media_body=media
-    )
-
-    response = None
-    retry = 0
-    while response is None:
-        try:
-            status, response = request.next_chunk()
-            if status:
-                print(f"Uploaded {int(status.progress() * 100)}%")
-        except Exception as e:
-            print(f"Upload error: {e}")
-            retry += 1
-            if retry > 5:
-                raise
-
-    video_id = response['id']
-    print(f"SUCCESS! ID: {video_id} → https://youtu.be/{video_id}")
-    return video_id
+    vid_id = resp['id']
+    print(f"Done: https://youtu.be/{vid_id}")
+    return vid_id
 
 # ─── MAIN ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    print("Starting...")
     try:
-        print("Starting OpenCV + FFmpeg + eSpeak-ng generation & upload...")
-
         # Video
-        is_story_video = random.random() > 0.4
-        content_video = generate_story() if is_story_video else generate_rhyme()
-        topic_video = generate_topic(content_video)
+        story_mode = random.random() > 0.4
+        txt_v = gen_story() if story_mode else gen_rhyme()
+        top_v = gen_topic(txt_v)
 
-        img_url_v = fetch_random_image(topic_video, "horizontal")
-        img_path_v = os.path.join(BG_IMAGES_DIR, "bg_video.jpg")
-        download_image(img_url_v, img_path_v)
+        url_v = get_image(top_v, "horizontal")
+        p_v = os.path.join(BG_IMAGES_DIR, "bg_v.jpg")
+        download_image(url_v, p_v)
 
-        video_path = create_video(content_video, img_path_v, is_short=False)
+        v_path = make_video(txt_v, p_v, False)
 
-        title_video = f"मजेदार नई {'हिंदी कहानी' if is_story_video else 'राइम'} बच्चों के लिए | {topic_video} | 2026"
-        desc_video = f"""नमस्ते छोटे दोस्तों! 😍 आज सुनिए बहुत प्यारी {'कहानी' if is_story_video else 'राइम'}!
-
-{content_video[:150]}...
-
-00:00 नमस्ते छोटे दोस्तों!
-00:15 {'कहानी' if is_story_video else 'राइम'} शुरू
-03:00 मजेदार अंत 🎉
-
-पसंद आए तो लाइक 👍, सब्सक्राइब करें 🔔 और कमेंट में बताएं अगली बार कौन सी कहानी सुनना चाहते हो!
-
-#HindiKahani #BacchonKiKahani #NurseryRhymes #HindiRhymes #KidsStories
-
-Business/Collaboration: sinhalbarot05@gmail.com
-"""
-        tags_video = [
-            "हिंदी कहानी", "बच्चों की कहानी", "नई हिंदी कहानी 2026", "मजेदार कहानी",
-            "bacchon ki kahani", "hindi story for kids", "nursery rhymes hindi", "hindi rhymes",
-            "kids stories hindi", "moral stories hindi"
-        ] + [w for w in topic_video.split() if len(w) > 3][:5]
-
-        upload_to_youtube(video_path, title_video, desc_video, tags_video, is_short=False)
+        t_v = f"मजेदार नई {'कहानी' if story_mode else 'राइम'} | {top_v} | 2026"
+        d_v = f"नमस्ते! {txt_v[:100]}...\n#HindiKids #BacchonKiKahani"
+        tags_v = ["हिंदी कहानी", "बच्चों की कहानी", "नई राइम 2026"] + txt_v.split()[:5]
+        upload(v_path, t_v, d_v, tags_v)
 
         # Short
-        is_story_short = random.random() > 0.5
-        content_short = generate_story() if is_story_short else generate_rhyme()
-        topic_short = generate_topic(content_short)
+        story_mode_s = random.random() > 0.5
+        txt_s = gen_story() if story_mode_s else gen_rhyme()
+        top_s = gen_topic(txt_s)
 
-        img_url_s = fetch_random_image(topic_short, "vertical")
-        img_path_s = os.path.join(BG_IMAGES_DIR, "bg_short.jpg")
-        download_image(img_url_s, img_path_s)
+        url_s = get_image(top_s, "vertical")
+        p_s = os.path.join(BG_IMAGES_DIR, "bg_s.jpg")
+        download_image(url_s, p_s)
 
-        short_path = create_video(content_short, img_path_s, is_short=True)
+        s_path = make_video(txt_s, p_s, True)
 
-        title_short = f"प्यारी {'कहानी' if is_story_short else 'राइम'} बच्चों के लिए #shorts | {topic_short}"
-        desc_short = f"""नमस्ते दोस्तों! 😊 यहाँ है मजेदार {'कहानी' if is_story_short else 'राइम'}!
+        t_s = f"प्यारी {'कहानी' if story_mode_s else 'राइम'} #shorts | {top_s}"
+        d_s = f"{txt_s[:80]}...\n#Shorts"
+        tags_s = tags_v + ["shorts"]
+        upload(s_path, t_s, d_s, tags_s, True)
 
-{content_short[:80]}...
-
-पूरा वीडियो ऊपर देखो ↑
-लाइक + सब्सक्राइब जरूर करें! ❤️
-
-#Shorts #HindiRhymes #BacchonKiKahani"""
-
-        tags_short = tags_video + ["shorts", "hindi shorts", "kids shorts"]
-
-        upload_to_youtube(short_path, title_short, desc_short, tags_short, is_short=True)
-
-        print("All done! Videos uploaded successfully.")
+        print("Success!")
 
     except Exception as e:
         print(f"ERROR: {e}")
