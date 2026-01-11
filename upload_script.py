@@ -2,17 +2,14 @@ import os
 import random
 import json
 import sys
+import subprocess
 from pathlib import Path
 from datetime import datetime
 
-from moviepy.editor import ImageClip, AudioFileClip, CompositeVideoClip, TextClip
-from moviepy.video.fx.all import resize
+import cv2
+import numpy as np
 from pydub import AudioSegment
 import requests
-
-# Coqui XTTS-v2
-from TTS.api import TTS
-import torch
 
 # YouTube API
 from googleapiclient.discovery import build
@@ -30,22 +27,12 @@ Path(OUTPUT_DIR).mkdir(exist_ok=True)
 BG_IMAGES_DIR = "images/"
 Path(BG_IMAGES_DIR).mkdir(exist_ok=True)
 
-REFERENCE_VOICE = "reference_female.wav"  # Upload this 10–30s female Hindi WAV file to repo
-
 CLIENT_SECRETS_FILE = "client_secret.json"
 TOKEN_FILE = "youtube_token.pickle"
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
-# Load XTTS-v2 (downloads ~1.2–2GB on first run)
-device = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"Loading XTTS-v2 on {device}...")
-tts = TTS(
-    model_name="tts_models/multilingual/multi-dataset/xtts_v2",
-    progress_bar=True
-).to(device)
-
-# ─── MEMORY FUNCTIONS (unchanged) ───────────────────────────────────────────────
+# ─── MEMORY FUNCTIONS ───────────────────────────────────────────────────────────
 def load_used(file_name):
     path = os.path.join(MEMORY_DIR, file_name)
     if os.path.exists(path):
@@ -66,7 +53,7 @@ used_rhymes = load_used("used_rhymes.json")
 used_images = load_used("used_images.json")
 used_topics = load_used("used_topics.json")
 
-# ─── CONTENT GENERATION (unchanged) ─────────────────────────────────────────────
+# ─── CONTENT GENERATION ─────────────────────────────────────────────────────────
 animals = ["खरगोश", "तोता", "मछली", "हाथी", "शेर", "मोर", "बिल्ली", "कुत्ता"]
 places = ["जंगल", "समंदर", "पहाड़", "नदी", "गाँव", "बाग", "झील"]
 actions = ["खो गया", "सीखा", "मिला", "खेला", "तैरा", "दौड़ा", "गाया"]
@@ -118,7 +105,7 @@ def generate_topic(text):
     save_used("used_topics.json", used_topics)
     return topic
 
-# ─── IMAGE & AUDIO (XTTS-v2) ────────────────────────────────────────────────────
+# ─── IMAGE & AUDIO ──────────────────────────────────────────────────────────────
 def fetch_random_image(topic, orientation="horizontal"):
     query = f"cute hindi kids cartoon illustration {topic}"
     url = f"https://pixabay.com/api/?key={os.getenv('PIXABAY_KEY')}&q={query}&image_type=illustration&orientation={orientation}&per_page=20&safesearch=true"
@@ -151,76 +138,95 @@ def download_image(url, path):
 
 def create_audio(text, output_path):
     try:
-        temp_wav = "temp_audio.wav"
+        # Use any TTS you prefer here (gTTS example)
+        from gtts import gTTS
+        tts = gTTS(text=text, lang="hi", slow=True)
+        temp_mp3 = "temp_audio.mp3"
+        tts.save(temp_mp3)
         
-        # XTTS-v2 with voice cloning
-        tts.tts_to_file(
-            text=text,
-            speaker_wav=REFERENCE_VOICE,   # Your female reference clip
-            language="hi",
-            file_path=temp_wav
-        )
-        
-        audio = AudioSegment.from_wav(temp_wav)
-        # Sweeten voice slightly (optional)
-        audio = audio + 4  # volume boost
+        audio = AudioSegment.from_mp3(temp_mp3)
+        audio = audio + 5  # slight volume boost
         audio.export(output_path, format="mp3")
-        os.remove(temp_wav)
-        
+        os.remove(temp_mp3)
     except Exception as e:
-        print(f"XTTS-v2 audio generation failed: {e}")
+        print(f"Audio creation failed: {e}")
         sys.exit(1)
 
 def create_video(content_text, bg_image_path, is_short=False):
     try:
-        intro = "नमस्ते छोटे दोस्तों! 😍 आज फिर आई एक नई मजेदार "
-        middle = "कहानी" if "कहानी" in content_text else "राइम"
-        outro = "। बहुत पसंद आए तो लाइक करें, सब्सक्राइब करें और बेल आइकन दबाएं! 🔔"
-        
-        full_text = intro + middle + " है: " + content_text + outro
-        
-        audio_path = os.path.join(OUTPUT_DIR, "narration.mp3")
-        create_audio(full_text, audio_path)
+        # Load background image
+        img = cv2.imread(bg_image_path)
+        if img is None:
+            raise ValueError("Failed to load background image")
 
-        audio_clip = AudioFileClip(audio_path)
-        duration = audio_clip.duration
-
-        bg_clip = ImageClip(bg_image_path).set_duration(duration)
+        # Resize
         if is_short:
-            bg_clip = bg_clip.resize(width=1080, height=1920)
+            img = cv2.resize(img, (1080, 1920))
         else:
-            bg_clip = bg_clip.resize(width=1920, height=1080)
+            img = cv2.resize(img, (1920, 1080))
 
-        bg_clip = bg_clip.fx(resize, lambda t: 1 + 0.015 * t)
+        # Add multi-line text overlay
+        font = cv2.FONT_HERSHEY_DUPLEX
+        font_scale = 1.8 if is_short else 1.5
+        color = (0, 255, 255)  # Yellow
+        thickness = 5
+        lines = content_text.split('\n')
+        y0, dy = 400 if is_short else 300, 90
+        for i, line in enumerate(lines):
+            y = y0 + i * dy
+            text_size = cv2.getTextSize(line, font, font_scale, thickness)[0]
+            x = (img.shape[1] - text_size[0]) // 2  # Center
+            cv2.putText(img, line, (x, y), font, font_scale, color, thickness, cv2.LINE_AA)
 
-        txt_clip = TextClip(
-            content_text,
-            fontsize=75 if is_short else 65,
-            color='yellow',
-            font='Noto-Sans-Devanagari',
-            stroke_color='black',
-            stroke_width=3,
-            method='caption',
-            size=(700 if is_short else 1100, None)
-        ).set_position(('center', 'center')).set_duration(duration)
+        # Add gentle zoom effect (simple frame-by-frame)
+        frames = []
+        num_frames = 1500  # ~62 seconds at 24fps
+        for i in range(num_frames):
+            scale = 1 + 0.015 * (i / num_frames)  # Slow zoom-in
+            h, w = img.shape[:2]
+            new_h, new_w = int(h * scale), int(w * scale)
+            zoomed = cv2.resize(img, (new_w, new_h))
+            # Crop center
+            start_y = (new_h - h) // 2
+            start_x = (new_w - w) // 2
+            cropped = zoomed[start_y:start_y+h, start_x:start_x+w]
+            frames.append(cropped)
 
-        final = CompositeVideoClip([bg_clip, txt_clip]).set_audio(audio_clip)
+        # Write video without audio
+        temp_video = os.path.join(OUTPUT_DIR, "temp_video.mp4")
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(temp_video, fourcc, 24.0, (img.shape[1], img.shape[0]))
+        for frame in frames:
+            out.write(frame)
+        out.release()
 
-        prefix = 'short' if is_short else 'video'
-        output_file = os.path.join(OUTPUT_DIR, f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4")
-        
-        final.write_videofile(
-            output_file,
-            fps=24,
-            codec='libx264',
-            audio_codec='aac',
-            bitrate="8000k",
-            preset='medium',
-            threads=4,
-            logger=None
+        # Add audio using FFmpeg
+        audio_path = os.path.join(OUTPUT_DIR, "narration.mp3")
+        create_audio(
+            "नमस्ते छोटे दोस्तों! 😍 आज फिर आई एक नई मजेदार " +
+            ("कहानी" if "कहानी" in content_text else "राइम") +
+            " है: " + content_text +
+            "। बहुत पसंद आए तो लाइक करें, सब्सक्राइब करें और बेल आइकन दबाएं! 🔔",
+            audio_path
         )
 
-        return output_file
+        final_output = os.path.join(OUTPUT_DIR, f"{'short' if is_short else 'video'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4")
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", temp_video,
+            "-i", audio_path,
+            "-c:v", "libx264", "-c:a", "aac",
+            "-shortest", "-pix_fmt", "yuv420p",
+            "-b:v", "8000k",
+            final_output
+        ]
+        subprocess.run(cmd, check=True)
+
+        # Cleanup
+        os.remove(temp_video)
+        os.remove(audio_path)
+
+        return final_output
 
     except Exception as e:
         print(f"Video creation failed: {e}")
@@ -295,7 +301,7 @@ def upload_to_youtube(video_file, title, description, tags, is_short=False):
 # ─── MAIN ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     try:
-        print("Starting XTTS-v2 generation & upload...")
+        print("Starting OpenCV + FFmpeg generation & upload...")
 
         # Video
         is_story_video = random.random() > 0.4
