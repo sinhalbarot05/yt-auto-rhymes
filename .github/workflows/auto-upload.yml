@@ -15,12 +15,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install system dependencies (FFmpeg + OpenCV)
+      - name: Install system dependencies (FFmpeg + OpenCV + eSpeak-ng)
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg libopencv-dev python3-opencv
+          sudo apt-get install -y ffmpeg libopencv-dev python3-opencv espeak-ng
 
-      - name: Fix ImageMagick policy (still needed for some fallback)
+      - name: Fix ImageMagick policy
         run: |
           sudo sed -i '/domain="path"/d' /etc/ImageMagick-6/policy.xml
 
