@@ -6,7 +6,7 @@ import json
 import sys
 import subprocess
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import cv2
 import numpy as np
@@ -190,7 +190,7 @@ def create_video(content_text, bg_image_path, is_short=False):
 
         # Add gentle zoom effect (frame-by-frame)
         frames = []
-        num_frames = 1500  # ~62 seconds at 24fps
+        num_frames = 1500  # ~62 seconds at 24fps (fallback default)
         for i in range(num_frames):
             scale = 1 + 0.015 * (i / num_frames)  # Slow zoom-in
             h, w = img.shape[:2]
@@ -218,15 +218,19 @@ def create_video(content_text, bg_image_path, is_short=False):
         audio_path = os.path.join(OUTPUT_DIR, "narration.mp3")
         create_audio(full_text, audio_path)
 
-        # Calculate duration from audio (in seconds)
-        audio = AudioSegment.from_mp3(audio_path)
-        audio_duration_sec = len(audio) / 1000.0  # pydub length in ms → sec
+        # Use FFmpeg to get audio duration and create video of matching length
+        cmd_duration = [
+            "ffprobe", "-v", "error", "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", audio_path
+        ]
+        duration_str = subprocess.check_output(cmd_duration).decode().strip()
+        audio_duration = float(duration_str) if duration_str else 60.0  # fallback 60s
 
-        # Desired video duration should match audio (or be slightly longer)
+        # Desired frames based on audio duration
         desired_fps = 24
-        desired_frames = int(audio_duration_sec * desired_fps) + 100  # extra frames for safety
+        desired_frames = int(audio_duration * desired_fps) + 50  # small buffer
 
-        # Re-write temp video with correct duration
+        # Re-write temp video with correct number of frames
         out = cv2.VideoWriter(temp_video, fourcc, desired_fps, (img.shape[1], img.shape[0]))
         for i in range(desired_frames):
             frame_idx = min(i, len(frames) - 1)
@@ -247,8 +251,10 @@ def create_video(content_text, bg_image_path, is_short=False):
         subprocess.run(cmd, check=True)
 
         # Cleanup
-        os.remove(temp_video)
-        os.remove(audio_path)
+        if os.path.exists(temp_video):
+            os.remove(temp_video)
+        if os.path.exists(audio_path):
+            os.remove(audio_path)
 
         return final_output
 
