@@ -1,5 +1,3 @@
-# upload_script.py
-
 import os
 import random
 import json
@@ -11,8 +9,11 @@ from datetime import datetime
 
 import cv2
 import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 from pydub import AudioSegment
 import requests
+
+from piper.voice import PiperVoice
 
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -25,11 +26,19 @@ MEMORY_DIR = "memory/"
 OUTPUT_DIR = "videos/"
 BG_IMAGES_DIR = "images/"
 TOKEN_FILE = "youtube_token.pickle"
+VOICE_MODEL = "voices/hi_IN-swara-medium.onnx"
 
 for d in [MEMORY_DIR, OUTPUT_DIR, BG_IMAGES_DIR]:
     Path(d).mkdir(exist_ok=True)
 
-# MEMORY
+# Load Piper once (natural Hindi female)
+try:
+    piper = PiperVoice.load(VOICE_MODEL)
+except Exception as e:
+    print(f"Piper load failed: {e}")
+    sys.exit(1)
+
+# MEMORY (unchanged)
 def load_used(f):
     p = os.path.join(MEMORY_DIR, f)
     return json.load(open(p, encoding="utf-8")) if os.path.exists(p) else []
@@ -37,15 +46,15 @@ def load_used(f):
 def save_used(f, data):
     try:
         json.dump(data, open(os.path.join(MEMORY_DIR, f), "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"Memory save failed for {f}: {e}")
+    except:
+        pass
 
 used_stories = load_used("used_stories.json")
 used_rhymes = load_used("used_rhymes.json")
 used_images = load_used("used_images.json")
 used_topics = load_used("used_topics.json")
 
-# CONTENT GENERATION
+# CONTENT GENERATION (simplified)
 animals = ["खरगोश", "तोता", "मछली", "हाथी", "शेर"]
 places = ["जंगल", "समंदर", "पहाड़", "नदी", "गाँव"]
 actions = ["खो गया", "सीखा", "मिला", "खेला"]
@@ -109,33 +118,27 @@ def dl_image(url, path):
         print(f"Image download failed: {e}")
         sys.exit(1)
 
-# AUDIO (eSpeak-ng - tuned for clearer, slower Hindi)
+# AUDIO (Piper TTS - natural female Hindi)
 def make_audio(txt, out):
     try:
-        wav = "temp.wav"
-        subprocess.run([
-            "espeak-ng",
-            "-v", "hi",
-            "-s", "90",           # Much slower for clarity
-            "-p", "75",           # Higher pitch (more child-like)
-            "-a", "200",          # Maximum volume
-            "-g", "20",           # Longer word gaps for natural pauses
-            "-w", wav,
-            txt
-        ], check=True, timeout=30)
+        wav_bytes = piper.synthesize(txt)
+        temp_wav = "temp.wav"
+        with open(temp_wav, "wb") as f:
+            f.write(wav_bytes)
 
-        audio = AudioSegment.from_wav(wav)
-        audio = audio.normalize()     # Auto-level loudness
-        audio = audio + 12            # Extra boost
-        audio.export(out, format="mp3", bitrate="128k")
-        os.remove(wav)
+        audio = AudioSegment.from_wav(temp_wav)
+        audio = audio.normalize()
+        audio = audio + 10  # Boost if needed
+        audio.export(out, format="mp3", bitrate="192k")
+        os.remove(temp_wav)
     except Exception as e:
-        print(f"Audio creation failed: {e}")
+        print(f"Piper TTS failed: {e}")
         sys.exit(1)
 
-# VIDEO (OpenCV + FFmpeg)
+# VIDEO (OpenCV + Pillow for perfect Hindi text)
 def make_video(txt, bg_path, short=False):
     try:
+        # Load background
         img = cv2.imread(bg_path)
         if img is None:
             raise ValueError("Image load failed")
@@ -143,18 +146,30 @@ def make_video(txt, bg_path, short=False):
         size = (1080, 1920) if short else (1920, 1080)
         img = cv2.resize(img, size)
 
-        # Text overlay
-        font, scale, col, thick = cv2.FONT_HERSHEY_DUPLEX, 1.8 if short else 1.5, (0,255,255), 5
+        # Use Pillow to render Hindi text (perfect Devanagari support)
+        pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        draw = ImageDraw.Draw(pil_img)
+        try:
+            font_path = "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf"  # System Noto font
+            font = ImageFont.truetype(font_path, 80 if short else 70)
+        except:
+            font = ImageFont.load_default()  # Fallback
+
         lines = txt.split('\n')
-        y, dy = 400 if short else 300, 90
-        for i, line in enumerate(lines):
-            (tw, _), _ = cv2.getTextSize(line, font, scale, thick)
-            x = (size[0] - tw) // 2
-            cv2.putText(img, line, (x, y + i*dy), font, scale, col, thick)
+        y, dy = 400 if short else 300, 100
+        for line in lines:
+            bbox = draw.textbbox((0, 0), line, font=font)
+            text_w = bbox[2] - bbox[0]
+            x = (size[0] - text_w) // 2
+            draw.text((x, y), line, font=font, fill=(255, 255, 0))  # Yellow
+            y += dy
+
+        # Convert back to OpenCV
+        img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
 
         # Zoom frames
         frames = []
-        n = 1800  # ~75 seconds buffer
+        n = 1800
         for i in range(n):
             s = 1 + 0.015 * (i / n)
             h, w = img.shape[:2]
@@ -177,7 +192,7 @@ def make_video(txt, bg_path, short=False):
         aud = os.path.join(OUTPUT_DIR, "aud.mp3")
         make_audio(full, aud)
 
-        # Final merge
+        # Merge
         final = os.path.join(OUTPUT_DIR, f"{'s' if short else 'v'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4")
         subprocess.run([
             "ffmpeg", "-y", "-i", tmp_vid, "-i", aud,
@@ -193,34 +208,19 @@ def make_video(txt, bg_path, short=False):
         print(f"Video creation failed: {e}")
         sys.exit(1)
 
-# YOUTUBE (robust retry + error handling)
+# YOUTUBE (robust)
 def yt_service():
     try:
         creds = None
         if os.path.exists(TOKEN_FILE):
             with open(TOKEN_FILE, 'r', encoding='utf-8') as f:
                 token_data = json.load(f)
-            creds = Credentials(
-                token=token_data.get('token'),
-                refresh_token=token_data.get('refresh_token'),
-                token_uri=token_data.get('token_uri'),
-                client_id=token_data.get('client_id'),
-                client_secret=token_data.get('client_secret'),
-                scopes=token_data.get('scopes')
-            )
+            creds = Credentials(**token_data)
 
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
-            token_data = {
-                'token': creds.token,
-                'refresh_token': creds.refresh_token,
-                'token_uri': creds.token_uri,
-                'client_id': creds.client_id,
-                'client_secret': creds.client_secret,
-                'scopes': creds.scopes
-            }
             with open(TOKEN_FILE, 'w', encoding='utf-8') as f:
-                json.dump(token_data, f, indent=2)
+                json.dump(vars(creds), f, indent=2)
 
         if not creds or not creds.valid:
             print("No valid credentials.")
@@ -251,17 +251,17 @@ def upload(vid, title, desc, tags, short=False):
                     print(f"Upload progress: {int(status.progress()*100)}%")
 
             vid_id = resp['id']
-            print(f"Upload SUCCESS! {'Short' if short else 'Video'} ID: {vid_id} → https://youtu.be/{vid_id}")
+            print(f"Upload SUCCESS! {'Short' if short else 'Video'} ID: {vid_id}")
             return vid_id
 
         except HttpError as e:
-            print(f"YouTube HTTP error (attempt {attempt+1}): {e}")
+            print(f"HTTP error (attempt {attempt+1}): {e}")
             time.sleep(10 * (attempt + 1))
         except Exception as e:
             print(f"Upload error (attempt {attempt+1}): {e}")
             time.sleep(10 * (attempt + 1))
 
-    print("Upload failed after all retries.")
+    print("Upload failed after retries.")
     return None
 
 # MAIN
