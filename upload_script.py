@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 from pydub import AudioSegment
 import requests
 
-from piper.voice import PiperVoice
+from mimic3_tts import Mimic3TextToSpeechSystem
 
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -26,19 +26,19 @@ MEMORY_DIR = "memory/"
 OUTPUT_DIR = "videos/"
 BG_IMAGES_DIR = "images/"
 TOKEN_FILE = "youtube_token.pickle"
-VOICE_MODEL = "voices/hi_IN-swara-medium.onnx"
 
 for d in [MEMORY_DIR, OUTPUT_DIR, BG_IMAGES_DIR]:
     Path(d).mkdir(exist_ok=True)
 
-# Load Piper once (natural Hindi female)
+# Load Mimic3 TTS (auto-downloads Hindi model on first run)
 try:
-    piper = PiperVoice.load(VOICE_MODEL)
+    tts = Mimic3TextToSpeechSystem(language='hi')  # Hindi
+    print("Mimic3 TTS loaded successfully")
 except Exception as e:
-    print(f"Piper load failed: {e}")
+    print(f"Mimic3 load failed: {e}")
     sys.exit(1)
 
-# MEMORY (unchanged)
+# MEMORY
 def load_used(f):
     p = os.path.join(MEMORY_DIR, f)
     return json.load(open(p, encoding="utf-8")) if os.path.exists(p) else []
@@ -46,15 +46,15 @@ def load_used(f):
 def save_used(f, data):
     try:
         json.dump(data, open(os.path.join(MEMORY_DIR, f), "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-    except:
-        pass
+    except Exception as e:
+        print(f"Memory save failed for {f}: {e}")
 
 used_stories = load_used("used_stories.json")
 used_rhymes = load_used("used_rhymes.json")
 used_images = load_used("used_images.json")
 used_topics = load_used("used_topics.json")
 
-# CONTENT GENERATION (simplified)
+# CONTENT GENERATION
 animals = ["खरगोश", "तोता", "मछली", "हाथी", "शेर"]
 places = ["जंगल", "समंदर", "पहाड़", "नदी", "गाँव"]
 actions = ["खो गया", "सीखा", "मिला", "खेला"]
@@ -118,27 +118,28 @@ def dl_image(url, path):
         print(f"Image download failed: {e}")
         sys.exit(1)
 
-# AUDIO (Piper TTS - natural female Hindi)
+# AUDIO (Mimic3 TTS - natural offline Hindi)
 def make_audio(txt, out):
     try:
-        wav_bytes = piper.synthesize(txt)
+        # Generate audio bytes
+        wav_bytes = tts.synthesize(txt)
         temp_wav = "temp.wav"
         with open(temp_wav, "wb") as f:
             f.write(wav_bytes)
 
         audio = AudioSegment.from_wav(temp_wav)
-        audio = audio.normalize()
-        audio = audio + 10  # Boost if needed
+        audio = audio.normalize()  # Auto-level
+        audio = audio + 10         # Boost volume
         audio.export(out, format="mp3", bitrate="192k")
         os.remove(temp_wav)
+
     except Exception as e:
-        print(f"Piper TTS failed: {e}")
+        print(f"Mimic3 TTS failed: {e}")
         sys.exit(1)
 
 # VIDEO (OpenCV + Pillow for perfect Hindi text)
 def make_video(txt, bg_path, short=False):
     try:
-        # Load background
         img = cv2.imread(bg_path)
         if img is None:
             raise ValueError("Image load failed")
@@ -146,14 +147,14 @@ def make_video(txt, bg_path, short=False):
         size = (1080, 1920) if short else (1920, 1080)
         img = cv2.resize(img, size)
 
-        # Use Pillow to render Hindi text (perfect Devanagari support)
+        # Pillow for perfect Devanagari rendering
         pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
         draw = ImageDraw.Draw(pil_img)
         try:
-            font_path = "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf"  # System Noto font
+            font_path = "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf"
             font = ImageFont.truetype(font_path, 80 if short else 70)
         except:
-            font = ImageFont.load_default()  # Fallback
+            font = ImageFont.load_default()
 
         lines = txt.split('\n')
         y, dy = 400 if short else 300, 100
@@ -164,7 +165,6 @@ def make_video(txt, bg_path, short=False):
             draw.text((x, y), line, font=font, fill=(255, 255, 0))  # Yellow
             y += dy
 
-        # Convert back to OpenCV
         img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
 
         # Zoom frames
@@ -192,7 +192,7 @@ def make_video(txt, bg_path, short=False):
         aud = os.path.join(OUTPUT_DIR, "aud.mp3")
         make_audio(full, aud)
 
-        # Merge
+        # Final merge
         final = os.path.join(OUTPUT_DIR, f"{'s' if short else 'v'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4")
         subprocess.run([
             "ffmpeg", "-y", "-i", tmp_vid, "-i", aud,
@@ -208,7 +208,7 @@ def make_video(txt, bg_path, short=False):
         print(f"Video creation failed: {e}")
         sys.exit(1)
 
-# YOUTUBE (robust)
+# YOUTUBE (robust retry)
 def yt_service():
     try:
         creds = None
