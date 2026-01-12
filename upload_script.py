@@ -20,6 +20,8 @@ from google.oauth2.credentials import Credentials
 MEMORY_DIR = "memory/"
 OUTPUT_DIR = "videos/"
 BG_IMAGES_DIR = "images/"
+TOKEN_FILE = "youtube_token.pickle"
+CLIENT_SECRETS_FILE = "client_secret.json"
 
 for d in [MEMORY_DIR, OUTPUT_DIR, BG_IMAGES_DIR]:
     Path(d).mkdir(exist_ok=True)
@@ -96,18 +98,10 @@ def dl_image(url, path):
     with open(path, "wb") as f:
         f.write(requests.get(url, timeout=15).content)
 
-# AUDIO (eSpeak-ng - offline)
+# AUDIO (eSpeak-ng)
 def make_audio(txt, out):
     wav = "temp.wav"
-    subprocess.run([
-        "espeak-ng",
-        "-v", "hi",           # Hindi voice
-        "-s", "130",          # Slower for kids
-        "-p", "60",           # Higher pitch (female/child-like)
-        "-a", "180",          # Louder
-        "-w", wav,
-        txt
-    ], check=True)
+    subprocess.run(["espeak-ng", "-v", "hi", "-s", "130", "-p", "60", "-a", "180", "-w", wav, txt], check=True)
     AudioSegment.from_wav(wav).export(out, format="mp3")
     os.remove(wav)
 
@@ -120,7 +114,7 @@ def make_video(txt, bg_path, short=False):
     size = (1080, 1920) if short else (1920, 1080)
     img = cv2.resize(img, size)
 
-    # Text overlay
+    # Text
     font, scale, col, thick = cv2.FONT_HERSHEY_DUPLEX, 1.6 if short else 1.4, (0,255,255), 5
     lines = txt.split('\n')
     y, dy = 400 if short else 300, 80
@@ -131,7 +125,7 @@ def make_video(txt, bg_path, short=False):
 
     # Zoom frames
     frames = []
-    n = 1500  # ~62s at 24fps
+    n = 1500
     for i in range(n):
         s = 1 + 0.015 * (i / n)
         h, w = img.shape[:2]
@@ -154,7 +148,7 @@ def make_video(txt, bg_path, short=False):
     aud = os.path.join(OUTPUT_DIR, "aud.mp3")
     make_audio(full, aud)
 
-    # Final merge
+    # Final
     final = os.path.join(OUTPUT_DIR, f"{'s' if short else 'v'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4")
     subprocess.run([
         "ffmpeg", "-y", "-i", tmp_vid, "-i", aud,
