@@ -1,3 +1,5 @@
+# upload_script.py
+
 import os
 import random
 import json
@@ -107,20 +109,25 @@ def dl_image(url, path):
         print(f"Image download failed: {e}")
         sys.exit(1)
 
-# AUDIO (eSpeak-ng)
+# AUDIO (eSpeak-ng - tuned for clearer, slower Hindi)
 def make_audio(txt, out):
     try:
         wav = "temp.wav"
         subprocess.run([
             "espeak-ng",
             "-v", "hi",
-            "-s", "130",
-            "-p", "60",
-            "-a", "180",
+            "-s", "90",           # Much slower for clarity
+            "-p", "75",           # Higher pitch (more child-like)
+            "-a", "200",          # Maximum volume
+            "-g", "20",           # Longer word gaps for natural pauses
             "-w", wav,
             txt
         ], check=True, timeout=30)
-        AudioSegment.from_wav(wav).export(out, format="mp3")
+
+        audio = AudioSegment.from_wav(wav)
+        audio = audio.normalize()     # Auto-level loudness
+        audio = audio + 12            # Extra boost
+        audio.export(out, format="mp3", bitrate="128k")
         os.remove(wav)
     except Exception as e:
         print(f"Audio creation failed: {e}")
@@ -137,9 +144,9 @@ def make_video(txt, bg_path, short=False):
         img = cv2.resize(img, size)
 
         # Text overlay
-        font, scale, col, thick = cv2.FONT_HERSHEY_DUPLEX, 1.6 if short else 1.4, (0,255,255), 5
+        font, scale, col, thick = cv2.FONT_HERSHEY_DUPLEX, 1.8 if short else 1.5, (0,255,255), 5
         lines = txt.split('\n')
-        y, dy = 400 if short else 300, 80
+        y, dy = 400 if short else 300, 90
         for i, line in enumerate(lines):
             (tw, _), _ = cv2.getTextSize(line, font, scale, thick)
             x = (size[0] - tw) // 2
@@ -147,7 +154,7 @@ def make_video(txt, bg_path, short=False):
 
         # Zoom frames
         frames = []
-        n = 1500
+        n = 1800  # ~75 seconds buffer
         for i in range(n):
             s = 1 + 0.015 * (i / n)
             h, w = img.shape[:2]
@@ -163,21 +170,20 @@ def make_video(txt, bg_path, short=False):
         out.release()
 
         # Audio
-        intro = "नमस्ते छोटे दोस्तों! आज नई "
+        intro = "नमस्ते छोटे दोस्तों! आज फिर आई एक नई मजेदार "
         mid = "कहानी" if "कहानी" in txt else "राइम"
-        out = "। लाइक, सब्सक्राइब करो!"
-        full = intro + mid + " है: " + txt + out
+        outro = "। बहुत पसंद आए तो लाइक करें, सब्सक्राइब करें और बेल आइकन दबाएं!"
+        full = intro + mid + " है: " + txt + outro
         aud = os.path.join(OUTPUT_DIR, "aud.mp3")
         make_audio(full, aud)
 
         # Final merge
         final = os.path.join(OUTPUT_DIR, f"{'s' if short else 'v'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4")
-        cmd = [
+        subprocess.run([
             "ffmpeg", "-y", "-i", tmp_vid, "-i", aud,
             "-c:v", "libx264", "-c:a", "aac", "-shortest",
             "-pix_fmt", "yuv420p", "-b:v", "8000k", final
-        ]
-        subprocess.run(cmd, check=True, timeout=300)
+        ], check=True, timeout=300)
 
         os.remove(tmp_vid)
         os.remove(aud)
@@ -187,7 +193,7 @@ def make_video(txt, bg_path, short=False):
         print(f"Video creation failed: {e}")
         sys.exit(1)
 
-# YOUTUBE with robust error handling & retry
+# YOUTUBE (robust retry + error handling)
 def yt_service():
     try:
         creds = None
@@ -200,34 +206,30 @@ def yt_service():
                 token_uri=token_data.get('token_uri'),
                 client_id=token_data.get('client_id'),
                 client_secret=token_data.get('client_secret'),
-                scopes=token_data.get('scopes', ['https://www.googleapis.com/auth/youtube.upload'])
+                scopes=token_data.get('scopes')
             )
 
         if creds and creds.expired and creds.refresh_token:
-            try:
-                creds.refresh(Request())
-                # Save refreshed token
-                token_data = {
-                    'token': creds.token,
-                    'refresh_token': creds.refresh_token,
-                    'token_uri': creds.token_uri,
-                    'client_id': creds.client_id,
-                    'client_secret': creds.client_secret,
-                    'scopes': creds.scopes
-                }
-                with open(TOKEN_FILE, 'w', encoding='utf-8') as f:
-                    json.dump(token_data, f, indent=2)
-            except Exception as refresh_err:
-                print(f"Token refresh failed (using existing token): {refresh_err}")
+            creds.refresh(Request())
+            token_data = {
+                'token': creds.token,
+                'refresh_token': creds.refresh_token,
+                'token_uri': creds.token_uri,
+                'client_id': creds.client_id,
+                'client_secret': creds.client_secret,
+                'scopes': creds.scopes
+            }
+            with open(TOKEN_FILE, 'w', encoding='utf-8') as f:
+                json.dump(token_data, f, indent=2)
 
         if not creds or not creds.valid:
-            print("No valid credentials available. Run local OAuth once to generate token.")
+            print("No valid credentials.")
             sys.exit(1)
 
         return build('youtube', 'v3', credentials=creds)
 
     except Exception as e:
-        print(f"Credential loading error: {e}")
+        print(f"Credential error: {e}")
         sys.exit(1)
 
 def upload(vid, title, desc, tags, short=False):
@@ -252,27 +254,20 @@ def upload(vid, title, desc, tags, short=False):
             print(f"Upload SUCCESS! {'Short' if short else 'Video'} ID: {vid_id} → https://youtu.be/{vid_id}")
             return vid_id
 
-        except HttpError as http_err:
-            print(f"YouTube API HTTP error (attempt {attempt+1}/{max_retries}): {http_err}")
-            if 'quota' in str(http_err).lower() or 'rate' in str(http_err).lower():
-                time.sleep(60 * (attempt + 1))  # Longer backoff for quota/rate limit
-            elif attempt < max_retries - 1:
-                time.sleep(10 * (attempt + 1))
-            else:
-                print(f"Upload failed after {max_retries} attempts.")
-                return None
+        except HttpError as e:
+            print(f"YouTube HTTP error (attempt {attempt+1}): {e}")
+            time.sleep(10 * (attempt + 1))
         except Exception as e:
-            print(f"Unexpected upload error (attempt {attempt+1}): {e}")
-            if attempt < max_retries - 1:
-                time.sleep(10 * (attempt + 1))
-            else:
-                return None
+            print(f"Upload error (attempt {attempt+1}): {e}")
+            time.sleep(10 * (attempt + 1))
+
+    print("Upload failed after all retries.")
+    return None
 
 # MAIN
 if __name__ == "__main__":
     print("Starting...")
-    success_count = 0
-
+    success = 0
     try:
         # Video
         story_mode = random.random() > 0.4
@@ -289,7 +284,7 @@ if __name__ == "__main__":
         d_v = f"नमस्ते! {txt_v[:100]}...\n#HindiKids #BacchonKiKahani"
         tags_v = ["हिंदी कहानी", "बच्चों की कहानी", "नई राइम 2026"] + txt_v.split()[:5]
         if upload(v_path, t_v, d_v, tags_v):
-            success_count += 1
+            success += 1
 
         # Short
         story_mode_s = random.random() > 0.5
@@ -306,10 +301,10 @@ if __name__ == "__main__":
         d_s = f"{txt_s[:80]}...\n#Shorts"
         tags_s = tags_v + ["shorts"]
         if upload(s_path, t_s, d_s, tags_s, True):
-            success_count += 1
+            success += 1
 
-        print(f"Completed! {success_count}/2 uploads successful")
+        print(f"Completed! {success}/2 successful")
 
     except Exception as e:
-        print(f"CRITICAL ERROR in main: {e}")
+        print(f"CRITICAL ERROR: {e}")
         sys.exit(1)
