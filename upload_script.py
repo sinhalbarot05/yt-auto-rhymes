@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 from pydub import AudioSegment
 import requests
 
-from mimic3_tts import Mimic3TextToSpeechSystem
+from mimic3_tts import Mimic3Settings, Mimic3TextToSpeechSystem
 
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -30,12 +30,15 @@ TOKEN_FILE = "youtube_token.pickle"
 for d in [MEMORY_DIR, OUTPUT_DIR, BG_IMAGES_DIR]:
     Path(d).mkdir(exist_ok=True)
 
-# Load Mimic3 TTS (no 'language' argument)
+# Load Mimic3 TTS with required settings
 try:
-    tts = Mimic3TextToSpeechSystem()
-    # Set Hindi voice (Mimic3 auto-downloads if missing)
-    tts.voice = 'hi/mimic3_tts:hi'  # or 'hi/mimic3_tts:hi-mimic3' if that variant exists
-    print("Mimic3 TTS loaded and Hindi voice selected")
+    settings = Mimic3Settings(
+        language='hi',              # Hindi
+        voice='hi/mimic3_tts:hi',   # Default Hindi voice (Mimic3 will download if missing)
+        speaker='default'           # or 'female'/'child' if available
+    )
+    tts = Mimic3TextToSpeechSystem(settings)
+    print("Mimic3 TTS loaded successfully with Hindi settings")
 except Exception as e:
     print(f"Mimic3 initialization failed: {e}")
     sys.exit(1)
@@ -120,21 +123,19 @@ def dl_image(url, path):
         print(f"Image download failed: {e}")
         sys.exit(1)
 
-# AUDIO (Mimic3 TTS - fixed initialization)
+# AUDIO (Mimic3 TTS - correct settings)
 def make_audio(txt, out):
     try:
-        # Generate audio bytes with Mimic3
         wav_bytes = tts.synthesize(txt)
         temp_wav = "temp.wav"
         with open(temp_wav, "wb") as f:
             f.write(wav_bytes)
 
         audio = AudioSegment.from_wav(temp_wav)
-        audio = audio.normalize()     # Auto-level loudness
-        audio = audio + 12            # Extra boost
+        audio = audio.normalize()
+        audio = audio + 12
         audio.export(out, format="mp3", bitrate="192k")
         os.remove(temp_wav)
-
     except Exception as e:
         print(f"Mimic3 TTS failed: {e}")
         sys.exit(1)
@@ -149,7 +150,7 @@ def make_video(txt, bg_path, short=False):
         size = (1080, 1920) if short else (1920, 1080)
         img = cv2.resize(img, size)
 
-        # Pillow for perfect Devanagari
+        # Pillow for perfect Devanagari rendering
         pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
         draw = ImageDraw.Draw(pil_img)
         try:
