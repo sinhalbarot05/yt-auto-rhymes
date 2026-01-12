@@ -30,12 +30,14 @@ TOKEN_FILE = "youtube_token.pickle"
 for d in [MEMORY_DIR, OUTPUT_DIR, BG_IMAGES_DIR]:
     Path(d).mkdir(exist_ok=True)
 
-# Load Mimic3 TTS (auto-downloads Hindi model on first run)
+# Load Mimic3 TTS (no 'language' argument)
 try:
-    tts = Mimic3TextToSpeechSystem(language='hi')  # Hindi
-    print("Mimic3 TTS loaded successfully")
+    tts = Mimic3TextToSpeechSystem()
+    # Set Hindi voice (Mimic3 auto-downloads if missing)
+    tts.voice = 'hi/mimic3_tts:hi'  # or 'hi/mimic3_tts:hi-mimic3' if that variant exists
+    print("Mimic3 TTS loaded and Hindi voice selected")
 except Exception as e:
-    print(f"Mimic3 load failed: {e}")
+    print(f"Mimic3 initialization failed: {e}")
     sys.exit(1)
 
 # MEMORY
@@ -118,18 +120,18 @@ def dl_image(url, path):
         print(f"Image download failed: {e}")
         sys.exit(1)
 
-# AUDIO (Mimic3 TTS - natural offline Hindi)
+# AUDIO (Mimic3 TTS - fixed initialization)
 def make_audio(txt, out):
     try:
-        # Generate audio bytes
+        # Generate audio bytes with Mimic3
         wav_bytes = tts.synthesize(txt)
         temp_wav = "temp.wav"
         with open(temp_wav, "wb") as f:
             f.write(wav_bytes)
 
         audio = AudioSegment.from_wav(temp_wav)
-        audio = audio.normalize()  # Auto-level
-        audio = audio + 10         # Boost volume
+        audio = audio.normalize()     # Auto-level loudness
+        audio = audio + 12            # Extra boost
         audio.export(out, format="mp3", bitrate="192k")
         os.remove(temp_wav)
 
@@ -147,7 +149,7 @@ def make_video(txt, bg_path, short=False):
         size = (1080, 1920) if short else (1920, 1080)
         img = cv2.resize(img, size)
 
-        # Pillow for perfect Devanagari rendering
+        # Pillow for perfect Devanagari
         pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
         draw = ImageDraw.Draw(pil_img)
         try:
@@ -162,7 +164,7 @@ def make_video(txt, bg_path, short=False):
             bbox = draw.textbbox((0, 0), line, font=font)
             text_w = bbox[2] - bbox[0]
             x = (size[0] - text_w) // 2
-            draw.text((x, y), line, font=font, fill=(255, 255, 0))  # Yellow
+            draw.text((x, y), line, font=font, fill=(255, 255, 0))
             y += dy
 
         img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
