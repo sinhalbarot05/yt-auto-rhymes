@@ -4,6 +4,7 @@ import json
 import sys
 import subprocess
 from pathlib import Path
+from datetime import datetime
 
 import cv2
 import numpy as np
@@ -95,10 +96,18 @@ def dl_image(url, path):
     with open(path, "wb") as f:
         f.write(requests.get(url, timeout=15).content)
 
-# AUDIO (eSpeak-ng)
+# AUDIO (eSpeak-ng - offline)
 def make_audio(txt, out):
     wav = "temp.wav"
-    subprocess.run(["espeak-ng", "-v", "hi", "-s", "130", "-p", "60", "-a", "180", "-w", wav, txt], check=True)
+    subprocess.run([
+        "espeak-ng",
+        "-v", "hi",           # Hindi voice
+        "-s", "130",          # Slower for kids
+        "-p", "60",           # Higher pitch (female/child-like)
+        "-a", "180",          # Louder
+        "-w", wav,
+        txt
+    ], check=True)
     AudioSegment.from_wav(wav).export(out, format="mp3")
     os.remove(wav)
 
@@ -122,7 +131,7 @@ def make_video(txt, bg_path, short=False):
 
     # Zoom frames
     frames = []
-    n = 1500
+    n = 1500  # ~62s at 24fps
     for i in range(n):
         s = 1 + 0.015 * (i / n)
         h, w = img.shape[:2]
@@ -145,7 +154,7 @@ def make_video(txt, bg_path, short=False):
     aud = os.path.join(OUTPUT_DIR, "aud.mp3")
     make_audio(full, aud)
 
-    # Final
+    # Final merge
     final = os.path.join(OUTPUT_DIR, f"{'s' if short else 'v'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4")
     subprocess.run([
         "ffmpeg", "-y", "-i", tmp_vid, "-i", aud,
