@@ -3,6 +3,7 @@ import random
 import json
 import sys
 import subprocess
+import time
 from pathlib import Path
 from datetime import datetime
 
@@ -15,6 +16,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
+from googleapiclient.errors import HttpError
 
 # CONFIG
 MEMORY_DIR = "memory/"
@@ -34,15 +36,15 @@ def load_used(f):
 def save_used(f, data):
     try:
         json.dump(data, open(os.path.join(MEMORY_DIR, f), "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-    except:
-        pass
+    except Exception as e:
+        print(f"Memory save failed for {f}: {e}")
 
 used_stories = load_used("used_stories.json")
 used_rhymes = load_used("used_rhymes.json")
 used_images = load_used("used_images.json")
 used_topics = load_used("used_topics.json")
 
-# CONTENT
+# CONTENT GENERATION
 animals = ["खरगोश", "तोता", "मछली", "हाथी", "शेर"]
 places = ["जंगल", "समंदर", "पहाड़", "नदी", "गाँव"]
 actions = ["खो गया", "सीखा", "मिला", "खेला"]
@@ -82,7 +84,7 @@ def get_image(topic, orient="horizontal"):
     q = f"cute hindi kids cartoon {topic}"
     u = f"https://pixabay.com/api/?key={os.getenv('PIXABAY_KEY')}&q={q}&image_type=illustration&orientation={orient}&per_page=10&safesearch=true"
     try:
-        h = requests.get(u).json().get("hits", [])
+        h = requests.get(u, timeout=15).json().get("hits", [])
         random.shuffle(h)
         for i in h:
             url = i.get("largeImageURL")
@@ -90,93 +92,124 @@ def get_image(topic, orient="horizontal"):
                 used_images.append(url)
                 save_used("used_images.json", used_images)
                 return url
-        sys.exit("No image")
-    except:
-        sys.exit("Pixabay fail")
+        print("No suitable image found.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Pixabay error: {e}")
+        sys.exit(1)
 
 def dl_image(url, path):
-    with open(path, "wb") as f:
-        f.write(requests.get(url, timeout=15).content)
+    try:
+        r = requests.get(url, timeout=15)
+        r.raise_for_status()
+        with open(path, "wb") as f:
+            f.write(r.content)
+    except Exception as e:
+        print(f"Image download failed: {e}")
+        sys.exit(1)
 
 # AUDIO (eSpeak-ng)
 def make_audio(txt, out):
-    wav = "temp.wav"
-    subprocess.run(["espeak-ng", "-v", "hi", "-s", "130", "-p", "60", "-a", "180", "-w", wav, txt], check=True)
-    AudioSegment.from_wav(wav).export(out, format="mp3")
-    os.remove(wav)
+    try:
+        wav = "temp.wav"
+        subprocess.run([
+            "espeak-ng",
+            "-v", "hi",
+            "-s", "130",
+            "-p", "60",
+            "-a", "180",
+            "-w", wav,
+            txt
+        ], check=True, timeout=30)
+        AudioSegment.from_wav(wav).export(out, format="mp3")
+        os.remove(wav)
+    except Exception as e:
+        print(f"Audio creation failed: {e}")
+        sys.exit(1)
 
 # VIDEO (OpenCV + FFmpeg)
 def make_video(txt, bg_path, short=False):
-    img = cv2.imread(bg_path)
-    if img is None:
-        sys.exit("Image load fail")
+    try:
+        img = cv2.imread(bg_path)
+        if img is None:
+            raise ValueError("Image load failed")
 
-    size = (1080, 1920) if short else (1920, 1080)
-    img = cv2.resize(img, size)
+        size = (1080, 1920) if short else (1920, 1080)
+        img = cv2.resize(img, size)
 
-    # Text
-    font, scale, col, thick = cv2.FONT_HERSHEY_DUPLEX, 1.6 if short else 1.4, (0,255,255), 5
-    lines = txt.split('\n')
-    y, dy = 400 if short else 300, 80
-    for i, line in enumerate(lines):
-        (tw, _), _ = cv2.getTextSize(line, font, scale, thick)
-        x = (size[0] - tw) // 2
-        cv2.putText(img, line, (x, y + i*dy), font, scale, col, thick)
+        # Text overlay
+        font, scale, col, thick = cv2.FONT_HERSHEY_DUPLEX, 1.6 if short else 1.4, (0,255,255), 5
+        lines = txt.split('\n')
+        y, dy = 400 if short else 300, 80
+        for i, line in enumerate(lines):
+            (tw, _), _ = cv2.getTextSize(line, font, scale, thick)
+            x = (size[0] - tw) // 2
+            cv2.putText(img, line, (x, y + i*dy), font, scale, col, thick)
 
-    # Zoom frames
-    frames = []
-    n = 1500
-    for i in range(n):
-        s = 1 + 0.015 * (i / n)
-        h, w = img.shape[:2]
-        nh, nw = int(h*s), int(w*s)
-        z = cv2.resize(img, (nw, nh))
-        frames.append(z[(nh-h)//2:(nh-h)//2+h, (nw-w)//2:(nw-w)//2+w])
+        # Zoom frames
+        frames = []
+        n = 1500
+        for i in range(n):
+            s = 1 + 0.015 * (i / n)
+            h, w = img.shape[:2]
+            nh, nw = int(h*s), int(w*s)
+            z = cv2.resize(img, (nw, nh))
+            frames.append(z[(nh-h)//2:(nh-h)//2+h, (nw-w)//2:(nw-w)//2+w])
 
-    # Temp video
-    tmp_vid = os.path.join(OUTPUT_DIR, "tmp.mp4")
-    out = cv2.VideoWriter(tmp_vid, cv2.VideoWriter_fourcc(*'mp4v'), 24, size)
-    for f in frames:
-        out.write(f)
-    out.release()
+        # Temp video
+        tmp_vid = os.path.join(OUTPUT_DIR, "tmp.mp4")
+        out = cv2.VideoWriter(tmp_vid, cv2.VideoWriter_fourcc(*'mp4v'), 24, size)
+        for f in frames:
+            out.write(f)
+        out.release()
 
-    # Audio
-    intro = "नमस्ते छोटे दोस्तों! आज नई "
-    mid = "कहानी" if "कहानी" in txt else "राइम"
-    out = "। लाइक, सब्सक्राइब करो!"
-    full = intro + mid + " है: " + txt + out
-    aud = os.path.join(OUTPUT_DIR, "aud.mp3")
-    make_audio(full, aud)
+        # Audio
+        intro = "नमस्ते छोटे दोस्तों! आज नई "
+        mid = "कहानी" if "कहानी" in txt else "राइम"
+        out = "। लाइक, सब्सक्राइब करो!"
+        full = intro + mid + " है: " + txt + out
+        aud = os.path.join(OUTPUT_DIR, "aud.mp3")
+        make_audio(full, aud)
 
-    # Final
-    final = os.path.join(OUTPUT_DIR, f"{'s' if short else 'v'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4")
-    subprocess.run([
-        "ffmpeg", "-y", "-i", tmp_vid, "-i", aud,
-        "-c:v", "libx264", "-c:a", "aac", "-shortest",
-        "-pix_fmt", "yuv420p", "-b:v", "8000k", final
-    ], check=True)
+        # Final merge
+        final = os.path.join(OUTPUT_DIR, f"{'s' if short else 'v'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4")
+        cmd = [
+            "ffmpeg", "-y", "-i", tmp_vid, "-i", aud,
+            "-c:v", "libx264", "-c:a", "aac", "-shortest",
+            "-pix_fmt", "yuv420p", "-b:v", "8000k", final
+        ]
+        subprocess.run(cmd, check=True, timeout=300)
 
-    os.remove(tmp_vid)
-    os.remove(aud)
-    return final
+        os.remove(tmp_vid)
+        os.remove(aud)
+        return final
 
-# YOUTUBE
-def yt_service():
-    creds = None
-    if os.path.exists(TOKEN_FILE):
-        with open(TOKEN_FILE, 'r', encoding='utf-8') as f:
-            creds = Credentials(**json.load(f))
-
-    if creds and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-        with open(TOKEN_FILE, 'w', encoding='utf-8') as f:
-            json.dump(vars(creds), f, indent=2)
-
-    if not creds or not creds.valid:
-        print("No credentials")
+    except Exception as e:
+        print(f"Video creation failed: {e}")
         sys.exit(1)
 
-    return build('youtube', 'v3', credentials=creds)
+# YOUTUBE (with retry & error handling)
+def yt_service():
+    try:
+        creds = None
+        if os.path.exists(TOKEN_FILE):
+            with open(TOKEN_FILE, 'r', encoding='utf-8') as f:
+                creds = Credentials(**json.load(f))
+
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            with open(TOKEN_FILE, 'w', encoding='utf-8') as f:
+                json.dump(vars(creds), f, indent=2)
+
+        if not creds or not creds.valid:
+            print("No valid credentials")
+            sys.exit(1)
+
+        return build('youtube', 'v3', credentials=creds)
+
+    except Exception as e:
+        print(f"Credential error: {e}")
+        sys.exit(1)
 
 def upload(vid, title, desc, tags, short=False):
     yt = yt_service()
@@ -187,19 +220,33 @@ def upload(vid, title, desc, tags, short=False):
     media = MediaFileUpload(vid, mimetype='video/mp4', resumable=True)
     req = yt.videos().insert(part="snippet,status", body=body, media_body=media)
 
-    resp = None
-    while resp is None:
-        status, resp = req.next_chunk()
-        if status:
-            print(f"Uploaded {int(status.progress()*100)}%")
-
-    vid_id = resp['id']
-    print(f"Done: https://youtu.be/{vid_id}")
-    return vid_id
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            resp = None
+            while resp is None:
+                status, resp = req.next_chunk()
+                if status:
+                    print(f"Upload progress: {int(status.progress()*100)}%")
+            vid_id = resp['id']
+            print(f"Upload SUCCESS! {'Short' if short else 'Video'} ID: {vid_id} → https://youtu.be/{vid_id}")
+            return vid_id
+        except HttpError as e:
+            print(f"YouTube API error (attempt {attempt+1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                time.sleep(10 * (attempt + 1))  # Exponential backoff
+                continue
+            print(f"Upload failed after {max_retries} attempts: {e}")
+            return None
+        except Exception as e:
+            print(f"Unexpected upload error: {e}")
+            return None
 
 # MAIN
 if __name__ == "__main__":
     print("Starting...")
+    success_count = 0
+
     try:
         # Video
         story_mode = random.random() > 0.4
@@ -215,7 +262,8 @@ if __name__ == "__main__":
         t_v = f"मजेदार नई {'कहानी' if story_mode else 'राइम'} | {top_v} | 2026"
         d_v = f"नमस्ते! {txt_v[:100]}...\n#HindiKids #BacchonKiKahani"
         tags_v = ["हिंदी कहानी", "बच्चों की कहानी", "नई राइम 2026"] + txt_v.split()[:5]
-        upload(v_path, t_v, d_v, tags_v)
+        if upload(v_path, t_v, d_v, tags_v):
+            success_count += 1
 
         # Short
         story_mode_s = random.random() > 0.5
@@ -231,10 +279,11 @@ if __name__ == "__main__":
         t_s = f"प्यारी {'कहानी' if story_mode_s else 'राइम'} #shorts | {top_s}"
         d_s = f"{txt_s[:80]}...\n#Shorts"
         tags_s = tags_v + ["shorts"]
-        upload(s_path, t_s, d_s, tags_s, True)
+        if upload(s_path, t_s, d_s, tags_s, True):
+            success_count += 1
 
-        print("Success!")
+        print(f"Completed! {success_count}/2 uploads successful")
 
     except Exception as e:
-        print(f"ERROR: {e}")
+        print(f"CRITICAL ERROR: {e}")
         sys.exit(1)
