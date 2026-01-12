@@ -23,7 +23,6 @@ MEMORY_DIR = "memory/"
 OUTPUT_DIR = "videos/"
 BG_IMAGES_DIR = "images/"
 TOKEN_FILE = "youtube_token.pickle"
-CLIENT_SECRETS_FILE = "client_secret.json"
 
 for d in [MEMORY_DIR, OUTPUT_DIR, BG_IMAGES_DIR]:
     Path(d).mkdir(exist_ok=True)
@@ -188,59 +187,86 @@ def make_video(txt, bg_path, short=False):
         print(f"Video creation failed: {e}")
         sys.exit(1)
 
-# YOUTUBE (with retry & error handling)
+# YOUTUBE with robust error handling & retry
 def yt_service():
     try:
         creds = None
         if os.path.exists(TOKEN_FILE):
             with open(TOKEN_FILE, 'r', encoding='utf-8') as f:
-                creds = Credentials(**json.load(f))
+                token_data = json.load(f)
+            creds = Credentials(
+                token=token_data.get('token'),
+                refresh_token=token_data.get('refresh_token'),
+                token_uri=token_data.get('token_uri'),
+                client_id=token_data.get('client_id'),
+                client_secret=token_data.get('client_secret'),
+                scopes=token_data.get('scopes', ['https://www.googleapis.com/auth/youtube.upload'])
+            )
 
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            with open(TOKEN_FILE, 'w', encoding='utf-8') as f:
-                json.dump(vars(creds), f, indent=2)
+            try:
+                creds.refresh(Request())
+                # Save refreshed token
+                token_data = {
+                    'token': creds.token,
+                    'refresh_token': creds.refresh_token,
+                    'token_uri': creds.token_uri,
+                    'client_id': creds.client_id,
+                    'client_secret': creds.client_secret,
+                    'scopes': creds.scopes
+                }
+                with open(TOKEN_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(token_data, f, indent=2)
+            except Exception as refresh_err:
+                print(f"Token refresh failed (using existing token): {refresh_err}")
 
         if not creds or not creds.valid:
-            print("No valid credentials")
+            print("No valid credentials available. Run local OAuth once to generate token.")
             sys.exit(1)
 
         return build('youtube', 'v3', credentials=creds)
 
     except Exception as e:
-        print(f"Credential error: {e}")
+        print(f"Credential loading error: {e}")
         sys.exit(1)
 
 def upload(vid, title, desc, tags, short=False):
-    yt = yt_service()
-    body = {
-        'snippet': {'title': title, 'description': desc, 'tags': tags, 'categoryId': '24'},
-        'status': {'privacyStatus': 'public'}
-    }
-    media = MediaFileUpload(vid, mimetype='video/mp4', resumable=True)
-    req = yt.videos().insert(part="snippet,status", body=body, media_body=media)
-
     max_retries = 5
     for attempt in range(max_retries):
         try:
+            yt = yt_service()
+            body = {
+                'snippet': {'title': title, 'description': desc, 'tags': tags, 'categoryId': '24'},
+                'status': {'privacyStatus': 'public'}
+            }
+            media = MediaFileUpload(vid, mimetype='video/mp4', resumable=True)
+            req = yt.videos().insert(part="snippet,status", body=body, media_body=media)
+
             resp = None
             while resp is None:
                 status, resp = req.next_chunk()
                 if status:
                     print(f"Upload progress: {int(status.progress()*100)}%")
+
             vid_id = resp['id']
             print(f"Upload SUCCESS! {'Short' if short else 'Video'} ID: {vid_id} → https://youtu.be/{vid_id}")
             return vid_id
-        except HttpError as e:
-            print(f"YouTube API error (attempt {attempt+1}/{max_retries}): {e}")
-            if attempt < max_retries - 1:
-                time.sleep(10 * (attempt + 1))  # Exponential backoff
-                continue
-            print(f"Upload failed after {max_retries} attempts: {e}")
-            return None
+
+        except HttpError as http_err:
+            print(f"YouTube API HTTP error (attempt {attempt+1}/{max_retries}): {http_err}")
+            if 'quota' in str(http_err).lower() or 'rate' in str(http_err).lower():
+                time.sleep(60 * (attempt + 1))  # Longer backoff for quota/rate limit
+            elif attempt < max_retries - 1:
+                time.sleep(10 * (attempt + 1))
+            else:
+                print(f"Upload failed after {max_retries} attempts.")
+                return None
         except Exception as e:
-            print(f"Unexpected upload error: {e}")
-            return None
+            print(f"Unexpected upload error (attempt {attempt+1}): {e}")
+            if attempt < max_retries - 1:
+                time.sleep(10 * (attempt + 1))
+            else:
+                return None
 
 # MAIN
 if __name__ == "__main__":
@@ -285,5 +311,5 @@ if __name__ == "__main__":
         print(f"Completed! {success_count}/2 uploads successful")
 
     except Exception as e:
-        print(f"CRITICAL ERROR: {e}")
+        print(f"CRITICAL ERROR in main: {e}")
         sys.exit(1)
