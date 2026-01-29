@@ -1,4 +1,4 @@
-name: Auto Upload Hindi Kids Videos
+name: Auto Upload Hindi Nursery Rhymes
 
 on:
   schedule:
@@ -18,14 +18,14 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg libsndfile1 wget
+          sudo apt-get install -y ffmpeg
 
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install Python dependencies + Piper TTS
+      - name: Install Python dependencies + gTTS
         run: |
           python -m pip install --upgrade pip
           pip install --upgrade \
@@ -37,23 +37,15 @@ jobs:
             google-auth \
             google-auth-oauthlib \
             google-auth-httplib2 \
-            piper-tts \
-            soundfile
-
-      - name: Download Piper Hindi voice model (pratham-medium)
-        run: |
-          mkdir -p piper-voices/hi_IN-pratham-medium
-          cd piper-voices/hi_IN-pratham-medium
-          wget -q https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/pratham/medium/hi_IN-pratham-medium.onnx
-          wget -q https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/pratham/medium/hi_IN-pratham-medium.onnx.json
-          echo "Downloaded Piper Hindi model files"
+            gtts
 
       - name: Decode YouTube credentials
         run: |
           echo "${{ secrets.YOUTUBE_CLIENT_SECRET_JSON }}" | base64 --decode > client_secret.json
           echo "${{ secrets.YOUTUBE_TOKEN_JSON_B64 }}" | base64 --decode > youtube_token.pickle
 
-      - name: Generate and Upload Content
+      - name: Generate and Upload Nursery Rhymes
         env:
           PIXABAY_KEY: ${{ secrets.PIXABAY_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: python upload_script.py
