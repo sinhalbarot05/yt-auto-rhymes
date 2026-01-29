@@ -61,7 +61,7 @@ def gen_rhyme():
                 "Content-Type": "application/json"
             },
             json={
-                "model": "llama3-70b-8192",  # valid Groq alias
+                "model": "llama3-70b-8192",  # Valid Groq model alias
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.95,
                 "max_tokens": 200
@@ -85,9 +85,153 @@ def gen_rhyme():
             save_used("used_rhymes.json", used_rhymes)
         return fallback
 
-# ... (rest of the script remains the same as previous - gen_topic, get_image, dl_image, make_audio, make_video, upload)
+# Topic generation (was missing - added back)
+def gen_topic(txt):
+    global used_topics
+    t = " ".join(txt.split()[:5])
+    while t in used_topics:
+        t += f" {random.choice(['की राइम','की मस्ती','का गाना','नई वाली'])}"
+    used_topics.append(t)
+    save_used("used_topics.json", used_topics)
+    return t
 
-# FIXED YOUTUBE
+# IMAGE
+def get_image(topic, orient="horizontal"):
+    q = f"cute hindi kids cartoon {topic} nursery rhyme illustration"
+    u = f"https://pixabay.com/api/?key={os.getenv('PIXABAY_KEY')}&q={q}&image_type=illustration&orientation={orient}&per_page=12&safesearch=true"
+    try:
+        hits = requests.get(u, timeout=20).json().get("hits", [])
+        random.shuffle(hits)
+        for img in hits:
+            url = img.get("largeImageURL")
+            if url and url not in used_images:
+                used_images.append(url)
+                save_used("used_images.json", used_images)
+                return url
+        print("No suitable image found from Pixabay")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Pixabay API error: {e}")
+        sys.exit(1)
+
+def dl_image(url, path):
+    try:
+        r = requests.get(url, timeout=20)
+        r.raise_for_status()
+        with open(path, "wb") as f:
+            f.write(r.content)
+    except Exception as e:
+        print(f"Image download failed: {e}")
+        sys.exit(1)
+
+# AUDIO - gTTS
+def make_audio(txt, out_mp3):
+    try:
+        print(f"Generating rhyme audio with gTTS (length {len(txt)} chars)")
+        print(f"Preview: {txt[:100]}...")
+
+        tts = gTTS(txt, lang='hi', tld='co.in')
+        tts.save(out_mp3)
+
+        mp3_size = os.path.getsize(out_mp3)
+        print(f"MP3 created, size: {mp3_size} bytes")
+
+        if mp3_size < 10000:
+            print("ERROR: MP3 too small")
+            sys.exit(1)
+
+        print(f"Audio created successfully: {out_mp3}")
+
+    except Exception as e:
+        print(f"gTTS failed: {e}")
+        sys.exit(1)
+
+# VIDEO
+def make_video(txt, bg_path, short=False):
+    try:
+        img = cv2.imread(bg_path)
+        if img is None:
+            raise ValueError("Background image load failed")
+
+        size = (1080, 1920) if short else (1920, 1080)
+        img = cv2.resize(img, size)
+
+        pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        draw = ImageDraw.Draw(pil_img)
+
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf", 90 if short else 80)
+        except:
+            font = ImageFont.load_default()
+
+        lines = txt.split('\n')
+        y, dy = 300 if short else 250, 100
+        for line in lines:
+            bbox = draw.textbbox((0, 0), line, font=font)
+            text_w = bbox[2] - bbox[0]
+            x = (size[0] - text_w) // 2
+            draw.text((x, y), line, font=font, fill=(255, 255, 0))
+            y += dy
+
+        img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+
+        frames = []
+        n_frames = 1200
+        for i in range(n_frames):
+            s = 1 + 0.01 * (i / n_frames)
+            h, w = img.shape[:2]
+            nh, nw = int(h * s), int(w * s)
+            zoomed = cv2.resize(img, (nw, nh))
+            crop = zoomed[(nh-h)//2:(nh-h)//2+h, (nw-w)//2:(nw-w)//2+w]
+            frames.append(crop)
+
+        tmp_vid = os.path.join(OUTPUT_DIR, "tmp.mp4")
+        out = cv2.VideoWriter(tmp_vid, cv2.VideoWriter_fourcc(*'mp4v'), 24, size)
+        for f in frames:
+            out.write(f)
+        out.release()
+
+        intro = "नमस्ते छोटे दोस्तों! आज सुनो एक प्यारी "
+        mid = "नर्सरी राइम"
+        outro = "। बहुत पसंद आए तो लाइक, कमेंट और सब्सक्राइब करो! बेल आइकन दबाओ!"
+        full_text = intro + mid + ":\n\n" + txt + "\n\n" + outro
+
+        aud_path = os.path.join(OUTPUT_DIR, "aud.mp3")
+        make_audio(full_text, aud_path)
+
+        final_name = f"rhyme_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        final_path = os.path.join(OUTPUT_DIR, final_name)
+
+        print("Starting ffmpeg merge...")
+        result = subprocess.run([
+            "ffmpeg", "-y",
+            "-i", tmp_vid,
+            "-i", aud_path,
+            "-c:v", "libx264", "-preset", "slow", "-crf", "22",
+            "-c:a", "aac", "-b:a", "192k",
+            "-shortest",
+            "-pix_fmt", "yuv420p",
+            final_path
+        ], check=True, capture_output=True, text=True)
+
+        print("ffmpeg stdout:", result.stdout)
+        print("ffmpeg stderr:", result.stderr)
+
+        os.remove(tmp_vid)
+        os.remove(aud_path)
+
+        return final_path
+
+    except subprocess.CalledProcessError as e:
+        print("ffmpeg merge failed with code", e.returncode)
+        print("ffmpeg stdout:", e.stdout)
+        print("ffmpeg stderr:", e.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Video creation failed: {e}")
+        sys.exit(1)
+
+# YOUTUBE
 def yt_service():
     try:
         creds = None
@@ -123,7 +267,35 @@ def yt_service():
             print("Token file size:", os.path.getsize(TOKEN_FILE))
         sys.exit(1)
 
-# MAIN (unchanged)
+def upload(vid, title, desc, tags, short=False):
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            yt = yt_service()
+            body = {
+                'snippet': {'title': title, 'description': desc, 'tags': tags, 'categoryId': '24'},
+                'status': {'privacyStatus': 'public'}
+            }
+            media = MediaFileUpload(vid, mimetype='video/mp4', resumable=True)
+            req = yt.videos().insert(part="snippet,status", body=body, media_body=media)
+            resp = None
+            while resp is None:
+                status, resp = req.next_chunk()
+                if status:
+                    print(f"Upload progress: {int(status.progress()*100)}%")
+            vid_id = resp['id']
+            print(f"Upload SUCCESS! {'Short' if short else 'Video'} ID: {vid_id}")
+            return vid_id
+        except HttpError as e:
+            print(f"HTTP error (attempt {attempt+1}): {e}")
+            time.sleep(10 * (attempt + 1))
+        except Exception as e:
+            print(f"Upload error (attempt {attempt+1}): {e}")
+            time.sleep(10 * (attempt + 1))
+    print("Upload failed after retries.")
+    return None
+
+# MAIN
 if __name__ == "__main__":
     print("===== Hindi Kids Nursery Rhymes Auto-Generator with Groq AI =====")
     success = 0
