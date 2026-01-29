@@ -43,10 +43,10 @@ def load_piper_voice():
             print(f"Critical: Model file not found at {MODEL_PATH}")
             sys.exit(1)
         print(f"Loading local Piper model: {MODEL_PATH}")
-        piper_voice = PiperVoice.load(MODEL_PATH)   # pass full .onnx path
+        piper_voice = PiperVoice.load(MODEL_PATH)
     return piper_voice
 
-# MEMORY
+# MEMORY (unchanged)
 def load_used(f):
     p = os.path.join(MEMORY_DIR, f)
     return json.load(open(p, encoding="utf-8")) if os.path.exists(p) else []
@@ -63,7 +63,7 @@ used_rhymes = load_used("used_rhymes.json")
 used_images = load_used("used_images.json")
 used_topics = load_used("used_topics.json")
 
-# CONTENT GENERATION
+# CONTENT GENERATION (unchanged)
 animals = ["खरगोश", "तोता", "मछली", "हाथी", "शेर", "लोमड़ी", "गिलहरी"]
 places = ["जंगल", "समंदर", "पहाड़", "नदी", "गाँव", "खेत"]
 actions = ["खो गया", "सीखा", "मिला", "खेला", "डर गया"]
@@ -104,7 +104,7 @@ def gen_topic(txt):
     save_used("used_topics.json", used_topics)
     return t
 
-# IMAGE
+# IMAGE (unchanged)
 def get_image(topic, orient="horizontal"):
     q = f"cute hindi kids cartoon {topic} illustration"
     u = f"https://pixabay.com/api/?key={os.getenv('PIXABAY_KEY')}&q={q}&image_type=illustration&orientation={orient}&per_page=12&safesearch=true"
@@ -133,7 +133,7 @@ def dl_image(url, path):
         print(f"Image download failed: {e}")
         sys.exit(1)
 
-# AUDIO - Piper TTS (fixed: set wave params before synthesize)
+# AUDIO - Piper TTS with robust pydub MP3 export (Solution A)
 def make_audio(txt, out_mp3):
     try:
         voice = load_piper_voice()
@@ -141,31 +141,43 @@ def make_audio(txt, out_mp3):
         temp_wav = os.path.join(OUTPUT_DIR, "temp_piper.wav")
 
         wav_file = wave.open(temp_wav, 'wb')
-        
-        # Must set these BEFORE synthesize writes data
-        wav_file.setnchannels(1)                    # Piper always mono
-        wav_file.setsampwidth(2)                    # 16-bit = 2 bytes
+        wav_file.setnchannels(1)                  # mono
+        wav_file.setsampwidth(2)                  # 16-bit
         wav_file.setframerate(voice.config.sample_rate)
-        
         voice.synthesize(txt, wav_file)
-        
-        wav_file.close()   # important: close to finalize header
+        wav_file.close()
 
         audio = AudioSegment.from_wav(temp_wav)
         audio = audio.normalize()
-        audio = audio + 12  # volume boost
-        audio.export(out_mp3, format="mp3", bitrate="192k")
+        audio = audio + 12                        # volume boost
+
+        print(f"Audio duration before export: {len(audio)/1000:.2f} seconds")
+
+        # Robust export to avoid broken MP3 headers
+        audio.export(
+            out_mp3,
+            format="mp3",
+            bitrate="192k",
+            parameters=["-write_xing", "0"]       # prevents invalid Xing header issues
+        )
+
+        mp3_size = os.path.getsize(out_mp3)
+        print(f"Exported MP3 size: {mp3_size} bytes")
+
+        if mp3_size < 10000:  # <10 KB → almost certainly broken
+            print("ERROR: Generated MP3 file is too small or invalid")
+            sys.exit(1)
 
         os.remove(temp_wav)
-        print(f"Audio created: {out_mp3}")
+        print(f"Audio created successfully: {out_mp3}")
 
     except Exception as e:
-        print(f"Piper TTS failed: {e}")
+        print(f"Piper / pydub TTS failed: {e}")
         if os.path.exists(temp_wav):
             os.remove(temp_wav)
         sys.exit(1)
 
-# VIDEO (unchanged)
+# VIDEO (unchanged except for better error output)
 def make_video(txt, bg_path, short=False):
     try:
         img = cv2.imread(bg_path)
@@ -221,7 +233,8 @@ def make_video(txt, bg_path, short=False):
         final_name = f"{'short' if short else 'video'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
         final_path = os.path.join(OUTPUT_DIR, final_name)
 
-        subprocess.run([
+        print("Starting ffmpeg merge...")
+        result = subprocess.run([
             "ffmpeg", "-y",
             "-i", tmp_vid,
             "-i", aud_path,
@@ -230,13 +243,21 @@ def make_video(txt, bg_path, short=False):
             "-shortest",
             "-pix_fmt", "yuv420p",
             final_path
-        ], check=True, timeout=600)
+        ], check=True, capture_output=True, text=True)
+
+        print("ffmpeg stdout:", result.stdout)
+        print("ffmpeg stderr:", result.stderr)
 
         os.remove(tmp_vid)
         os.remove(aud_path)
 
         return final_path
 
+    except subprocess.CalledProcessError as e:
+        print("ffmpeg merge failed with code", e.returncode)
+        print("ffmpeg stdout:", e.stdout)
+        print("ffmpeg stderr:", e.stderr)
+        sys.exit(1)
     except Exception as e:
         print(f"Video creation failed: {e}")
         sys.exit(1)
