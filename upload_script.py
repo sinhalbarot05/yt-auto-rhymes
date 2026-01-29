@@ -20,6 +20,9 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.errors import HttpError
 
+# Force espeak-ng data path (helps with Hindi phonemization)
+os.environ["ESPEAK_DATA_PATH"] = "/usr/share/espeak-ng-data"
+
 # CONFIG
 MEMORY_DIR = "memory/"
 OUTPUT_DIR = "videos/"
@@ -33,7 +36,6 @@ for d in [MEMORY_DIR, OUTPUT_DIR, BG_IMAGES_DIR]:
 MODEL_DIR = "piper-voices/hi_IN-pratham-medium"
 MODEL_PATH = os.path.join(MODEL_DIR, "hi_IN-pratham-medium.onnx")
 
-# Load once
 piper_voice = None
 
 def load_piper_voice():
@@ -46,7 +48,7 @@ def load_piper_voice():
         piper_voice = PiperVoice.load(MODEL_PATH)
     return piper_voice
 
-# MEMORY (unchanged)
+# MEMORY
 def load_used(f):
     p = os.path.join(MEMORY_DIR, f)
     return json.load(open(p, encoding="utf-8")) if os.path.exists(p) else []
@@ -63,7 +65,7 @@ used_rhymes = load_used("used_rhymes.json")
 used_images = load_used("used_images.json")
 used_topics = load_used("used_topics.json")
 
-# CONTENT GENERATION (unchanged)
+# CONTENT GENERATION
 animals = ["खरगोश", "तोता", "मछली", "हाथी", "शेर", "लोमड़ी", "गिलहरी"]
 places = ["जंगल", "समंदर", "पहाड़", "नदी", "गाँव", "खेत"]
 actions = ["खो गया", "सीखा", "मिला", "खेला", "डर गया"]
@@ -104,7 +106,7 @@ def gen_topic(txt):
     save_used("used_topics.json", used_topics)
     return t
 
-# IMAGE (unchanged)
+# IMAGE
 def get_image(topic, orient="horizontal"):
     q = f"cute hindi kids cartoon {topic} illustration"
     u = f"https://pixabay.com/api/?key={os.getenv('PIXABAY_KEY')}&q={q}&image_type=illustration&orientation={orient}&per_page=12&safesearch=true"
@@ -133,51 +135,85 @@ def dl_image(url, path):
         print(f"Image download failed: {e}")
         sys.exit(1)
 
-# AUDIO - Piper TTS with robust pydub MP3 export (Solution A)
+# AUDIO - Piper TTS with debug and fallback test
 def make_audio(txt, out_mp3):
     try:
         voice = load_piper_voice()
 
+        print(f"Input text length: {len(txt)} chars")
+        print(f"Sample text preview: {txt[:100]}...")
+
         temp_wav = os.path.join(OUTPUT_DIR, "temp_piper.wav")
 
         wav_file = wave.open(temp_wav, 'wb')
-        wav_file.setnchannels(1)                  # mono
-        wav_file.setsampwidth(2)                  # 16-bit
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
         wav_file.setframerate(voice.config.sample_rate)
+
+        print("Calling synthesize...")
         voice.synthesize(txt, wav_file)
+
         wav_file.close()
 
+        wav_size = os.path.getsize(temp_wav)
+        print(f"Raw WAV size after synthesize: {wav_size} bytes")
+
+        if wav_size < 1000:
+            print("ERROR: Synthesized WAV is empty or too small → synthesis produced no audio")
+            
+            # Quick test with very simple Hindi
+            test_txt = "नमस्ते छोटे दोस्तों यह एक छोटा परीक्षण है"
+            print(f"Running simple Hindi test: '{test_txt}'")
+            test_wav = os.path.join(OUTPUT_DIR, "test_fallback.wav")
+            test_file = wave.open(test_wav, 'wb')
+            test_file.setnchannels(1)
+            test_file.setsampwidth(2)
+            test_file.setframerate(voice.config.sample_rate)
+            voice.synthesize(test_txt, test_file)
+            test_file.close()
+            
+            test_size = os.path.getsize(test_wav)
+            print(f"Test WAV size: {test_size} bytes")
+            
+            if test_size > 1000:
+                print("Test succeeded → problem is likely with the long/complex full_text")
+            else:
+                print("Test also failed → phonemizer or model issue in this environment")
+            
+            if os.path.exists(test_wav):
+                os.remove(test_wav)
+            sys.exit(1)
+
         audio = AudioSegment.from_wav(temp_wav)
+        print(f"Audio duration loaded: {len(audio)/1000:.2f} seconds")
+
         audio = audio.normalize()
-        audio = audio + 12                        # volume boost
+        audio = audio + 12
 
-        print(f"Audio duration before export: {len(audio)/1000:.2f} seconds")
-
-        # Robust export to avoid broken MP3 headers
         audio.export(
             out_mp3,
             format="mp3",
             bitrate="192k",
-            parameters=["-write_xing", "0"]       # prevents invalid Xing header issues
+            parameters=["-write_xing", "0"]
         )
 
         mp3_size = os.path.getsize(out_mp3)
         print(f"Exported MP3 size: {mp3_size} bytes")
 
-        if mp3_size < 10000:  # <10 KB → almost certainly broken
-            print("ERROR: Generated MP3 file is too small or invalid")
+        if mp3_size < 10000:
+            print("ERROR: Final MP3 too small")
             sys.exit(1)
 
         os.remove(temp_wav)
         print(f"Audio created successfully: {out_mp3}")
 
     except Exception as e:
-        print(f"Piper / pydub TTS failed: {e}")
+        print(f"Audio generation failed: {e}")
         if os.path.exists(temp_wav):
             os.remove(temp_wav)
         sys.exit(1)
 
-# VIDEO (unchanged except for better error output)
+# VIDEO
 def make_video(txt, bg_path, short=False):
     try:
         img = cv2.imread(bg_path)
@@ -312,7 +348,7 @@ def upload(vid, title, desc, tags, short=False):
 
 # MAIN
 if __name__ == "__main__":
-    print("===== Hindi Kids Video Auto-Generator - Piper TTS (local model) =====")
+    print("===== Hindi Kids Video Auto-Generator - Piper TTS (debug version) =====")
     success = 0
 
     try:
