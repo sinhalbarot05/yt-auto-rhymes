@@ -229,34 +229,44 @@ def make_video(txt, bg_path, short=False):
         print(f"Video creation failed: {e}")
         sys.exit(1)
 
-# FIXED YOUTUBE CREDENTIAL HANDLING
+# FIXED YOUTUBE CREDENTIAL HANDLING (timezone-aware)
 def yt_service():
     try:
         creds = None
         if os.path.exists(TOKEN_FILE):
-            with open(TOKEN_FILE, 'rb') as f:  # Note: open in binary mode for pickle
-                creds = Credentials.from_authorized_user_info(json.load(f))
+            with open(TOKEN_FILE, 'r', encoding='utf-8') as f:
+                token_data = json.load(f)
+            creds = Credentials(**token_data)
 
         if creds:
-            print(f"Credentials loaded. Expiry: {creds.expiry}")
-            if creds.expiry and creds.expiry < datetime.now(timezone.utc):
-                print("Token expired - attempting refresh")
-                creds.refresh(Request())
-                # Save refreshed token back
-                with open(TOKEN_FILE, 'w', encoding='utf-8') as f:
-                    json.dump(creds.to_json(), f, indent=2)
-                print("Token refreshed successfully")
+            print(f"Credentials loaded. Expiry: {creds.expiry} (type: {type(creds.expiry)})")
+            if creds.expiry is None:
+                print("No expiry set — assuming token is valid")
             else:
-                print("Token is valid or no expiry set")
+                # Make both aware
+                now_utc = datetime.now(timezone.utc)
+                if creds.expiry < now_utc:
+                    print("Token expired - attempting refresh")
+                    creds.refresh(Request())
+                    # Save refreshed token
+                    with open(TOKEN_FILE, 'w', encoding='utf-8') as f:
+                        json.dump(creds.to_json(), f, indent=2)
+                    print("Token refreshed successfully")
+                else:
+                    print("Token is still valid")
         else:
-            print("No credentials found in token file")
+            print("No credentials found")
             sys.exit(1)
 
         return build('youtube', 'v3', credentials=creds)
 
     except Exception as e:
         print(f"Credential error: {e}")
-        print("Token file contents (first 200 chars):", open(TOKEN_FILE, 'r').read()[:200] if os.path.exists(TOKEN_FILE) else "File missing")
+        if os.path.exists(TOKEN_FILE):
+            print("Token file preview (first 200 chars):")
+            print(open(TOKEN_FILE, 'r').read()[:200])
+        else:
+            print("Token file missing")
         sys.exit(1)
 
 def upload(vid, title, desc, tags, short=False):
