@@ -29,7 +29,9 @@ TOKEN_FILE = "youtube_token.pickle"
 for d in [MEMORY_DIR, OUTPUT_DIR, BG_IMAGES_DIR]:
     Path(d).mkdir(exist_ok=True)
 
-# MEMORY
+# ────────────────────────────────────────────────
+# MEMORY MANAGEMENT
+# ────────────────────────────────────────────────
 def load_used(f):
     p = os.path.join(MEMORY_DIR, f)
     return json.load(open(p, encoding="utf-8")) if os.path.exists(p) else []
@@ -45,7 +47,9 @@ used_rhymes = load_used("used_rhymes.json")
 used_images = load_used("used_images.json")
 used_topics = load_used("used_topics.json")
 
-# AI-generated nursery rhyme using Groq API
+# ────────────────────────────────────────────────
+# GENERATE NURSERY RHYME USING GROQ API
+# ────────────────────────────────────────────────
 def gen_rhyme():
     global used_rhymes
     prompt = """एक छोटी, मधुर हिंदी नर्सरी राइम (नर्सरी राइम) बनाओ (4-8 लाइनें)।
@@ -61,7 +65,7 @@ def gen_rhyme():
                 "Content-Type": "application/json"
             },
             json={
-                "model": "llama3-70b-8192",  # Valid Groq model alias
+                "model": "llama3-70b-8192",  # Valid and stable Groq model
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.95,
                 "max_tokens": 200
@@ -74,7 +78,7 @@ def gen_rhyme():
         if rhyme not in used_rhymes:
             used_rhymes.append(rhyme)
             save_used("used_rhymes.json", used_rhymes)
-            print("AI-generated rhyme:", rhyme)
+            print("AI-generated rhyme:\n", rhyme)
             return rhyme
     
     except Exception as e:
@@ -83,9 +87,12 @@ def gen_rhyme():
         if fallback not in used_rhymes:
             used_rhymes.append(fallback)
             save_used("used_rhymes.json", used_rhymes)
+        print("Using fallback rhyme")
         return fallback
 
-# Topic generation (was missing - added back)
+# ────────────────────────────────────────────────
+# GENERATE TOPIC FROM RHYME TEXT
+# ────────────────────────────────────────────────
 def gen_topic(txt):
     global used_topics
     t = " ".join(txt.split()[:5])
@@ -95,7 +102,9 @@ def gen_topic(txt):
     save_used("used_topics.json", used_topics)
     return t
 
-# IMAGE
+# ────────────────────────────────────────────────
+# IMAGE HANDLING
+# ────────────────────────────────────────────────
 def get_image(topic, orient="horizontal"):
     q = f"cute hindi kids cartoon {topic} nursery rhyme illustration"
     u = f"https://pixabay.com/api/?key={os.getenv('PIXABAY_KEY')}&q={q}&image_type=illustration&orientation={orient}&per_page=12&safesearch=true"
@@ -124,7 +133,9 @@ def dl_image(url, path):
         print(f"Image download failed: {e}")
         sys.exit(1)
 
-# AUDIO - gTTS
+# ────────────────────────────────────────────────
+# AUDIO GENERATION - gTTS
+# ────────────────────────────────────────────────
 def make_audio(txt, out_mp3):
     try:
         print(f"Generating rhyme audio with gTTS (length {len(txt)} chars)")
@@ -146,7 +157,9 @@ def make_audio(txt, out_mp3):
         print(f"gTTS failed: {e}")
         sys.exit(1)
 
-# VIDEO
+# ────────────────────────────────────────────────
+# VIDEO CREATION
+# ────────────────────────────────────────────────
 def make_video(txt, bg_path, short=False):
     try:
         img = cv2.imread(bg_path)
@@ -231,7 +244,9 @@ def make_video(txt, bg_path, short=False):
         print(f"Video creation failed: {e}")
         sys.exit(1)
 
-# YOUTUBE
+# ────────────────────────────────────────────────
+# YOUTUBE - binary pickle loading
+# ────────────────────────────────────────────────
 def yt_service():
     try:
         creds = None
@@ -265,6 +280,8 @@ def yt_service():
         print(f"Credential error: {e}")
         if os.path.exists(TOKEN_FILE):
             print("Token file size:", os.path.getsize(TOKEN_FILE))
+            with open(TOKEN_FILE, 'rb') as f:
+                print("First 50 bytes (hex):", f.read(50).hex())
         sys.exit(1)
 
 def upload(vid, title, desc, tags, short=False):
@@ -295,7 +312,9 @@ def upload(vid, title, desc, tags, short=False):
     print("Upload failed after retries.")
     return None
 
-# MAIN
+# ────────────────────────────────────────────────
+# MAIN EXECUTION
+# ────────────────────────────────────────────────
 if __name__ == "__main__":
     print("===== Hindi Kids Nursery Rhymes Auto-Generator with Groq AI =====")
     success = 0
