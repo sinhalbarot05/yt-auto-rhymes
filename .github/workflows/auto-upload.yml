@@ -18,7 +18,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg libsndfile1
+          sudo apt-get install -y ffmpeg libsndfile1 wget
 
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
@@ -40,13 +40,13 @@ jobs:
             piper-tts \
             soundfile
 
-      - name: Pre-download Piper Hindi voice model
+      - name: Download Piper Hindi voice model (pratham-medium)
         run: |
-          python -c "
-          from piper.voice import PiperVoice
-          PiperVoice.load('hi_IN-pratham-medium')
-          print('Piper Hindi model preloaded')
-          "
+          mkdir -p piper-voices/hi_IN-pratham-medium
+          cd piper-voices/hi_IN-pratham-medium
+          wget -q https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/pratham/medium/hi_IN-pratham-medium.onnx
+          wget -q https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/pratham/medium/hi_IN-pratham-medium.onnx.json
+          echo "Downloaded Piper Hindi model files"
 
       - name: Decode YouTube credentials
         run: |
