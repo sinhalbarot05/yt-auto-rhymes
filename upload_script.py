@@ -6,7 +6,6 @@ import subprocess
 import time
 from pathlib import Path
 from datetime import datetime, timezone
-import pickle
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -52,10 +51,7 @@ used_topics = load_used("used_topics.json")
 # ────────────────────────────────────────────────
 def gen_rhyme():
     global used_rhymes
-    prompt = """एक छोटी, मधुर हिंदी नर्सरी राइम (नर्सरी राइम) बनाओ (4-8 लाइनें)।
-राइम में तुकबंदी हो, बच्चों को पसंद आए, खुशी, दोस्ती, प्रकृति, जानवर या खेल का थीम हो।
-कहानी जैसा नहीं, सिर्फ मजेदार गीत जैसा।
-केवल राइम लिखो, कोई शीर्षक या अतिरिक्त टिप्पणी मत डालो। पूरी तरह नई हो।"""
+    prompt = """एक छोटी हिंदी नर्सरी राइम बनाओ (4-8 लाइनें)। तुकबंदी हो, मजेदार हो, थीम खुशी/दोस्ती/प्रकृति/जानवर हो। केवल राइम लिखो, कोई अतिरिक्त टिप्पणी नहीं। नई हो।"""
 
     try:
         response = requests.post(
@@ -65,7 +61,7 @@ def gen_rhyme():
                 "Content-Type": "application/json"
             },
             json={
-                "model": "llama3-70b-8192",  # Valid and stable Groq model
+                "model": "llama3-70b-8192",  # Stable Groq model
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.95,
                 "max_tokens": 200
@@ -245,33 +241,40 @@ def make_video(txt, bg_path, short=False):
         sys.exit(1)
 
 # ────────────────────────────────────────────────
-# YOUTUBE - binary pickle loading
+# YOUTUBE - JSON loading (matches your current token format)
 # ────────────────────────────────────────────────
 def yt_service():
     try:
         creds = None
         if os.path.exists(TOKEN_FILE):
-            with open(TOKEN_FILE, 'rb') as f:
-                creds = pickle.load(f)
+            with open(TOKEN_FILE, 'r', encoding='utf-8') as f:
+                token_data = json.load(f)
+            creds = Credentials.from_authorized_user_info(token_data)
 
         if creds:
-            print(f"Credentials loaded from pickle. Expiry: {creds.expiry} (type: {type(creds.expiry)})")
+            expiry = creds.expiry
+            print(f"Credentials loaded (JSON). Expiry: {expiry} (type: {type(expiry)})")
 
-            if creds.expiry is None:
+            if expiry is None:
                 print("No expiry set — assuming valid")
             else:
+                # Parse string expiry if it's str
+                if isinstance(expiry, str):
+                    expiry = expiry.replace('Z', '+00:00')
+                    creds.expiry = datetime.fromisoformat(expiry)
+
                 now_utc = datetime.now(timezone.utc)
                 if creds.expiry < now_utc:
                     print("Token expired - refreshing")
                     creds.refresh(Request())
-                    with open(TOKEN_FILE, 'wb') as f:
-                        pickle.dump(creds, f)
-                    print("Token refreshed and saved as pickle")
+                    with open(TOKEN_FILE, 'w', encoding='utf-8') as f:
+                        json.dump(creds.to_json(), f, indent=2)
+                    print("Token refreshed")
                 else:
                     print("Token valid")
 
         else:
-            print("No credentials in pickle")
+            print("No credentials")
             sys.exit(1)
 
         return build('youtube', 'v3', credentials=creds)
@@ -279,9 +282,9 @@ def yt_service():
     except Exception as e:
         print(f"Credential error: {e}")
         if os.path.exists(TOKEN_FILE):
-            print("Token file size:", os.path.getsize(TOKEN_FILE))
-            with open(TOKEN_FILE, 'rb') as f:
-                print("First 50 bytes (hex):", f.read(50).hex())
+            print("Token file preview (first 200 chars):")
+            with open(TOKEN_FILE, 'r') as f:
+                print(f.read()[:200])
         sys.exit(1)
 
 def upload(vid, title, desc, tags, short=False):
