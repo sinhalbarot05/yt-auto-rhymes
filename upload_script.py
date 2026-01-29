@@ -229,7 +229,7 @@ def make_video(txt, bg_path, short=False):
         print(f"Video creation failed: {e}")
         sys.exit(1)
 
-# FIXED YOUTUBE CREDENTIAL HANDLING (timezone-aware)
+# FIXED YOUTUBE CREDENTIAL HANDLING
 def yt_service():
     try:
         creds = None
@@ -239,21 +239,30 @@ def yt_service():
             creds = Credentials(**token_data)
 
         if creds:
-            print(f"Credentials loaded. Expiry: {creds.expiry} (type: {type(creds.expiry)})")
-            if creds.expiry is None:
+            expiry = creds.expiry
+            print(f"Credentials loaded. Raw expiry: {expiry} (type: {type(expiry)})")
+
+            if expiry is None:
                 print("No expiry set — assuming token is valid")
             else:
-                # Make both aware
+                # Parse string to datetime if it's still str
+                if isinstance(expiry, str):
+                    # Handle ISO format with Z
+                    expiry_clean = expiry.replace('Z', '+00:00')
+                    expiry = datetime.fromisoformat(expiry_clean)
+                    creds.expiry = expiry  # update object
+
                 now_utc = datetime.now(timezone.utc)
-                if creds.expiry < now_utc:
+                if expiry < now_utc:
                     print("Token expired - attempting refresh")
                     creds.refresh(Request())
-                    # Save refreshed token
+                    # Save refreshed token (to_json handles datetime → str)
                     with open(TOKEN_FILE, 'w', encoding='utf-8') as f:
                         json.dump(creds.to_json(), f, indent=2)
                     print("Token refreshed successfully")
                 else:
                     print("Token is still valid")
+
         else:
             print("No credentials found")
             sys.exit(1)
@@ -264,7 +273,8 @@ def yt_service():
         print(f"Credential error: {e}")
         if os.path.exists(TOKEN_FILE):
             print("Token file preview (first 200 chars):")
-            print(open(TOKEN_FILE, 'r').read()[:200])
+            with open(TOKEN_FILE, 'r') as f:
+                print(f.read()[:200])
         else:
             print("Token file missing")
         sys.exit(1)
