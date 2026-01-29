@@ -5,7 +5,7 @@ import sys
 import subprocess
 import time
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -78,7 +78,6 @@ def gen_rhyme():
     
     except Exception as e:
         print(f"Groq API error: {e}")
-        # Fallback simple rhyme
         fallback = "चंदा मामा दूर के\nपुए पाके बूर के\nहमको भी दो थोड़े से\nहम भी खाएं पूरे से"
         if fallback not in used_rhymes:
             used_rhymes.append(fallback)
@@ -123,7 +122,7 @@ def dl_image(url, path):
         print(f"Image download failed: {e}")
         sys.exit(1)
 
-# AUDIO - gTTS for Hindi rhymes
+# AUDIO - gTTS
 def make_audio(txt, out_mp3):
     try:
         print(f"Generating rhyme audio with gTTS (length {len(txt)} chars)")
@@ -230,24 +229,34 @@ def make_video(txt, bg_path, short=False):
         print(f"Video creation failed: {e}")
         sys.exit(1)
 
-# YOUTUBE
+# FIXED YOUTUBE CREDENTIAL HANDLING
 def yt_service():
     try:
         creds = None
         if os.path.exists(TOKEN_FILE):
-            with open(TOKEN_FILE, 'r', encoding='utf-8') as f:
-                token_data = json.load(f)
-            creds = Credentials(**token_data)
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            with open(TOKEN_FILE, 'w', encoding='utf-8') as f:
-                json.dump(vars(creds), f, indent=2)
-        if not creds or not creds.valid:
-            print("No valid credentials.")
+            with open(TOKEN_FILE, 'rb') as f:  # Note: open in binary mode for pickle
+                creds = Credentials.from_authorized_user_info(json.load(f))
+
+        if creds:
+            print(f"Credentials loaded. Expiry: {creds.expiry}")
+            if creds.expiry and creds.expiry < datetime.now(timezone.utc):
+                print("Token expired - attempting refresh")
+                creds.refresh(Request())
+                # Save refreshed token back
+                with open(TOKEN_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(creds.to_json(), f, indent=2)
+                print("Token refreshed successfully")
+            else:
+                print("Token is valid or no expiry set")
+        else:
+            print("No credentials found in token file")
             sys.exit(1)
+
         return build('youtube', 'v3', credentials=creds)
+
     except Exception as e:
         print(f"Credential error: {e}")
+        print("Token file contents (first 200 chars):", open(TOKEN_FILE, 'r').read()[:200] if os.path.exists(TOKEN_FILE) else "File missing")
         sys.exit(1)
 
 def upload(vid, title, desc, tags, short=False):
