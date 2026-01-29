@@ -20,9 +20,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.errors import HttpError
 
-# ────────────────────────────────────────────────
 # CONFIG
-# ────────────────────────────────────────────────
 MEMORY_DIR = "memory/"
 OUTPUT_DIR = "videos/"
 BG_IMAGES_DIR = "images/"
@@ -31,24 +29,24 @@ TOKEN_FILE = "youtube_token.pickle"
 for d in [MEMORY_DIR, OUTPUT_DIR, BG_IMAGES_DIR]:
     Path(d).mkdir(exist_ok=True)
 
-# Piper TTS settings
-VOICE_MODEL = "hi_IN-pratham-medium"           # male - good quality & speed
-# Recommended alternatives (if you prefer female/child-like voice):
-# "hi_IN-priyamvada-medium"   # female
-# "hi_IN-kumar-medium"        # another male option
+# Piper TTS - load from local downloaded files
+MODEL_DIR = "piper-voices/hi_IN-pratham-medium"
+MODEL_PATH = os.path.join(MODEL_DIR, "hi_IN-pratham-medium.onnx")
 
+# Load once
 piper_voice = None
 
 def load_piper_voice():
     global piper_voice
     if piper_voice is None:
-        print(f"Loading Piper voice: {VOICE_MODEL} (first run downloads model ~80–150 MB)")
-        piper_voice = PiperVoice.load(VOICE_MODEL)
+        if not os.path.exists(MODEL_PATH):
+            print(f"Critical: Model file not found at {MODEL_PATH}")
+            sys.exit(1)
+        print(f"Loading local Piper model: {MODEL_PATH}")
+        piper_voice = PiperVoice.load(MODEL_PATH)   # ← pass full .onnx path
     return piper_voice
 
-# ────────────────────────────────────────────────
-# MEMORY MANAGEMENT
-# ────────────────────────────────────────────────
+# MEMORY
 def load_used(f):
     p = os.path.join(MEMORY_DIR, f)
     return json.load(open(p, encoding="utf-8")) if os.path.exists(p) else []
@@ -65,11 +63,9 @@ used_rhymes = load_used("used_rhymes.json")
 used_images = load_used("used_images.json")
 used_topics = load_used("used_topics.json")
 
-# ────────────────────────────────────────────────
-# CONTENT GENERATION
-# ────────────────────────────────────────────────
+# CONTENT GENERATION (same as before)
 animals = ["खरगोश", "तोता", "मछली", "हाथी", "शेर", "लोमड़ी", "गिलहरी"]
-places  = ["जंगल", "समंदर", "पहाड़", "नदी", "गाँव", "खेत"]
+places = ["जंगल", "समंदर", "पहाड़", "नदी", "गाँव", "खेत"]
 actions = ["खो गया", "सीखा", "मिला", "खेला", "डर गया"]
 adventures = ["दोस्त बनाए", "जादू सीखा", "खजाना पाया", "साहस दिखाया"]
 endings = ["घर लौट आया", "खुश रहा", "समझदार हो गया", "सबके हीरो बन गया"]
@@ -108,9 +104,7 @@ def gen_topic(txt):
     save_used("used_topics.json", used_topics)
     return t
 
-# ────────────────────────────────────────────────
-# IMAGE HANDLING
-# ────────────────────────────────────────────────
+# IMAGE (same)
 def get_image(topic, orient="horizontal"):
     q = f"cute hindi kids cartoon {topic} illustration"
     u = f"https://pixabay.com/api/?key={os.getenv('PIXABAY_KEY')}&q={q}&image_type=illustration&orientation={orient}&per_page=12&safesearch=true"
@@ -139,9 +133,7 @@ def dl_image(url, path):
         print(f"Image download failed: {e}")
         sys.exit(1)
 
-# ────────────────────────────────────────────────
-# AUDIO GENERATION - Piper TTS
-# ────────────────────────────────────────────────
+# AUDIO - Piper TTS from local file
 def make_audio(txt, out_mp3):
     try:
         voice = load_piper_voice()
@@ -153,19 +145,17 @@ def make_audio(txt, out_mp3):
 
         audio = AudioSegment.from_wav(temp_wav)
         audio = audio.normalize()
-        audio = audio + 12               # volume boost suitable for children
+        audio = audio + 12
         audio.export(out_mp3, format="mp3", bitrate="192k")
 
         os.remove(temp_wav)
-        print(f"Audio created successfully: {out_mp3}")
+        print(f"Audio created: {out_mp3}")
 
     except Exception as e:
         print(f"Piper TTS failed: {e}")
         sys.exit(1)
 
-# ────────────────────────────────────────────────
-# VIDEO CREATION
-# ────────────────────────────────────────────────
+# VIDEO (same as your previous version)
 def make_video(txt, bg_path, short=False):
     try:
         img = cv2.imread(bg_path)
@@ -194,7 +184,6 @@ def make_video(txt, bg_path, short=False):
 
         img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
 
-        # Simple zoom/pan effect
         frames = []
         n_frames = 1500
         for i in range(n_frames):
@@ -211,7 +200,6 @@ def make_video(txt, bg_path, short=False):
             out.write(f)
         out.release()
 
-        # Audio with intro & outro
         intro = "नमस्ते प्यारे बच्चों! आज फिर लाए हैं एकदम नई "
         mid = "कहानी" if "सीख" in txt or "कहानी" in txt else "राइम"
         outro = "। बहुत पसंद आए तो लाइक, शेयर और सब्सक्राइब जरूर करना। बेल आइकन भी दबा दो!"
@@ -220,7 +208,6 @@ def make_video(txt, bg_path, short=False):
         aud_path = os.path.join(OUTPUT_DIR, "aud.mp3")
         make_audio(full_text, aud_path)
 
-        # Final merge with ffmpeg
         final_name = f"{'short' if short else 'video'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
         final_path = os.path.join(OUTPUT_DIR, final_name)
 
@@ -244,9 +231,7 @@ def make_video(txt, bg_path, short=False):
         print(f"Video creation failed: {e}")
         sys.exit(1)
 
-# ────────────────────────────────────────────────
-# YOUTUBE UPLOAD
-# ────────────────────────────────────────────────
+# YOUTUBE (same)
 def yt_service():
     try:
         creds = None
@@ -294,15 +279,13 @@ def upload(vid, title, desc, tags, short=False):
     print("Upload failed after retries.")
     return None
 
-# ────────────────────────────────────────────────
-# MAIN EXECUTION
-# ────────────────────────────────────────────────
+# MAIN
 if __name__ == "__main__":
-    print("===== Hindi Kids Video Auto-Generator - Piper TTS Version =====")
+    print("===== Hindi Kids Video Auto-Generator - Piper TTS (local model) =====")
     success = 0
 
     try:
-        # Long horizontal video
+        # Long Video
         is_story = random.random() > 0.35
         text_v = gen_story() if is_story else gen_rhyme()
         topic_v = gen_topic(text_v)
@@ -318,7 +301,7 @@ if __name__ == "__main__":
         if upload(video_path, title_v, desc_v, tags_v):
             success += 1
 
-        # Vertical Short
+        # Short
         is_story_s = random.random() > 0.5
         text_s = gen_story() if is_story_s else gen_rhyme()
         topic_s = gen_topic(text_s)
