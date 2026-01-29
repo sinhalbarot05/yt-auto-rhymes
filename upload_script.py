@@ -60,9 +60,9 @@ def gen_rhyme():
                 "Content-Type": "application/json"
             },
             json={
-                "model": "llama-3.1-70b-versatile",  # or "llama-3.1-405b-reasoning" if available
+                "model": "llama-3.1-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.95,  # creative rhymes
+                "temperature": 0.95,
                 "max_tokens": 200
             },
             timeout=20
@@ -129,7 +129,7 @@ def make_audio(txt, out_mp3):
         print(f"Generating rhyme audio with gTTS (length {len(txt)} chars)")
         print(f"Preview: {txt[:100]}...")
 
-        tts = gTTS(txt, lang='hi', tld='co.in')  # Indian Hindi
+        tts = gTTS(txt, lang='hi', tld='co.in')
         tts.save(out_mp3)
 
         mp3_size = os.path.getsize(out_mp3)
@@ -145,7 +145,7 @@ def make_audio(txt, out_mp3):
         print(f"gTTS failed: {e}")
         sys.exit(1)
 
-# VIDEO (adapted for rhymes – shorter zoom, fun style)
+# VIDEO
 def make_video(txt, bg_path, short=False):
     try:
         img = cv2.imread(bg_path)
@@ -175,7 +175,7 @@ def make_video(txt, bg_path, short=False):
         img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
 
         frames = []
-        n_frames = 1200  # Shorter for rhymes
+        n_frames = 1200
         for i in range(n_frames):
             s = 1 + 0.01 * (i / n_frames)
             h, w = img.shape[:2]
@@ -201,7 +201,8 @@ def make_video(txt, bg_path, short=False):
         final_name = f"rhyme_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
         final_path = os.path.join(OUTPUT_DIR, final_name)
 
-        subprocess.run([
+        print("Starting ffmpeg merge...")
+        result = subprocess.run([
             "ffmpeg", "-y",
             "-i", tmp_vid,
             "-i", aud_path,
@@ -210,26 +211,74 @@ def make_video(txt, bg_path, short=False):
             "-shortest",
             "-pix_fmt", "yuv420p",
             final_path
-        ], check=True, timeout=300)
+        ], check=True, capture_output=True, text=True)
+
+        print("ffmpeg stdout:", result.stdout)
+        print("ffmpeg stderr:", result.stderr)
 
         os.remove(tmp_vid)
         os.remove(aud_path)
+
         return final_path
 
+    except subprocess.CalledProcessError as e:
+        print("ffmpeg merge failed with code", e.returncode)
+        print("ffmpeg stdout:", e.stdout)
+        print("ffmpeg stderr:", e.stderr)
+        sys.exit(1)
     except Exception as e:
         print(f"Video creation failed: {e}")
         sys.exit(1)
 
-# YOUTUBE (updated titles for rhymes)
+# YOUTUBE
 def yt_service():
-    # (same as before)
-    # ... (keep your original yt_service code)
+    try:
+        creds = None
+        if os.path.exists(TOKEN_FILE):
+            with open(TOKEN_FILE, 'r', encoding='utf-8') as f:
+                token_data = json.load(f)
+            creds = Credentials(**token_data)
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            with open(TOKEN_FILE, 'w', encoding='utf-8') as f:
+                json.dump(vars(creds), f, indent=2)
+        if not creds or not creds.valid:
+            print("No valid credentials.")
+            sys.exit(1)
+        return build('youtube', 'v3', credentials=creds)
+    except Exception as e:
+        print(f"Credential error: {e}")
+        sys.exit(1)
 
 def upload(vid, title, desc, tags, short=False):
-    # (same as before)
-    # ... (keep your original upload code)
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            yt = yt_service()
+            body = {
+                'snippet': {'title': title, 'description': desc, 'tags': tags, 'categoryId': '24'},
+                'status': {'privacyStatus': 'public'}
+            }
+            media = MediaFileUpload(vid, mimetype='video/mp4', resumable=True)
+            req = yt.videos().insert(part="snippet,status", body=body, media_body=media)
+            resp = None
+            while resp is None:
+                status, resp = req.next_chunk()
+                if status:
+                    print(f"Upload progress: {int(status.progress()*100)}%")
+            vid_id = resp['id']
+            print(f"Upload SUCCESS! {'Short' if short else 'Video'} ID: {vid_id}")
+            return vid_id
+        except HttpError as e:
+            print(f"HTTP error (attempt {attempt+1}): {e}")
+            time.sleep(10 * (attempt + 1))
+        except Exception as e:
+            print(f"Upload error (attempt {attempt+1}): {e}")
+            time.sleep(10 * (attempt + 1))
+    print("Upload failed after retries.")
+    return None
 
-# MAIN - only rhymes now
+# MAIN
 if __name__ == "__main__":
     print("===== Hindi Kids Nursery Rhymes Auto-Generator with Groq AI =====")
     success = 0
