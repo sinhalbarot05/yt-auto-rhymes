@@ -43,7 +43,7 @@ def load_piper_voice():
             print(f"Critical: Model file not found at {MODEL_PATH}")
             sys.exit(1)
         print(f"Loading local Piper model: {MODEL_PATH}")
-        piper_voice = PiperVoice.load(MODEL_PATH)   # ← pass full .onnx path
+        piper_voice = PiperVoice.load(MODEL_PATH)   # pass full .onnx path
     return piper_voice
 
 # MEMORY
@@ -63,7 +63,7 @@ used_rhymes = load_used("used_rhymes.json")
 used_images = load_used("used_images.json")
 used_topics = load_used("used_topics.json")
 
-# CONTENT GENERATION (same as before)
+# CONTENT GENERATION
 animals = ["खरगोश", "तोता", "मछली", "हाथी", "शेर", "लोमड़ी", "गिलहरी"]
 places = ["जंगल", "समंदर", "पहाड़", "नदी", "गाँव", "खेत"]
 actions = ["खो गया", "सीखा", "मिला", "खेला", "डर गया"]
@@ -104,7 +104,7 @@ def gen_topic(txt):
     save_used("used_topics.json", used_topics)
     return t
 
-# IMAGE (same)
+# IMAGE
 def get_image(topic, orient="horizontal"):
     q = f"cute hindi kids cartoon {topic} illustration"
     u = f"https://pixabay.com/api/?key={os.getenv('PIXABAY_KEY')}&q={q}&image_type=illustration&orientation={orient}&per_page=12&safesearch=true"
@@ -133,19 +133,27 @@ def dl_image(url, path):
         print(f"Image download failed: {e}")
         sys.exit(1)
 
-# AUDIO - Piper TTS from local file
+# AUDIO - Piper TTS (fixed: set wave params before synthesize)
 def make_audio(txt, out_mp3):
     try:
         voice = load_piper_voice()
 
         temp_wav = os.path.join(OUTPUT_DIR, "temp_piper.wav")
 
-        with wave.open(temp_wav, 'wb') as wav_file:
-            voice.synthesize(txt, wav_file)
+        wav_file = wave.open(temp_wav, 'wb')
+        
+        # Must set these BEFORE synthesize writes data
+        wav_file.setnchannels(1)                    # Piper always mono
+        wav_file.setsampwidth(2)                    # 16-bit = 2 bytes
+        wav_file.setframerate(voice.config.sample_rate)
+        
+        voice.synthesize(txt, wav_file)
+        
+        wav_file.close()   # important: close to finalize header
 
         audio = AudioSegment.from_wav(temp_wav)
         audio = audio.normalize()
-        audio = audio + 12
+        audio = audio + 12  # volume boost
         audio.export(out_mp3, format="mp3", bitrate="192k")
 
         os.remove(temp_wav)
@@ -153,9 +161,11 @@ def make_audio(txt, out_mp3):
 
     except Exception as e:
         print(f"Piper TTS failed: {e}")
+        if os.path.exists(temp_wav):
+            os.remove(temp_wav)
         sys.exit(1)
 
-# VIDEO (same as your previous version)
+# VIDEO (unchanged)
 def make_video(txt, bg_path, short=False):
     try:
         img = cv2.imread(bg_path)
@@ -231,7 +241,7 @@ def make_video(txt, bg_path, short=False):
         print(f"Video creation failed: {e}")
         sys.exit(1)
 
-# YOUTUBE (same)
+# YOUTUBE (unchanged)
 def yt_service():
     try:
         creds = None
