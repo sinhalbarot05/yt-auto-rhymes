@@ -62,7 +62,7 @@ def gen_rhyme():
                 "Content-Type": "application/json"
             },
             json={
-                "model": "llama3-70b-8192",
+                "model": "mixtral-8x7b-32768",  # More reliable on Groq free tier
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.95,
                 "max_tokens": 200
@@ -239,7 +239,7 @@ def make_video(txt, bg_path, short=False):
         sys.exit(1)
 
 # ────────────────────────────────────────────────
-# YOUTUBE - BINARY PICKLE LOADING (this matches the binary decode in workflow)
+# YOUTUBE - BINARY PICKLE LOADING + TIMEZONE FIX
 # ────────────────────────────────────────────────
 def yt_service():
     try:
@@ -249,16 +249,25 @@ def yt_service():
                 creds = pickle.load(f)
 
         if creds:
-            print(f"Credentials loaded from pickle. Expiry: {creds.expiry if creds.expiry else 'None'}")
-            now_utc = datetime.now(timezone.utc)
-            if creds.expiry and creds.expiry < now_utc:
-                print("Token expired - refreshing")
-                creds.refresh(Request())
-                with open(TOKEN_FILE, 'wb') as f:
-                    pickle.dump(creds, f)
-                print("Token refreshed and saved as pickle")
+            expiry = creds.expiry
+            print(f"Credentials loaded from pickle. Expiry: {expiry} (type: {type(expiry)})")
+
+            if expiry is None:
+                print("No expiry set — assuming token is valid")
             else:
-                print("Token is valid or no expiry")
+                # Ensure both sides are timezone-aware
+                now_utc = datetime.now(timezone.utc)
+                # If expiry is naive, assume UTC
+                if expiry.tzinfo is None:
+                    expiry = expiry.replace(tzinfo=timezone.utc)
+                if expiry < now_utc:
+                    print("Token expired - refreshing")
+                    creds.refresh(Request())
+                    with open(TOKEN_FILE, 'wb') as f:
+                        pickle.dump(creds, f)
+                    print("Token refreshed and saved as pickle")
+                else:
+                    print("Token is valid")
 
         else:
             print("No credentials in pickle")
@@ -271,8 +280,7 @@ def yt_service():
         if os.path.exists(TOKEN_FILE):
             print("Token file size:", os.path.getsize(TOKEN_FILE))
             with open(TOKEN_FILE, 'rb') as f:
-                first_bytes = f.read(50)
-                print("First 50 bytes (hex):", first_bytes.hex())
+                print("First 50 bytes (hex):", f.read(50).hex())
         sys.exit(1)
 
 def upload(vid, title, desc, tags, short=False):
