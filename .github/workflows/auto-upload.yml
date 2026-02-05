@@ -48,5 +48,5 @@ jobs:
         env:
           PIXABAY_KEY: ${{ secrets.PIXABAY_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          PRODIA_API_KEY: ${{ secrets.PRODIA_API_KEY }}
+          PIXAZO_API_KEY: ${{ secrets.PIXAZO_API_KEY }}
         run: python upload_script.py
