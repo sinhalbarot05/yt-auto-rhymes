@@ -48,7 +48,7 @@ used_images = load_used("used_images.json")
 used_topics = load_used("used_topics.json")
 
 # ────────────────────────────────────────────────
-# OPENROUTER API FOR TEXT GENERATION (FREE MODELS)
+# OPENROUTER API FOR TEXT GENERATION
 # ────────────────────────────────────────────────
 def openrouter_request(prompt, model="openrouter/free"):
     try:
@@ -73,13 +73,13 @@ def openrouter_request(prompt, model="openrouter/free"):
         return None
 
 # ────────────────────────────────────────────────
-# PIXAZO FLUX SCHNELL API FOR THUMBNAIL GENERATION (FREE)
+# PIXAZO FLUX SCHNELL API FOR THUMBNAIL
 # ────────────────────────────────────────────────
 def gen_thumbnail(rhyme, short=False):
     prompt = f"Vibrant cute cartoon thumbnail for Hindi kids nursery rhyme: {rhyme[:100]}... Bright colors, fun characters, animals, text overlay with main rhyme line, viral kids style."
     try:
         response = requests.post(
-            "https://api.pixazo.ai/v1/text-to-image",  # Confirm exact endpoint after signup
+            "https://api.pixazo.ai/v1/text-to-image",
             headers={
                 "Authorization": f"Bearer {os.getenv('PIXAZO_API_KEY')}",
                 "Content-Type": "application/json"
@@ -95,7 +95,7 @@ def gen_thumbnail(rhyme, short=False):
             timeout=60
         )
         response.raise_for_status()
-        image_url = response.json()["image_url"]  # Adjust based on actual response
+        image_url = response.json()["image_url"]
         print("Thumbnail generated:", image_url)
         return image_url
     except Exception as e:
@@ -103,7 +103,7 @@ def gen_thumbnail(rhyme, short=False):
         return None
 
 # ────────────────────────────────────────────────
-# GENERATE UNIQUE NURSERY RHYME USING OPENROUTER
+# GENERATE UNIQUE RHYME (short/long)
 # ────────────────────────────────────────────────
 def gen_rhyme(short=False):
     global used_rhymes
@@ -117,7 +117,6 @@ def gen_rhyme(short=False):
         print("AI-generated unique rhyme:\n", rhyme)
         return rhyme
 
-    # Fallback if API fails or duplicate
     fallback = "चंदा मामा दूर के\nपुए पाके बूर के\nहमको भी दो थोड़े से\nहम भी खाएं पूरे से" * (line_count // 4 + 1)
     if fallback not in used_rhymes:
         used_rhymes.append(fallback)
@@ -125,31 +124,37 @@ def gen_rhyme(short=False):
     return fallback
 
 # ────────────────────────────────────────────────
-# GENERATE VIRAL TITLE USING OPENROUTER
+# MISSING FUNCTION — ADDED BACK (this was causing the crash)
+# ────────────────────────────────────────────────
+def gen_topic(txt):
+    global used_topics
+    t = " ".join(txt.split()[:5])
+    while t in used_topics:
+        t += f" {random.choice(['की राइम','की मस्ती','का गाना','नई वाली'])}"
+    used_topics.append(t)
+    save_used("used_topics.json", used_topics)
+    return t
+
+# ────────────────────────────────────────────────
+# TITLE, DESCRIPTION, HASHTAGS (OpenRouter)
 # ────────────────────────────────────────────────
 def gen_title(rhyme):
     prompt = f"इस हिंदी नर्सरी राइम के लिए एक वायरल YouTube टाइटल बनाओ (इमोजी, नंबर, सवाल, बच्चों को आकर्षित करने वाला): {rhyme[:200]}... केवल टाइटल लिखो।"
     title = openrouter_request(prompt)
     return title or "प्यारी नर्सरी राइम | बच्चों के लिए मजेदार गाना 😍"
 
-# ────────────────────────────────────────────────
-# GENERATE SEO DESCRIPTION USING OPENROUTER
-# ────────────────────────────────────────────────
 def gen_desc(rhyme):
     prompt = f"इस हिंदी नर्सरी राइम के लिए एक आकर्षक YouTube डिस्क्रिप्शन बनाओ (150-200 शब्द, कीवर्ड्स, इमोजी, लाइक/सब्सक्राइब कॉल टू एक्शन के साथ): {rhyme[:200]}... डिस्क्रिप्शन वायरल हो। केवल डिस्क्रिप्शन लिखो।"
     desc = openrouter_request(prompt)
     return desc or f"{rhyme[:120]}...\n#HindiNurseryRhyme #BacchonKiRhyme #KidsSongs"
 
-# ────────────────────────────────────────────────
-# GENERATE VIRAL HASHTAGS USING OPENROUTER
-# ────────────────────────────────────────────────
 def gen_hashtags(rhyme):
     prompt = f"इस हिंदी नर्सरी राइम के लिए 12-15 वायरल YouTube हैशटैग बनाओ (मिक्स लोकल + ग्लोबल, व्यूज बढ़ाने वाले, इमोजी के साथ): {rhyme[:200]}... केवल हैशटैग लिस्ट लिखो।"
     hashtags = openrouter_request(prompt)
     return hashtags or "#HindiNurseryRhyme #KidsRhymes #ViralKidsSong #NurseryRhymes #BacchonKaGaana"
 
 # ────────────────────────────────────────────────
-# DOWNLOAD IMAGE & ADD TEXT TO THUMBNAIL
+# THUMBNAIL CREATION WITH TEXT OVERLAY
 # ────────────────────────────────────────────────
 def create_thumbnail(image_url, rhyme, path):
     try:
@@ -177,7 +182,7 @@ def create_thumbnail(image_url, rhyme, path):
         print(f"Thumbnail creation failed: {e}")
 
 # ────────────────────────────────────────────────
-# YOUTUBE UPLOAD
+# YOUTUBE FUNCTIONS (unchanged but included for completeness)
 # ────────────────────────────────────────────────
 def yt_service():
     try:
@@ -254,7 +259,7 @@ if __name__ == "__main__":
     try:
         # Long Video (20 lines)
         text_v = gen_rhyme(short=False)
-        topic_v = gen_topic(text_v)
+        topic_v = gen_topic(text_v)  # ← this line was crashing — function now added back
         title_v = gen_title(text_v)
         desc_v = gen_desc(text_v)
         tags_v = gen_hashtags(text_v).split()
