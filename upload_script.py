@@ -50,7 +50,7 @@ used_topics = load_used("used_topics.json")
 # ────────────────────────────────────────────────
 # OPENROUTER API FOR TEXT GENERATION (FREE MODELS)
 # ────────────────────────────────────────────────
-def openrouter_request(prompt, model="openrouter/free"):  # Uses free router for random free model
+def openrouter_request(prompt, model="openrouter/free"):
     try:
         response = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
@@ -62,7 +62,7 @@ def openrouter_request(prompt, model="openrouter/free"):  # Uses free router for
                 "model": model,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.95,
-                "max_tokens": 400
+                "max_tokens": 500
             },
             timeout=30
         )
@@ -73,119 +73,111 @@ def openrouter_request(prompt, model="openrouter/free"):  # Uses free router for
         return None
 
 # ────────────────────────────────────────────────
-# GENERATE NURSERY RHYME USING OPENROUTER
+# PIXAZO FLUX SCHNELL API FOR THUMBNAIL GENERATION (FREE)
+# ────────────────────────────────────────────────
+def gen_thumbnail(rhyme, short=False):
+    prompt = f"Vibrant cute cartoon thumbnail for Hindi kids nursery rhyme: {rhyme[:100]}... Bright colors, fun characters, animals, text overlay with main rhyme line, viral kids style."
+    try:
+        response = requests.post(
+            "https://api.pixazo.ai/v1/text-to-image",  # Confirm exact endpoint after signup
+            headers={
+                "Authorization": f"Bearer {os.getenv('PIXAZO_API_KEY')}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "prompt": prompt,
+                "model": "flux-schnell",
+                "steps": 20,
+                "width": 1280,
+                "height": 720,
+                "seed": random.randint(0, 1000000)
+            },
+            timeout=60
+        )
+        response.raise_for_status()
+        image_url = response.json()["image_url"]  # Adjust based on actual response
+        print("Thumbnail generated:", image_url)
+        return image_url
+    except Exception as e:
+        print(f"Pixazo error: {e}")
+        return None
+
+# ────────────────────────────────────────────────
+# GENERATE UNIQUE NURSERY RHYME USING OPENROUTER
 # ────────────────────────────────────────────────
 def gen_rhyme(short=False):
     global used_rhymes
     line_count = 10 if short else 20
-    prompt = f"एक पूरी तरह नई, मजेदार हिंदी नर्सरी राइम बनाओ ({line_count} लाइनें)। तुकबंदी हो, बच्चों को पसंद आए, थीम खुशी, दोस्ती, प्रकृति, जानवर या खेल का हो। केवल राइम लिखो, कोई अतिरिक्त टिप्पणी नहीं।"
+    prompt = f"एक पूरी तरह नई, मजेदार हिंदी नर्सरी राइम बनाओ ({line_count} लाइनें)। तुकबंदी हो, बच्चों को बहुत पसंद आए, थीम खुशी, दोस्ती, प्रकृति, जानवर या खेल का हो। केवल राइम लिखो, कोई अतिरिक्त टिप्पणी नहीं।"
 
     rhyme = openrouter_request(prompt)
-    if rhyme:
-        if rhyme not in used_rhymes:
-            used_rhymes.append(rhyme)
-            save_used("used_rhymes.json", used_rhymes)
-            print("AI-generated rhyme:\n", rhyme)
-            return rhyme
+    if rhyme and rhyme not in used_rhymes:
+        used_rhymes.append(rhyme)
+        save_used("used_rhymes.json", used_rhymes)
+        print("AI-generated unique rhyme:\n", rhyme)
+        return rhyme
 
-    # Fallback if API fails
-    fallback = "चंदा मामा दूर के\nपुए पाके बूर के\nहमको भी दो थोड़े से\nहम भी खाएं पूरे से" * (line_count // 4)
+    # Fallback if API fails or duplicate
+    fallback = "चंदा मामा दूर के\nपुए पाके बूर के\nहमको भी दो थोड़े से\nहम भी खाएं पूरे से" * (line_count // 4 + 1)
     if fallback not in used_rhymes:
         used_rhymes.append(fallback)
         save_used("used_rhymes.json", used_rhymes)
     return fallback
 
 # ────────────────────────────────────────────────
-# GENERATE TITLE USING OPENROUTER
+# GENERATE VIRAL TITLE USING OPENROUTER
 # ────────────────────────────────────────────────
 def gen_title(rhyme):
-    prompt = f"इस हिंदी नर्सरी राइम के लिए एक आकर्षक, वायरल होने वाला YouTube टाइटल बनाओ (इमोजी, नंबर, सवाल के साथ): {rhyme[:200]}... टाइटल बच्चों को आकर्षित करे और व्यूज बढ़ाए। केवल टाइटल लिखो।"
+    prompt = f"इस हिंदी नर्सरी राइम के लिए एक वायरल YouTube टाइटल बनाओ (इमोजी, नंबर, सवाल, बच्चों को आकर्षित करने वाला): {rhyme[:200]}... केवल टाइटल लिखो।"
     title = openrouter_request(prompt)
-    return title or "प्यारी नर्सरी राइम | बच्चों के लिए मजेदार गाना"
+    return title or "प्यारी नर्सरी राइम | बच्चों के लिए मजेदार गाना 😍"
 
 # ────────────────────────────────────────────────
-# GENERATE DESCRIPTION USING OPENROUTER
+# GENERATE SEO DESCRIPTION USING OPENROUTER
 # ────────────────────────────────────────────────
 def gen_desc(rhyme):
-    prompt = f"इस हिंदी नर्सरी राइम के लिए एक SEO ऑप्टिमाइज्ड YouTube डिस्क्रिप्शन बनाओ (100-150 शब्द, कीवर्ड्स, इमोजी, कॉल टू एक्शन के साथ): {rhyme[:200]}... डिस्क्रिप्शन वायरल होने और सब्सक्राइबर्स बढ़ाने में मदद करे। केवल डिस्क्रिप्शन लिखो।"
+    prompt = f"इस हिंदी नर्सरी राइम के लिए एक आकर्षक YouTube डिस्क्रिप्शन बनाओ (150-200 शब्द, कीवर्ड्स, इमोजी, लाइक/सब्सक्राइब कॉल टू एक्शन के साथ): {rhyme[:200]}... डिस्क्रिप्शन वायरल हो। केवल डिस्क्रिप्शन लिखो।"
     desc = openrouter_request(prompt)
     return desc or f"{rhyme[:120]}...\n#HindiNurseryRhyme #BacchonKiRhyme #KidsSongs"
 
 # ────────────────────────────────────────────────
-# GENERATE HASHTAGS USING OPENROUTER
+# GENERATE VIRAL HASHTAGS USING OPENROUTER
 # ────────────────────────────────────────────────
 def gen_hashtags(rhyme):
-    prompt = f"इस हिंदी नर्सरी राइम के लिए 10-15 वायरल YouTube हैशटैग बनाओ (मिक्स लोकल और ग्लोबल, व्यूज बढ़ाने वाले): {rhyme[:200]}... हैशटैग वीडियो को वायरल बनाने में मदद करें। केवल हैशटैग लिस्ट लिखो।"
+    prompt = f"इस हिंदी नर्सरी राइम के लिए 12-15 वायरल YouTube हैशटैग बनाओ (मिक्स लोकल + ग्लोबल, व्यूज बढ़ाने वाले, इमोजी के साथ): {rhyme[:200]}... केवल हैशटैग लिस्ट लिखो।"
     hashtags = openrouter_request(prompt)
-    return hashtags or "#HindiNurseryRhyme #KidsRhymes #ViralKidsSong #NurseryRhymes"
+    return hashtags or "#HindiNurseryRhyme #KidsRhymes #ViralKidsSong #NurseryRhymes #BacchonKaGaana"
 
 # ────────────────────────────────────────────────
-# GENERATE THUMBNAIL IMAGE USING PRODIA API (FREE TIER)
-# ────────────────────────────────────────────────
-def gen_thumbnail(rhyme, short=False):
-    prompt = f"Create a colorful, cute cartoon thumbnail for a kids nursery rhyme video: {rhyme[:100]}... Include main rhyme elements, bright colors, fun characters, and text of main rhyme line. Make it viral-looking with emojis if possible. Style: cartoon for kids."
-    try:
-        response = requests.post(
-            "https://api.prodia.com/v1/sd/generate",
-            headers={
-                "X-Prodia-Key": os.getenv('PRODIA_API_KEY')
-            },
-            json={
-                "prompt": prompt,
-                "model": "sd_xl_base_1.0.safetensors [be9edd61]",
-                "steps": 25,
-                "cfg_scale": 7,
-                "seed": random.randint(0, 1000000)
-            },
-            timeout=60
-        )
-        response.raise_for_status()
-        job_id = response.json()["job"]
-        
-        # Poll for result
-        for _ in range(30):
-            status = requests.get(f"https://api.prodia.com/v1/job/{job_id}", headers={"X-Prodia-Key": os.getenv('PRODIA_API_KEY')}).json()
-            if status["status"] == "succeeded":
-                image_url = status["imageUrl"]
-                return image_url
-            time.sleep(2)
-        print("Prodia timeout")
-        return None
-    except Exception as e:
-        print(f"Prodia error: {e}")
-        return None
-
-# ────────────────────────────────────────────────
-# GENERATE MULTI-FRAME IMAGES FOR ANIMATION USING PRODIA
-# ────────────────────────────────────────────────
-def gen_animation_images(rhyme):
-    lines = rhyme.split('\n')
-    stanzas = [ '\n'.join(lines[i:i+4]) for i in range(0, len(lines), 4) ]  # Split into stanzas of 4 lines
-    images = []
-    for stanza in stanzas:
-        prompt = f"Cute cartoon scene matching this kids rhyme stanza: {stanza}. Bright colors, fun characters, educational theme."
-        image_url = gen_thumbnail(prompt)  # Reuse thumbnail gen for simplicity
-        if image_url:
-            images.append(image_url)
-        else:
-            images.append("fallback_image_url")  # Use Pixabay fallback if needed
-    return images
-
-# ────────────────────────────────────────────────
-# DOWNLOAD AND ADD TEXT TO THUMBNAIL
+# DOWNLOAD IMAGE & ADD TEXT TO THUMBNAIL
 # ────────────────────────────────────────────────
 def create_thumbnail(image_url, rhyme, path):
-    dl_image(image_url, path)
-    # Add text to thumbnail with main rhyme line
-    img = Image.open(path)
-    draw = ImageDraw.Draw(img)
-    font = ImageFont.load_default()
-    main_line = rhyme.split('\n')[0]  # First line as main text
-    draw.text((10, 10), main_line, font=font, fill=(255, 0, 0))
-    img.save(path)
+    try:
+        r = requests.get(image_url, timeout=20)
+        r.raise_for_status()
+        with open(path, "wb") as f:
+            f.write(r.content)
+
+        img = Image.open(path)
+        draw = ImageDraw.Draw(img)
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf", 60)
+        except:
+            font = ImageFont.load_default()
+
+        main_line = rhyme.split('\n')[0][:30] + "..." if len(rhyme.split('\n')[0]) > 30 else rhyme.split('\n')[0]
+        bbox = draw.textbbox((0, 0), main_line, font=font)
+        text_w = bbox[2] - bbox[0]
+        x = (img.width - text_w) // 2
+        draw.text((x, img.height - 100), main_line, font=font, fill=(255, 255, 0), stroke_width=4, stroke_fill=(0,0,0))
+
+        img.save(path)
+        print("Thumbnail with text saved:", path)
+    except Exception as e:
+        print(f"Thumbnail creation failed: {e}")
 
 # ────────────────────────────────────────────────
-# YOUTUBE UPLOAD (unchanged)
+# YOUTUBE UPLOAD
 # ────────────────────────────────────────────────
 def yt_service():
     try:
@@ -202,22 +194,18 @@ def yt_service():
                 creds.refresh(Request())
                 with open(TOKEN_FILE, 'wb') as f:
                     pickle.dump(creds, f)
-                print("Token refreshed and saved as pickle")
+                print("Token refreshed")
             else:
-                print("Token is valid or no expiry")
+                print("Token valid")
 
         else:
-            print("No credentials in pickle")
+            print("No credentials")
             sys.exit(1)
 
         return build('youtube', 'v3', credentials=creds)
 
     except Exception as e:
         print(f"Credential error: {e}")
-        if os.path.exists(TOKEN_FILE):
-            print("Token file size:", os.path.getsize(TOKEN_FILE))
-            with open(TOKEN_FILE, 'rb') as f:
-                print("First 50 bytes (hex):", f.read(50).hex())
         sys.exit(1)
 
 def upload(vid, title, desc, tags, short=False, thumbnail_path=None):
@@ -239,7 +227,6 @@ def upload(vid, title, desc, tags, short=False, thumbnail_path=None):
             vid_id = resp['id']
             print(f"Upload SUCCESS! {'Short' if short else 'Video'} ID: {vid_id}")
 
-            # Upload thumbnail if provided
             if thumbnail_path:
                 yt.thumbnails().set(
                     videoId=vid_id,
@@ -261,42 +248,44 @@ def upload(vid, title, desc, tags, short=False, thumbnail_path=None):
 # MAIN EXECUTION
 # ────────────────────────────────────────────────
 if __name__ == "__main__":
-    print("===== Hindi Kids Nursery Rhymes Auto-Generator with OpenRouter AI =====")
+    print("===== Hindi Kids Nursery Rhymes Auto-Generator with Flux & OpenRouter =====")
     success = 0
 
     try:
-        # Long Video
-        text_v = gen_rhyme(short=False)  # 20 lines
+        # Long Video (20 lines)
+        text_v = gen_rhyme(short=False)
         topic_v = gen_topic(text_v)
         title_v = gen_title(text_v)
         desc_v = gen_desc(text_v)
-        tags_v = gen_hashtags(text_v)
-        animation_images = gen_animation_images(text_v)
-        bg_v = os.path.join(BG_IMAGES_DIR, "bg_v.jpg")
-        dl_image(animation_images[0] if animation_images else "fallback_url", bg_v)  # Use first image as bg
-        video_path = make_video(text_v, bg_v, short=False)
-        thumbnail_url = gen_thumbnail(text_v, short=False)
-        thumbnail_path = os.path.join(BG_IMAGES_DIR, "thumbnail_v.png")
-        create_thumbnail(thumbnail_url, text_v, thumbnail_path)
+        tags_v = gen_hashtags(text_v).split()
+        thumbnail_url_v = gen_thumbnail(text_v, short=False)
+        thumbnail_path_v = os.path.join(BG_IMAGES_DIR, "thumbnail_long.png")
+        if thumbnail_url_v:
+            create_thumbnail(thumbnail_url_v, text_v, thumbnail_path_v)
 
-        if upload(video_path, title_v, desc_v, tags_v.split(), thumbnail_path=thumbnail_path):
+        bg_v = os.path.join(BG_IMAGES_DIR, "bg_v.jpg")
+        dl_image(thumbnail_url_v or "fallback_url", bg_v)
+        video_path = make_video(text_v, bg_v, short=False)
+
+        if upload(video_path, title_v, desc_v, tags_v, thumbnail_path=thumbnail_path_v):
             success += 1
 
-        # Short Video
-        text_s = gen_rhyme(short=True)  # 10 lines
+        # Short Video (10 lines)
+        text_s = gen_rhyme(short=True)
         topic_s = gen_topic(text_s)
         title_s = gen_title(text_s)
         desc_s = gen_desc(text_s)
-        tags_s = gen_hashtags(text_s)
-        animation_images_s = gen_animation_images(text_s)
-        bg_s = os.path.join(BG_IMAGES_DIR, "bg_s.jpg")
-        dl_image(animation_images_s[0] if animation_images_s else "fallback_url", bg_s)
-        short_path = make_video(text_s, bg_s, short=True)
+        tags_s = gen_hashtags(text_s).split()
         thumbnail_url_s = gen_thumbnail(text_s, short=True)
-        thumbnail_path_s = os.path.join(BG_IMAGES_DIR, "thumbnail_s.png")
-        create_thumbnail(thumbnail_url_s, text_s, thumbnail_path_s)
+        thumbnail_path_s = os.path.join(BG_IMAGES_DIR, "thumbnail_short.png")
+        if thumbnail_url_s:
+            create_thumbnail(thumbnail_url_s, text_s, thumbnail_path_s)
 
-        if upload(short_path, title_s, desc_s, tags_s.split(), short=True, thumbnail_path=thumbnail_path_s):
+        bg_s = os.path.join(BG_IMAGES_DIR, "bg_s.jpg")
+        dl_image(thumbnail_url_s or "fallback_url", bg_s)
+        short_path = make_video(text_s, bg_s, short=True)
+
+        if upload(short_path, title_s, desc_s, tags_s, short=True, thumbnail_path=thumbnail_path_s):
             success += 1
 
         print(f"\n===== Finished! {success}/2 rhymes uploaded =====")
