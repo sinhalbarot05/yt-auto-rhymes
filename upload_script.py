@@ -48,7 +48,7 @@ used_images = load_used("used_images.json")
 used_topics = load_used("used_topics.json")
 
 # ────────────────────────────────────────────────
-# OPENROUTER API FOR TEXT (rhyme, title, desc, hashtags)
+# OPENROUTER API FOR TEXT GENERATION
 # ────────────────────────────────────────────────
 def openrouter_request(prompt, model="openrouter/free"):
     try:
@@ -73,29 +73,47 @@ def openrouter_request(prompt, model="openrouter/free"):
         return None
 
 # ────────────────────────────────────────────────
-# CRAIYON FREE TEXT-TO-IMAGE (no key needed, unlimited basic use)
+# LEONARDO.AI FREE API FOR THUMBNAIL (150+ generations/day free)
 # ────────────────────────────────────────────────
 def gen_thumbnail(rhyme, short=False):
     prompt = f"Cute vibrant cartoon thumbnail for Hindi kids nursery rhyme video: {rhyme[:100]}... Fun animals, bright colors, kids playing, main rhyme line text overlay, viral style for children."
     try:
-        # Craiyon unofficial API wrapper (free, works in 2026)
         response = requests.post(
-            "https://backend.craiyon.com/generate",
+            "https://cloud.leonardo.ai/api/rest/v1/generations",
+            headers={
+                "Authorization": f"Bearer {os.getenv('LEONARDO_API_KEY')}",
+                "Content-Type": "application/json"
+            },
             json={
                 "prompt": prompt,
-                "version": "c6y2m3p4k5l6n7o8p9q0r1s2t3u4v5w6x7y8z9",
-                "negative_prompt": "ugly, blurry, bad quality"
+                "modelId": "e3d64626-7c2b-4a8f-9b1d-9b5d0b8d7c6a",  # Free Leonardo model (check dashboard if changed)
+                "width": 1280,
+                "height": 720,
+                "num_images": 1,
+                "guidance_scale": 7,
+                "steps": 30
             },
-            timeout=90
+            timeout=60
         )
         response.raise_for_status()
-        data = response.json()
-        image_url = data["images"][0]  # First generated image
-        print("Craiyon thumbnail generated:", image_url)
-        return image_url
+        job_id = response.json()["generationId"]
+
+        # Poll for completion
+        for _ in range(30):
+            status = requests.get(
+                f"https://cloud.leonardo.ai/api/rest/v1/generations/{job_id}",
+                headers={"Authorization": f"Bearer {os.getenv('LEONARDO_API_KEY')}"}
+            ).json()
+            if status.get("status") == "COMPLETE":
+                image_url = status["generated_images"][0]["url"]
+                print("Leonardo thumbnail generated:", image_url)
+                return image_url
+            time.sleep(2)
+        print("Leonardo timeout - using fallback")
+        return "https://picsum.photos/1280/720"
     except Exception as e:
-        print(f"Craiyon error: {e}")
-        return "https://picsum.photos/1280/720"  # fallback random image
+        print(f"Leonardo API error: {e}")
+        return "https://picsum.photos/1280/720"
 
 # ────────────────────────────────────────────────
 # DOWNLOAD IMAGE
@@ -109,7 +127,7 @@ def dl_image(url, path):
         print(f"Image downloaded: {path}")
     except Exception as e:
         print(f"Image download failed: {e}")
-        # Fallback to random placeholder
+        # Fallback random image
         os.system(f"curl -o {path} https://picsum.photos/1920/1080")
 
 # ────────────────────────────────────────────────
@@ -162,23 +180,39 @@ def gen_hashtags(rhyme):
 # ────────────────────────────────────────────────
 def create_thumbnail(image_url, rhyme, path):
     dl_image(image_url, path)
-    img = Image.open(path)
-    draw = ImageDraw.Draw(img)
     try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf", 60)
-    except:
-        font = ImageFont.load_default()
-
-    main_line = rhyme.split('\n')[0][:30] + "..." if len(rhyme.split('\n')[0]) > 30 else rhyme.split('\n')[0]
-    bbox = draw.textbbox((0, 0), main_line, font=font)
-    text_w = bbox[2] - bbox[0]
-    x = (img.width - text_w) // 2
-    draw.text((x, img.height - 100), main_line, font=font, fill=(255, 255, 0), stroke_width=4, stroke_fill=(0,0,0))
-    img.save(path)
-    print("Thumbnail with text saved:", path)
+        img = Image.open(path)
+        draw = ImageDraw.Draw(img)
+        font = ImageFont.load_default()  # fallback font
+        main_line = rhyme.split('\n')[0][:30] + "..." if len(rhyme.split('\n')[0]) > 30 else rhyme.split('\n')[0]
+        bbox = draw.textbbox((0, 0), main_line, font=font)
+        text_w = bbox[2] - bbox[0]
+        x = (img.width - text_w) // 2
+        draw.text((x, img.height - 100), main_line, font=font, fill=(255, 255, 0))
+        img.save(path)
+        print("Thumbnail with text saved:", path)
+    except Exception as e:
+        print(f"Thumbnail overlay failed: {e}")
 
 # ────────────────────────────────────────────────
-# VIDEO CREATION (missing function - added back)
+# AUDIO GENERATION
+# ────────────────────────────────────────────────
+def make_audio(txt, out_mp3):
+    try:
+        print(f"Generating rhyme audio with gTTS (length {len(txt)} chars)")
+        tts = gTTS(txt, lang='hi', tld='co.in')
+        tts.save(out_mp3)
+        mp3_size = os.path.getsize(out_mp3)
+        print(f"MP3 created, size: {mp3_size} bytes")
+        if mp3_size < 10000:
+            print("ERROR: MP3 too small")
+            sys.exit(1)
+    except Exception as e:
+        print(f"gTTS failed: {e}")
+        sys.exit(1)
+
+# ────────────────────────────────────────────────
+# VIDEO CREATION
 # ────────────────────────────────────────────────
 def make_video(txt, bg_path, short=False):
     try:
@@ -265,24 +299,7 @@ def make_video(txt, bg_path, short=False):
         sys.exit(1)
 
 # ────────────────────────────────────────────────
-# AUDIO GENERATION
-# ────────────────────────────────────────────────
-def make_audio(txt, out_mp3):
-    try:
-        print(f"Generating rhyme audio with gTTS (length {len(txt)} chars)")
-        tts = gTTS(txt, lang='hi', tld='co.in')
-        tts.save(out_mp3)
-        mp3_size = os.path.getsize(out_mp3)
-        print(f"MP3 created, size: {mp3_size} bytes")
-        if mp3_size < 10000:
-            print("ERROR: MP3 too small")
-            sys.exit(1)
-    except Exception as e:
-        print(f"gTTS failed: {e}")
-        sys.exit(1)
-
-# ────────────────────────────────────────────────
-# YOUTUBE UPLOAD
+# YOUTUBE - FIXED TIMEZONE COMPARISON
 # ────────────────────────────────────────────────
 def yt_service():
     try:
@@ -292,25 +309,38 @@ def yt_service():
                 creds = pickle.load(f)
 
         if creds:
-            print(f"Credentials loaded from pickle. Expiry: {creds.expiry if creds.expiry else 'None'}")
-            now_utc = datetime.now(timezone.utc)
-            if creds.expiry and creds.expiry < now_utc:
-                print("Token expired - refreshing")
-                creds.refresh(Request())
-                with open(TOKEN_FILE, 'wb') as f:
-                    pickle.dump(creds, f)
-                print("Token refreshed")
+            expiry = creds.expiry
+            print(f"Credentials loaded from pickle. Expiry: {expiry} (type: {type(expiry)})")
+
+            if expiry is None:
+                print("No expiry set — assuming token is valid")
             else:
-                print("Token valid")
+                # Make expiry timezone-aware if naive
+                if expiry.tzinfo is None:
+                    expiry = expiry.replace(tzinfo=timezone.utc)
+
+                now_utc = datetime.now(timezone.utc)
+                if expiry < now_utc:
+                    print("Token expired - refreshing")
+                    creds.refresh(Request())
+                    with open(TOKEN_FILE, 'wb') as f:
+                        pickle.dump(creds, f)
+                    print("Token refreshed and saved as pickle")
+                else:
+                    print("Token is valid")
 
         else:
-            print("No credentials")
+            print("No credentials in pickle")
             sys.exit(1)
 
         return build('youtube', 'v3', credentials=creds)
 
     except Exception as e:
         print(f"Credential error: {e}")
+        if os.path.exists(TOKEN_FILE):
+            print("Token file size:", os.path.getsize(TOKEN_FILE))
+            with open(TOKEN_FILE, 'rb') as f:
+                print("First 50 bytes (hex):", f.read(50).hex())
         sys.exit(1)
 
 def upload(vid, title, desc, tags, short=False, thumbnail_path=None):
