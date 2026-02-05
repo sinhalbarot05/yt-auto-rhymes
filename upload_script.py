@@ -73,37 +73,63 @@ def openrouter_request(prompt, model="openrouter/free"):
         return None
 
 # ────────────────────────────────────────────────
-# PIXAZO FLUX SCHNELL API FOR THUMBNAIL
+# LEONARDO.AI FREE API FOR THUMBNAIL GENERATION (free tier 150+/day)
 # ────────────────────────────────────────────────
 def gen_thumbnail(rhyme, short=False):
-    prompt = f"Vibrant cute cartoon thumbnail for Hindi kids nursery rhyme: {rhyme[:100]}... Bright colors, fun characters, animals, text overlay with main rhyme line, viral kids style."
+    prompt = f"Cute vibrant cartoon thumbnail for Hindi kids nursery rhyme video: {rhyme[:100]}... Fun animals, bright colors, kids playing, main rhyme line text overlay, viral style for children."
     try:
         response = requests.post(
-            "https://api.pixazo.ai/v1/text-to-image",
+            "https://cloud.leonardo.ai/api/rest/v1/generations",
             headers={
-                "Authorization": f"Bearer {os.getenv('PIXAZO_API_KEY')}",
+                "Authorization": f"Bearer {os.getenv('LEONARDO_API_KEY')}",
                 "Content-Type": "application/json"
             },
             json={
                 "prompt": prompt,
-                "model": "flux-schnell",
-                "steps": 20,
+                "modelId": "e3d64626-7c2b-4a8f-9b1d-9b5d0b8d7c6a",  # Leonardo free model (check dashboard for latest free model ID)
                 "width": 1280,
                 "height": 720,
-                "seed": random.randint(0, 1000000)
+                "num_images": 1,
+                "guidance_scale": 7,
+                "steps": 30
             },
             timeout=60
         )
         response.raise_for_status()
-        image_url = response.json()["image_url"]
-        print("Thumbnail generated:", image_url)
-        return image_url
+        job_id = response.json()["generationId"]
+        
+        # Poll for completion
+        for _ in range(30):
+            status = requests.get(
+                f"https://cloud.leonardo.ai/api/rest/v1/generations/{job_id}",
+                headers={"Authorization": f"Bearer {os.getenv('LEONARDO_API_KEY')}"}
+            ).json()
+            if status["status"] == "COMPLETE":
+                image_url = status["generated_images"][0]["url"]
+                print("Leonardo thumbnail generated:", image_url)
+                return image_url
+            time.sleep(2)
+        print("Leonardo timeout")
+        return None
     except Exception as e:
-        print(f"Pixazo error: {e}")
+        print(f"Leonardo API error: {e}")
         return None
 
 # ────────────────────────────────────────────────
-# GENERATE UNIQUE RHYME (short/long)
+# DOWNLOAD IMAGE FUNCTION (was missing - added back)
+# ────────────────────────────────────────────────
+def dl_image(url, path):
+    try:
+        r = requests.get(url, timeout=20)
+        r.raise_for_status()
+        with open(path, "wb") as f:
+            f.write(r.content)
+        print(f"Image downloaded: {path}")
+    except Exception as e:
+        print(f"Image download failed: {e}")
+
+# ────────────────────────────────────────────────
+# GENERATE UNIQUE RHYME
 # ────────────────────────────────────────────────
 def gen_rhyme(short=False):
     global used_rhymes
@@ -123,9 +149,6 @@ def gen_rhyme(short=False):
         save_used("used_rhymes.json", used_rhymes)
     return fallback
 
-# ────────────────────────────────────────────────
-# MISSING FUNCTION — ADDED BACK (this was causing the crash)
-# ────────────────────────────────────────────────
 def gen_topic(txt):
     global used_topics
     t = " ".join(txt.split()[:5])
@@ -135,9 +158,6 @@ def gen_topic(txt):
     save_used("used_topics.json", used_topics)
     return t
 
-# ────────────────────────────────────────────────
-# TITLE, DESCRIPTION, HASHTAGS (OpenRouter)
-# ────────────────────────────────────────────────
 def gen_title(rhyme):
     prompt = f"इस हिंदी नर्सरी राइम के लिए एक वायरल YouTube टाइटल बनाओ (इमोजी, नंबर, सवाल, बच्चों को आकर्षित करने वाला): {rhyme[:200]}... केवल टाइटल लिखो।"
     title = openrouter_request(prompt)
@@ -154,35 +174,27 @@ def gen_hashtags(rhyme):
     return hashtags or "#HindiNurseryRhyme #KidsRhymes #ViralKidsSong #NurseryRhymes #BacchonKaGaana"
 
 # ────────────────────────────────────────────────
-# THUMBNAIL CREATION WITH TEXT OVERLAY
+# THUMBNAIL CREATION WITH TEXT
 # ────────────────────────────────────────────────
 def create_thumbnail(image_url, rhyme, path):
+    dl_image(image_url, path)
+    img = Image.open(path)
+    draw = ImageDraw.Draw(img)
     try:
-        r = requests.get(image_url, timeout=20)
-        r.raise_for_status()
-        with open(path, "wb") as f:
-            f.write(r.content)
+        font = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf", 60)
+    except:
+        font = ImageFont.load_default()
 
-        img = Image.open(path)
-        draw = ImageDraw.Draw(img)
-        try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf", 60)
-        except:
-            font = ImageFont.load_default()
-
-        main_line = rhyme.split('\n')[0][:30] + "..." if len(rhyme.split('\n')[0]) > 30 else rhyme.split('\n')[0]
-        bbox = draw.textbbox((0, 0), main_line, font=font)
-        text_w = bbox[2] - bbox[0]
-        x = (img.width - text_w) // 2
-        draw.text((x, img.height - 100), main_line, font=font, fill=(255, 255, 0), stroke_width=4, stroke_fill=(0,0,0))
-
-        img.save(path)
-        print("Thumbnail with text saved:", path)
-    except Exception as e:
-        print(f"Thumbnail creation failed: {e}")
+    main_line = rhyme.split('\n')[0][:30] + "..." if len(rhyme.split('\n')[0]) > 30 else rhyme.split('\n')[0]
+    bbox = draw.textbbox((0, 0), main_line, font=font)
+    text_w = bbox[2] - bbox[0]
+    x = (img.width - text_w) // 2
+    draw.text((x, img.height - 100), main_line, font=font, fill=(255, 255, 0), stroke_width=4, stroke_fill=(0,0,0))
+    img.save(path)
+    print("Thumbnail with text saved:", path)
 
 # ────────────────────────────────────────────────
-# YOUTUBE FUNCTIONS (unchanged but included for completeness)
+# YOUTUBE UPLOAD
 # ────────────────────────────────────────────────
 def yt_service():
     try:
@@ -259,7 +271,7 @@ if __name__ == "__main__":
     try:
         # Long Video (20 lines)
         text_v = gen_rhyme(short=False)
-        topic_v = gen_topic(text_v)  # ← this line was crashing — function now added back
+        topic_v = gen_topic(text_v)
         title_v = gen_title(text_v)
         desc_v = gen_desc(text_v)
         tags_v = gen_hashtags(text_v).split()
@@ -269,7 +281,7 @@ if __name__ == "__main__":
             create_thumbnail(thumbnail_url_v, text_v, thumbnail_path_v)
 
         bg_v = os.path.join(BG_IMAGES_DIR, "bg_v.jpg")
-        dl_image(thumbnail_url_v or "fallback_url", bg_v)
+        dl_image(thumbnail_url_v or "https://picsum.photos/1920/1080", bg_v)  # fallback random image
         video_path = make_video(text_v, bg_v, short=False)
 
         if upload(video_path, title_v, desc_v, tags_v, thumbnail_path=thumbnail_path_v):
@@ -287,7 +299,7 @@ if __name__ == "__main__":
             create_thumbnail(thumbnail_url_s, text_s, thumbnail_path_s)
 
         bg_s = os.path.join(BG_IMAGES_DIR, "bg_s.jpg")
-        dl_image(thumbnail_url_s or "fallback_url", bg_s)
+        dl_image(thumbnail_url_s or "https://picsum.photos/1080/1920", bg_s)
         short_path = make_video(text_s, bg_s, short=True)
 
         if upload(short_path, title_s, desc_s, tags_s, short=True, thumbnail_path=thumbnail_path_s):
