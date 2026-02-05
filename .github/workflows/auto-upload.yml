@@ -47,5 +47,6 @@ jobs:
       - name: Generate and Upload Nursery Rhymes
         env:
           PIXABAY_KEY: ${{ secrets.PIXABAY_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PRODIA_API_KEY: ${{ secrets.PRODIA_API_KEY }}
         run: python upload_script.py
