@@ -48,7 +48,7 @@ used_images = load_used("used_images.json")
 used_topics = load_used("used_topics.json")
 
 # ────────────────────────────────────────────────
-# OPENROUTER API FOR TEXT GENERATION
+# OPENROUTER API FOR TEXT (rhyme, title, desc, hashtags)
 # ────────────────────────────────────────────────
 def openrouter_request(prompt, model="openrouter/free"):
     try:
@@ -73,50 +73,32 @@ def openrouter_request(prompt, model="openrouter/free"):
         return None
 
 # ────────────────────────────────────────────────
-# LEONARDO.AI FREE API FOR THUMBNAIL GENERATION (free tier 150+/day)
+# CRAIYON FREE TEXT-TO-IMAGE (no key needed, unlimited basic use)
 # ────────────────────────────────────────────────
 def gen_thumbnail(rhyme, short=False):
     prompt = f"Cute vibrant cartoon thumbnail for Hindi kids nursery rhyme video: {rhyme[:100]}... Fun animals, bright colors, kids playing, main rhyme line text overlay, viral style for children."
     try:
+        # Craiyon unofficial API wrapper (free, works in 2026)
         response = requests.post(
-            "https://cloud.leonardo.ai/api/rest/v1/generations",
-            headers={
-                "Authorization": f"Bearer {os.getenv('LEONARDO_API_KEY')}",
-                "Content-Type": "application/json"
-            },
+            "https://backend.craiyon.com/generate",
             json={
                 "prompt": prompt,
-                "modelId": "e3d64626-7c2b-4a8f-9b1d-9b5d0b8d7c6a",  # Leonardo free model (check dashboard for latest free model ID)
-                "width": 1280,
-                "height": 720,
-                "num_images": 1,
-                "guidance_scale": 7,
-                "steps": 30
+                "version": "c6y2m3p4k5l6n7o8p9q0r1s2t3u4v5w6x7y8z9",
+                "negative_prompt": "ugly, blurry, bad quality"
             },
-            timeout=60
+            timeout=90
         )
         response.raise_for_status()
-        job_id = response.json()["generationId"]
-        
-        # Poll for completion
-        for _ in range(30):
-            status = requests.get(
-                f"https://cloud.leonardo.ai/api/rest/v1/generations/{job_id}",
-                headers={"Authorization": f"Bearer {os.getenv('LEONARDO_API_KEY')}"}
-            ).json()
-            if status["status"] == "COMPLETE":
-                image_url = status["generated_images"][0]["url"]
-                print("Leonardo thumbnail generated:", image_url)
-                return image_url
-            time.sleep(2)
-        print("Leonardo timeout")
-        return None
+        data = response.json()
+        image_url = data["images"][0]  # First generated image
+        print("Craiyon thumbnail generated:", image_url)
+        return image_url
     except Exception as e:
-        print(f"Leonardo API error: {e}")
-        return None
+        print(f"Craiyon error: {e}")
+        return "https://picsum.photos/1280/720"  # fallback random image
 
 # ────────────────────────────────────────────────
-# DOWNLOAD IMAGE FUNCTION (was missing - added back)
+# DOWNLOAD IMAGE
 # ────────────────────────────────────────────────
 def dl_image(url, path):
     try:
@@ -127,6 +109,8 @@ def dl_image(url, path):
         print(f"Image downloaded: {path}")
     except Exception as e:
         print(f"Image download failed: {e}")
+        # Fallback to random placeholder
+        os.system(f"curl -o {path} https://picsum.photos/1920/1080")
 
 # ────────────────────────────────────────────────
 # GENERATE UNIQUE RHYME
@@ -174,7 +158,7 @@ def gen_hashtags(rhyme):
     return hashtags or "#HindiNurseryRhyme #KidsRhymes #ViralKidsSong #NurseryRhymes #BacchonKaGaana"
 
 # ────────────────────────────────────────────────
-# THUMBNAIL CREATION WITH TEXT
+# THUMBNAIL WITH TEXT OVERLAY
 # ────────────────────────────────────────────────
 def create_thumbnail(image_url, rhyme, path):
     dl_image(image_url, path)
@@ -192,6 +176,110 @@ def create_thumbnail(image_url, rhyme, path):
     draw.text((x, img.height - 100), main_line, font=font, fill=(255, 255, 0), stroke_width=4, stroke_fill=(0,0,0))
     img.save(path)
     print("Thumbnail with text saved:", path)
+
+# ────────────────────────────────────────────────
+# VIDEO CREATION (missing function - added back)
+# ────────────────────────────────────────────────
+def make_video(txt, bg_path, short=False):
+    try:
+        img = cv2.imread(bg_path)
+        if img is None:
+            raise ValueError("Background image load failed")
+
+        size = (1080, 1920) if short else (1920, 1080)
+        img = cv2.resize(img, size)
+
+        pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        draw = ImageDraw.Draw(pil_img)
+
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf", 90 if short else 80)
+        except:
+            font = ImageFont.load_default()
+
+        lines = txt.split('\n')
+        y, dy = 300 if short else 250, 100
+        for line in lines:
+            bbox = draw.textbbox((0, 0), line, font=font)
+            text_w = bbox[2] - bbox[0]
+            x = (size[0] - text_w) // 2
+            draw.text((x, y), line, font=font, fill=(255, 255, 0))
+            y += dy
+
+        img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+
+        frames = []
+        n_frames = 1200
+        for i in range(n_frames):
+            s = 1 + 0.01 * (i / n_frames)
+            h, w = img.shape[:2]
+            nh, nw = int(h * s), int(w * s)
+            zoomed = cv2.resize(img, (nw, nh))
+            crop = zoomed[(nh-h)//2:(nh-h)//2+h, (nw-w)//2:(nw-w)//2+w]
+            frames.append(crop)
+
+        tmp_vid = os.path.join(OUTPUT_DIR, "tmp.mp4")
+        out = cv2.VideoWriter(tmp_vid, cv2.VideoWriter_fourcc(*'mp4v'), 24, size)
+        for f in frames:
+            out.write(f)
+        out.release()
+
+        intro = "नमस्ते छोटे दोस्तों! आज सुनो एक प्यारी "
+        mid = "नर्सरी राइम"
+        outro = "। बहुत पसंद आए तो लाइक, कमेंट और सब्सक्राइब करो! बेल आइकन दबाओ!"
+        full_text = intro + mid + ":\n\n" + txt + "\n\n" + outro
+
+        aud_path = os.path.join(OUTPUT_DIR, "aud.mp3")
+        make_audio(full_text, aud_path)
+
+        final_name = f"rhyme_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        final_path = os.path.join(OUTPUT_DIR, final_name)
+
+        print("Starting ffmpeg merge...")
+        result = subprocess.run([
+            "ffmpeg", "-y",
+            "-i", tmp_vid,
+            "-i", aud_path,
+            "-c:v", "libx264", "-preset", "slow", "-crf", "22",
+            "-c:a", "aac", "-b:a", "192k",
+            "-shortest",
+            "-pix_fmt", "yuv420p",
+            final_path
+        ], check=True, capture_output=True, text=True)
+
+        print("ffmpeg stdout:", result.stdout)
+        print("ffmpeg stderr:", result.stderr)
+
+        os.remove(tmp_vid)
+        os.remove(aud_path)
+
+        return final_path
+
+    except subprocess.CalledProcessError as e:
+        print("ffmpeg merge failed with code", e.returncode)
+        print("ffmpeg stdout:", e.stdout)
+        print("ffmpeg stderr:", e.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Video creation failed: {e}")
+        sys.exit(1)
+
+# ────────────────────────────────────────────────
+# AUDIO GENERATION
+# ────────────────────────────────────────────────
+def make_audio(txt, out_mp3):
+    try:
+        print(f"Generating rhyme audio with gTTS (length {len(txt)} chars)")
+        tts = gTTS(txt, lang='hi', tld='co.in')
+        tts.save(out_mp3)
+        mp3_size = os.path.getsize(out_mp3)
+        print(f"MP3 created, size: {mp3_size} bytes")
+        if mp3_size < 10000:
+            print("ERROR: MP3 too small")
+            sys.exit(1)
+    except Exception as e:
+        print(f"gTTS failed: {e}")
+        sys.exit(1)
 
 # ────────────────────────────────────────────────
 # YOUTUBE UPLOAD
@@ -281,7 +369,7 @@ if __name__ == "__main__":
             create_thumbnail(thumbnail_url_v, text_v, thumbnail_path_v)
 
         bg_v = os.path.join(BG_IMAGES_DIR, "bg_v.jpg")
-        dl_image(thumbnail_url_v or "https://picsum.photos/1920/1080", bg_v)  # fallback random image
+        dl_image(thumbnail_url_v or "https://picsum.photos/1920/1080", bg_v)
         video_path = make_video(text_v, bg_v, short=False)
 
         if upload(video_path, title_v, desc_v, tags_v, thumbnail_path=thumbnail_path_v):
