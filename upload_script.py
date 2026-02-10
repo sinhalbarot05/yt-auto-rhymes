@@ -73,7 +73,7 @@ def openrouter_request(prompt, model="openrouter/free"):
         return None
 
 # ────────────────────────────────────────────────
-# LEONARDO.AI FREE API FOR THUMBNAIL (150+ generations/day free)
+# LEONARDO.AI FREE API FOR THUMBNAIL
 # ────────────────────────────────────────────────
 def gen_thumbnail(rhyme, short=False):
     prompt = f"Cute vibrant cartoon thumbnail for Hindi kids nursery rhyme video: {rhyme[:100]}... Fun animals, bright colors, kids playing, main rhyme line text overlay, viral style for children."
@@ -86,7 +86,7 @@ def gen_thumbnail(rhyme, short=False):
             },
             json={
                 "prompt": prompt,
-                "modelId": "e3d64626-7c2b-4a8f-9b1d-9b5d0b8d7c6a",  # Free Leonardo model (check dashboard if changed)
+                "modelId": "e3d64626-7c2b-4a8f-9b1d-9b5d0b8d7c6a",  # Free Leonardo model
                 "width": 1280,
                 "height": 720,
                 "num_images": 1,
@@ -98,7 +98,6 @@ def gen_thumbnail(rhyme, short=False):
         response.raise_for_status()
         job_id = response.json()["generationId"]
 
-        # Poll for completion
         for _ in range(30):
             status = requests.get(
                 f"https://cloud.leonardo.ai/api/rest/v1/generations/{job_id}",
@@ -127,7 +126,6 @@ def dl_image(url, path):
         print(f"Image downloaded: {path}")
     except Exception as e:
         print(f"Image download failed: {e}")
-        # Fallback random image
         os.system(f"curl -o {path} https://picsum.photos/1920/1080")
 
 # ────────────────────────────────────────────────
@@ -163,12 +161,16 @@ def gen_topic(txt):
 def gen_title(rhyme):
     prompt = f"इस हिंदी नर्सरी राइम के लिए एक वायरल YouTube टाइटल बनाओ (इमोजी, नंबर, सवाल, बच्चों को आकर्षित करने वाला): {rhyme[:200]}... केवल टाइटल लिखो।"
     title = openrouter_request(prompt)
-    return title or "प्यारी नर्सरी राइम | बच्चों के लिए मजेदार गाना 😍"
+    title = (title or "प्यारी नर्सरी राइम | बच्चों के लिए मजेदार गाना 😍").strip()
+    if not title or len(title) < 3:  # Safety check
+        title = "प्यारी नर्सरी राइम | बच्चों के लिए मजेदार गाना 😍"
+    return title
 
 def gen_desc(rhyme):
     prompt = f"इस हिंदी नर्सरी राइम के लिए एक आकर्षक YouTube डिस्क्रिप्शन बनाओ (150-200 शब्द, कीवर्ड्स, इमोजी, लाइक/सब्सक्राइब कॉल टू एक्शन के साथ): {rhyme[:200]}... डिस्क्रिप्शन वायरल हो। केवल डिस्क्रिप्शन लिखो।"
     desc = openrouter_request(prompt)
-    return desc or f"{rhyme[:120]}...\n#HindiNurseryRhyme #BacchonKiRhyme #KidsSongs"
+    desc = (desc or f"{rhyme[:120]}...\n#HindiNurseryRhyme #BacchonKiRhyme #KidsSongs").strip()
+    return desc
 
 def gen_hashtags(rhyme):
     prompt = f"इस हिंदी नर्सरी राइम के लिए 12-15 वायरल YouTube हैशटैग बनाओ (मिक्स लोकल + ग्लोबल, व्यूज बढ़ाने वाले, इमोजी के साथ): {rhyme[:200]}... केवल हैशटैग लिस्ट लिखो।"
@@ -183,7 +185,7 @@ def create_thumbnail(image_url, rhyme, path):
     try:
         img = Image.open(path)
         draw = ImageDraw.Draw(img)
-        font = ImageFont.load_default()  # fallback font
+        font = ImageFont.load_default()
         main_line = rhyme.split('\n')[0][:30] + "..." if len(rhyme.split('\n')[0]) > 30 else rhyme.split('\n')[0]
         bbox = draw.textbbox((0, 0), main_line, font=font)
         text_w = bbox[2] - bbox[0]
@@ -315,7 +317,6 @@ def yt_service():
             if expiry is None:
                 print("No expiry set — assuming token is valid")
             else:
-                # Make expiry timezone-aware if naive
                 if expiry.tzinfo is None:
                     expiry = expiry.replace(tzinfo=timezone.utc)
 
@@ -325,25 +326,25 @@ def yt_service():
                     creds.refresh(Request())
                     with open(TOKEN_FILE, 'wb') as f:
                         pickle.dump(creds, f)
-                    print("Token refreshed and saved as pickle")
+                    print("Token refreshed")
                 else:
                     print("Token is valid")
 
         else:
-            print("No credentials in pickle")
+            print("No credentials")
             sys.exit(1)
 
         return build('youtube', 'v3', credentials=creds)
 
     except Exception as e:
         print(f"Credential error: {e}")
-        if os.path.exists(TOKEN_FILE):
-            print("Token file size:", os.path.getsize(TOKEN_FILE))
-            with open(TOKEN_FILE, 'rb') as f:
-                print("First 50 bytes (hex):", f.read(50).hex())
         sys.exit(1)
 
 def upload(vid, title, desc, tags, short=False, thumbnail_path=None):
+    # Safety: ensure title is never empty
+    if not title or len(title.strip()) < 1:
+        title = "प्यारी नर्सरी राइम | बच्चों के लिए मजेदार गाना 😍"
+
     max_retries = 5
     for attempt in range(max_retries):
         try:
