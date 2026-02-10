@@ -143,27 +143,39 @@ def gen_topic(txt):
     return t
 
 def gen_title(rhyme):
-    prompt = f"इस हिंदी नर्सरी राइम के लिए एक वायरल YouTube टाइटल बनाओ (इमोजी, नंबर, सवाल, बच्चों को आकर्षित करने वाला): {rhyme[:200]}... केवल टाइटल लिखो।"
-    raw_title = smart_generate(prompt)
-    print(f"Raw title: '{raw_title}'")
-    cleaned = (raw_title or "").strip()
-    if not cleaned or len(cleaned) < 5:
-        cleaned = f"प्यारी नर्सरी राइम {random.choice(['2026','मस्ती वाली','खुशियों से भरी'])} 😍"
-    print(f"Final title: '{cleaned}'")
+    prompt = f"""इस हिंदी नर्सरी राइम के लिए एक छोटा, आकर्षक और वायरल YouTube टाइटल बनाओ। 
+    टाइटल में इमोजी, सवाल या नंबर इस्तेमाल करो, लेकिन केवल एक ही लाइन में टाइटल दो। 
+    कोई नंबरिंग, लिस्ट, या अतिरिक्त टेक्स्ट मत लिखो। 
+    राइम का मुख्य हिस्सा: {rhyme[:150]}..."""
+    
+    raw = smart_generate(prompt)
+    print(f"Raw title from AI: '{raw}'")
+    
+    # Aggressive cleaning
+    cleaned = raw.strip()
+    cleaned = cleaned.split('\n')[0]           # only first line
+    cleaned = ''.join(c for c in cleaned if c.isprintable())  # remove weird chars
+    cleaned = cleaned.strip('**[]1234567890. *#')  # remove markdown & numbers
+    
+    # Final validation + fallback
+    if not cleaned or len(cleaned) < 5 or len(cleaned) > 100:
+        cleaned = f"प्यारी नर्सरी राइम {random.choice(['2026','मस्ती वाली','खुशियों से भरी','दोस्ती की कहानी'])} 😍"
+    
+    print(f"Clean & final title used: '{cleaned}'")
     return cleaned
 
 def gen_desc(rhyme):
     prompt = f"इस हिंदी नर्सरी राइम के लिए एक आकर्षक YouTube डिस्क्रिप्शन बनाओ (100-150 शब्द, कीवर्ड्स, इमोजी, लाइक/सब्सक्राइब कॉल टू एक्शन के साथ): {rhyme[:200]}... डिस्क्रिप्शन वायरल हो।"
     desc = smart_generate(prompt)
-    return desc or f"{rhyme[:120]}...\n#HindiNurseryRhyme #KidsSongs #ViralRhyme"
+    return desc or f"{rhyme[:120]}...\n#HindiNurseryRhyme #BacchonKiRhyme #KidsSongs"
 
 def gen_hashtags(rhyme):
     prompt = f"इस हिंदी नर्सरी राइम के लिए 12-15 वायरल YouTube हैशटैग बनाओ (इमोजी के साथ): {rhyme[:100]}..."
     hashtags = smart_generate(prompt)
-    return hashtags or "#HindiNurseryRhyme #BacchonKiRhyme #KidsSongs #ViralKids #NurseryRhymes"
+    return hashtags or "#HindiNurseryRhyme #KidsRhymes #ViralKidsSong #NurseryRhymes #BacchonKaGaana"
 
 # ────────────────────────────────────────────────
-# DOWNLOAD IMAGE (fallback only - no API needed)
+# DOWNLOAD IMAGE (fallback only)
 # ────────────────────────────────────────────────
 def dl_image(url, path):
     try:
@@ -176,10 +188,10 @@ def dl_image(url, path):
         os.system(f"curl -o {path} https://picsum.photos/1920/1080")
 
 # ────────────────────────────────────────────────
-# THUMBNAIL WITH TEXT (using fallback images)
+# THUMBNAIL WITH TEXT (using random images + overlay)
 # ────────────────────────────────────────────────
 def create_thumbnail(rhyme, path, short=False):
-    # Use random nice placeholder (no API calls needed)
+    # Random nice placeholder
     dl_image("https://picsum.photos/1280/720?random=" + str(random.randint(1,10000)), path)
     try:
         img = Image.open(path)
@@ -196,7 +208,7 @@ def create_thumbnail(rhyme, path, short=False):
         print(f"Thumbnail creation failed: {e}")
 
 # ────────────────────────────────────────────────
-# AUDIO & VIDEO (unchanged - working)
+# AUDIO & VIDEO
 # ────────────────────────────────────────────────
 def make_audio(txt, out_mp3):
     try:
@@ -327,18 +339,25 @@ def yt_service():
         sys.exit(1)
 
 def upload(vid, title, desc, tags, short=False, thumbnail_path=None):
-    # Final title safety
+    # Double safety layer
     title = title.strip()
-    if not title or len(title) < 3:
-        title = "प्यारी नर्सरी राइम | बच्चों के लिए मजेदार गाना 😍"
-        print("Used fallback title")
+    if not title or len(title) < 3 or "://" in title or title.isspace():
+        title = f"प्यारी नर्सरी राइम {random.choice(['2026','मस्ती वाली','खुशियों से भरी','दोस्ती की कहानी'])} 😍"
+        print("WARNING: Title was invalid/empty - FORCED fallback title")
+
+    print(f"Final title sent to YouTube: '{title}' (length: {len(title)})")
 
     max_retries = 5
     for attempt in range(max_retries):
         try:
             yt = yt_service()
             body = {
-                'snippet': {'title': title, 'description': desc, 'tags': tags, 'categoryId': '24'},
+                'snippet': {
+                    'title': title,
+                    'description': desc,
+                    'tags': tags,
+                    'categoryId': '24'
+                },
                 'status': {'privacyStatus': 'public'}
             }
             media = MediaFileUpload(vid, mimetype='video/mp4', resumable=True)
@@ -369,7 +388,7 @@ def upload(vid, title, desc, tags, short=False, thumbnail_path=None):
     return None
 
 # ────────────────────────────────────────────────
-# MAIN MAGIC
+# MAIN EXECUTION
 # ────────────────────────────────────────────────
 if __name__ == "__main__":
     print("===== Hindi Kids Nursery Rhymes - Groq + OpenRouter Magic =====")
