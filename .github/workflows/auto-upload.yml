@@ -1,4 +1,4 @@
-name: Auto Upload Hindi Nursery Rhymes
+name: Auto Upload Hindi Nursery Rhymes - Groq + OpenRouter Magic
 
 on:
   schedule:
@@ -46,7 +46,6 @@ jobs:
 
       - name: Generate and Upload Nursery Rhymes
         env:
-          PIXABAY_KEY: ${{ secrets.PIXABAY_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          PIXAZO_API_KEY: ${{ secrets.PIXAZO_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: python upload_script.py
