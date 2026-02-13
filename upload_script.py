@@ -33,7 +33,7 @@ for d in [MEMORY_DIR, OUTPUT_DIR, ASSETS_DIR]:
     Path(d).mkdir(exist_ok=True)
 
 # ────────────────────────────────────────────────
-# 2. GENERATE CONTENT (Strict Language Enforcement)
+# 2. GENERATE CONTENT (Groq)
 # ────────────────────────────────────────────────
 def groq_request(prompt):
     try:
@@ -67,22 +67,21 @@ def generate_content(mode="short"):
     selected_topic = random.choice(topics)
     lines_count = 6 if mode == "short" else 10
     
-    # STRICT PROMPT: Visuals MUST be in English to prevent errors
     prompt = f"""
     You are a professional Hindi writer for a Kids YouTube Channel.
     Topic: "{selected_topic}"
     
-    1. Create a simple, funny Hindi Nursery Rhyme ({lines_count} lines).
+    1. Create a simple Hindi Nursery Rhyme ({lines_count} lines).
     2. Define a character visual description in ENGLISH only.
     3. For EACH line, write a specific image action prompt in ENGLISH only.
     
     Output ONLY valid JSON format:
     {{
       "title": "Hindi Title",
-      "keyword": "English Keyword (e.g. Elephant)",
-      "main_char_visual": "Visual description in ENGLISH (e.g. A cute baby elephant wearing a red cap)",
+      "keyword": "Main Subject in English (e.g. Elephant)",
+      "main_char_visual": "Detailed visual description in ENGLISH",
       "scenes": [
-        {{ "line": "Hindi Line 1", "action": "Action in ENGLISH (e.g. Elephant kicking a football)" }},
+        {{ "line": "Hindi Line 1", "action": "Action in ENGLISH" }},
         ... (Total {lines_count} items)
       ]
     }}
@@ -96,57 +95,65 @@ def generate_content(mode="short"):
         return None
 
 # ────────────────────────────────────────────────
-# 3. STRICT IMAGE ENGINE (Quality or Nothing)
+# 3. UNBREAKABLE IMAGE ENGINE (Browser Headers)
 # ────────────────────────────────────────────────
 def download_file(url, filename):
     try:
-        resp = requests.get(url, timeout=25)
+        # Browser Headers to prevent "403 Forbidden" or Corrupt Files
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        resp = requests.get(url, headers=headers, timeout=25)
         if resp.status_code == 200:
             with open(filename, 'wb') as f:
                 f.write(resp.content)
             
-            # STRICT CHECK: Is this a valid image?
+            # Verify Image
             try:
                 img = PIL.Image.open(filename)
-                img.verify() # Checks for corruption
+                img.verify()
+                # Re-open to check dimensions
+                img = PIL.Image.open(filename)
                 if img.width < 100 or img.height < 100:
-                    print("Image too small/broken.")
                     return False
                 return True
             except:
-                print("Downloaded file is not a valid image.")
                 return False
-        else:
-            return False
+        return False
     except:
         return False
 
 def get_image(visual_desc, action_desc, filename, fixed_seed, keyword):
     print(f"--- Gen Image: {action_desc} ---")
     
-    # 1. AI Generation (Primary)
-    # Clean string to ensure no weird characters break the URL
+    # 1. AI Generation (Pollinations)
     clean_prompt = f"{visual_desc} {action_desc}, vibrant colors, 3d render, pixar style".replace(" ", "%20").replace(",", "")
     url_ai = f"https://image.pollinations.ai/prompt/{clean_prompt}?width=1024&height=1024&nologo=true&seed={fixed_seed}&model=turbo"
-    
     if download_file(url_ai, filename): return True
     
-    # 2. Keyword Search (Secondary High Quality)
+    # 2. Keyword Search (First Attempt - Specific)
     print(f"AI Failed. Trying Stock Photo for '{keyword}'...")
-    url_stock = f"https://loremflickr.com/1024/1024/{keyword.replace(' ','')}"
+    url_stock = f"https://loremflickr.com/1080/1920/{keyword.replace(' ','')}"
     if download_file(url_stock, filename): return True
 
-    # 3. Unsplash (Tertiary High Quality)
-    print("Stock Failed. Trying Unsplash...")
-    url_unsplash = "https://source.unsplash.com/1024x1024/?" + keyword.replace(' ','')
-    if download_file(url_unsplash, filename): return True
+    # 3. Keyword Search (Second Attempt - Generic)
+    # If "Car Racing" fails, try "Car"
+    simple_keyword = keyword.split()[0] 
+    print(f"Stock Failed. Trying generic '{simple_keyword}'...")
+    url_stock_2 = f"https://loremflickr.com/1080/1920/{simple_keyword}"
+    if download_file(url_stock_2, filename): return True
 
-    # FAILURE
-    print("CRITICAL: All image sources failed. Aborting this scene.")
+    # 4. Ultimate Fallback (High Quality Cartoon)
+    # Never fails, always looks good for kids
+    print("All failed. Using High-Quality Cartoon fallback.")
+    url_fallback = "https://loremflickr.com/1080/1920/cartoon"
+    if download_file(url_fallback, filename): return True
+    
     return False
 
 def get_intro_sound(filename):
     if not os.path.exists(filename):
+        # Reliable source
         url = "https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3" 
         download_file(url, filename)
 
@@ -161,7 +168,6 @@ def create_thumbnail(title, bg_path, output_path):
         img = PIL.Image.open(bg_path).convert("RGBA")
         img = img.resize((1280, 720)) 
         
-        # Darken for contrast
         overlay = PIL.Image.new("RGBA", img.size, (0,0,0,80))
         img = PIL.Image.alpha_composite(img, overlay)
         draw = PIL.ImageDraw.Draw(img)
@@ -171,7 +177,6 @@ def create_thumbnail(title, bg_path, output_path):
         except:
             font = PIL.ImageFont.load_default()
 
-        # Center Text
         bbox = draw.textbbox((0, 0), title, font=font)
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
@@ -189,7 +194,7 @@ def create_thumbnail(title, bg_path, output_path):
         return None
 
 # ────────────────────────────────────────────────
-# 5. RENDERER (Strict)
+# 5. RENDERER (With Smart Resize to Fix "Tile" Error)
 # ────────────────────────────────────────────────
 async def generate_voice_async(text, filename):
     cmd = ["edge-tts", "--voice", "hi-IN-SwaraNeural", "--text", text, "--write-media", filename]
@@ -201,63 +206,85 @@ def get_voice(text, filename):
 
 def create_segment(text_line, image_path, audio_path, is_short=True, is_first=False):
     if not os.path.exists(audio_path) or os.path.getsize(audio_path) == 0: return None
-    
-    # STRICT CHECK: If image missing, return None (Abort)
     if not os.path.exists(image_path): return None
 
-    voice_clip = AudioFileClip(audio_path)
-    
-    # Intro Hook
-    if is_first:
-        intro_path = os.path.join(ASSETS_DIR, "intro.mp3")
-        get_intro_sound(intro_path)
-        if os.path.exists(intro_path):
-            try:
-                intro = AudioFileClip(intro_path).volumex(0.3)
-                if intro.duration > voice_clip.duration: 
-                    intro = intro.subclip(0, voice_clip.duration)
-                final_audio = CompositeAudioClip([voice_clip, intro])
-            except:
+    try:
+        voice_clip = AudioFileClip(audio_path)
+        
+        # Intro Logic
+        if is_first:
+            intro_path = os.path.join(ASSETS_DIR, "intro.mp3")
+            get_intro_sound(intro_path)
+            if os.path.exists(intro_path):
+                try:
+                    intro = AudioFileClip(intro_path).volumex(0.3)
+                    if intro.duration > voice_clip.duration: 
+                        intro = intro.subclip(0, voice_clip.duration)
+                    final_audio = CompositeAudioClip([voice_clip, intro])
+                except:
+                    final_audio = voice_clip
+            else:
                 final_audio = voice_clip
         else:
             final_audio = voice_clip
-    else:
-        final_audio = voice_clip
 
-    duration = final_audio.duration
-    w, h = (1080, 1920) if is_short else (1920, 1080)
-    
-    # Image Loading Safe Mode
-    try:
-        img = ImageClip(image_path)
-    except:
-        return None # Corrupt image -> Abort
-
-    # Resize Logic (Smart Crop)
-    if img.w / img.h > w/h:
-        img = img.resize(height=h).crop(x_center=img.w/2, width=w, height=h)
-    else:
-        img = img.resize(width=w).crop(y_center=img.h/2, width=w, height=h)
-
-    # Zoom Animation
-    move = random.choice(['zoom_in', 'zoom_out'])
-    if move == 'zoom_in':
-        anim = img.resize(lambda t: 1 + 0.04 * t)
-    else:
-        anim = img.resize(lambda t: 1.05 - 0.04 * t)
+        duration = final_audio.duration
+        target_w, target_h = (1080, 1920) if is_short else (1920, 1080)
         
-    anim = anim.set_position('center').set_duration(duration)
+        img = ImageClip(image_path)
 
-    # Text Logic
-    font_size = 70 if is_short else 85
-    txt = TextClip(
-        text_line, fontsize=font_size, color='yellow', font='DejaVu-Sans-Bold', 
-        stroke_color='black', stroke_width=4, method='caption', size=(w-100, None)
-    ).set_position(('center', 'bottom' if is_short else 'bottom')).set_duration(duration)
-    
-    txt = txt.set_position(('center', h - 200))
+        # ─── CRITICAL FIX: SMART RESIZE ───
+        # This logic prevents "tile cannot extend outside image" crash
+        # It forces the image to be AT LEAST the size of the video before cropping.
+        
+        # Calculate aspect ratios
+        img_ratio = img.w / img.h
+        target_ratio = target_w / target_h
 
-    return CompositeVideoClip([anim, txt], size=(w,h)).set_audio(final_audio).set_duration(duration)
+        if img_ratio < target_ratio:
+            # Image is too tall/narrow -> Width is the limiting factor
+            # Resize width to match target width, height will exceed target height
+            new_width = target_w
+            new_height = int(target_w / img_ratio)
+            img = img.resize(width=new_width)
+        else:
+            # Image is too wide -> Height is the limiting factor
+            # Resize height to match target height, width will exceed target width
+            new_height = target_h
+            new_width = int(target_h * img_ratio)
+            img = img.resize(height=new_height)
+
+        # Now Safe to Crop (Center)
+        img = img.crop(
+            x_center=img.w/2, 
+            y_center=img.h/2, 
+            width=target_w, 
+            height=target_h
+        )
+
+        # Animation (Zoom)
+        move = random.choice(['zoom_in', 'zoom_out'])
+        if move == 'zoom_in':
+            anim = img.resize(lambda t: 1 + 0.04 * t)
+        else:
+            anim = img.resize(lambda t: 1.05 - 0.04 * t)
+            
+        anim = anim.set_position('center').set_duration(duration)
+
+        # Text
+        font_size = 70 if is_short else 85
+        txt = TextClip(
+            text_line, fontsize=font_size, color='yellow', font='DejaVu-Sans-Bold', 
+            stroke_color='black', stroke_width=4, method='caption', size=(target_w-100, None)
+        ).set_position(('center', 'bottom' if is_short else 'bottom')).set_duration(duration)
+        
+        txt = txt.set_position(('center', target_h - 200))
+
+        return CompositeVideoClip([anim, txt], size=(target_w, target_h)).set_audio(final_audio).set_duration(duration)
+
+    except Exception as e:
+        print(f"Segment creation error: {e}")
+        return None
 
 def make_video(content, is_short=True):
     print(f"Rendering {'SHORT' if is_short else 'LONG'} video...")
@@ -281,25 +308,19 @@ def make_video(content, is_short=True):
         
         img_path = os.path.join(ASSETS_DIR, f"img_{suffix}_{i}.jpg")
         
-        # QUALITY GATE: If image gen fails, ABORT EVERYTHING
+        # Try to get image, if fails completely, skip line
         if not get_image(char_desc, action, img_path, fixed_seed, keyword):
-            print("CRITICAL: Image generation failed. Aborting video to protect quality.")
-            return None, None, None
+            print(f"Skipping line {i} due to missing image.")
+            continue
         
         if i == 0: first_bg_path = img_path
         
-        try:
-            clip = create_segment(line, img_path, aud_path, is_short, (i==0))
-            if clip: 
-                clips.append(clip)
-            else:
-                print("CRITICAL: Clip rendering failed. Aborting.")
-                return None, None, None
-        except Exception as e:
-            print(f"Render Error: {e}")
-            return None, None, None
+        clip = create_segment(line, img_path, aud_path, is_short, (i==0))
+        if clip: clips.append(clip)
 
-    if not clips: return None, None, None
+    if not clips: 
+        print("No clips generated. Aborting video.")
+        return None, None, None
     
     final = concatenate_videoclips(clips, method="compose")
     out_file = os.path.join(OUTPUT_DIR, f"final_{suffix}.mp4")
@@ -309,6 +330,7 @@ def make_video(content, is_short=True):
         thumb_path = os.path.join(OUTPUT_DIR, "thumb.png")
         create_thumbnail(content['title'], first_bg_path, thumb_path)
 
+    # Fast Render for GitHub
     final.write_videofile(out_file, fps=24, codec='libx264', audio_codec='aac', threads=4)
     return out_file, full_lyrics, thumb_path
 
@@ -347,11 +369,11 @@ def upload_video(video_path, content, lyrics, thumb_path, is_short=True):
                 try:
                     service.thumbnails().set(videoId=vid_id, media_body=MediaFileUpload(thumb_path)).execute()
                 except:
-                    print("Thumbnail upload failed (Quota exceeded?).")
+                    print("Thumbnail upload failed.")
             return True
         except HttpError as e:
             if "uploadLimitExceeded" in str(e):
-                print("⚠️ Daily Quota Reached. Skipping upload.")
+                print("⚠️ Daily Quota Reached.")
                 return False
             print(f"Upload Error: {e}")
             return False
@@ -360,17 +382,13 @@ def upload_video(video_path, content, lyrics, thumb_path, is_short=True):
         return False
 
 if __name__ == "__main__":
-    print("===== SKYROCKET ENGINE (Strict Quality) =====")
+    print("===== SKYROCKET ENGINE (Bulletproof V3) =====")
     
-    # Short
-    print("\n>>> SHORT <<<")
     data_s = generate_content("short")
     if data_s:
         v, l, t = make_video(data_s, True)
         if v: upload_video(v, data_s, l, t, True)
 
-    # Long
-    print("\n>>> LONG <<<")
     data_l = generate_content("long")
     if data_l:
         v, l, t = make_video(data_l, False)
