@@ -33,7 +33,7 @@ for d in [MEMORY_DIR, OUTPUT_DIR, ASSETS_DIR]:
     Path(d).mkdir(exist_ok=True)
 
 # ────────────────────────────────────────────────
-# 2. GENERATE CONTENT (Groq)
+# 2. GENERATE CONTENT (Smart Language Logic)
 # ────────────────────────────────────────────────
 def groq_request(prompt):
     try:
@@ -57,6 +57,7 @@ def groq_request(prompt):
         return None
 
 def generate_content(mode="short"):
+    # English topics ensure the visual keyword is English
     topics = [
         "Elephant playing football", "Butterfly in garden", "Train journey", 
         "School Bus adventure", "Ice Cream truck", "Cat stealing milk", 
@@ -67,22 +68,23 @@ def generate_content(mode="short"):
     selected_topic = random.choice(topics)
     lines_count = 6 if mode == "short" else 10
     
+    # CRITICAL FIX: We explicitly ask for visual_desc in ENGLISH
     prompt = f"""
     You are a professional Hindi writer for a Kids YouTube Channel.
     Topic: "{selected_topic}"
     
     1. Create a simple Hindi Nursery Rhyme ({lines_count} lines).
-    2. Define a consistent visual description for the main character.
-    3. For EACH line, write a specific image prompt.
+    2. Define a consistent visual description for the main character in ENGLISH.
+    3. For EACH line, write a specific image prompt in ENGLISH.
     
     Output ONLY valid JSON format:
     {{
       "title": "Hindi Title",
-      "keyword": "Main Subject (e.g. Elephant)",
-      "main_char_visual": "Detailed visual description (e.g. A cute baby elephant wearing a red cap)",
+      "keyword": "Main Subject in English (e.g. Elephant)",
+      "main_char_visual": "Detailed visual description in ENGLISH (e.g. A cute baby elephant wearing a red cap)",
       "scenes": [
-        {{ "line": "Hindi Line 1", "action": "Elephant kicking a football" }},
-        {{ "line": "Hindi Line 2", "action": "Elephant running happily" }},
+        {{ "line": "Hindi Line 1", "action": "English description of action (e.g. Elephant kicking a football)" }},
+        {{ "line": "Hindi Line 2", "action": "English description of action" }},
         ... (Total {lines_count} items)
       ]
     }}
@@ -99,12 +101,25 @@ def generate_content(mode="short"):
 # 3. UNBREAKABLE ASSET ENGINE
 # ────────────────────────────────────────────────
 def generate_backup_image(filename):
-    """Creates a solid color image if downloads fail"""
-    print("Generating Backup Image (Safety Net)...")
-    color = (random.randint(0,255), random.randint(0,255), random.randint(0,255))
-    img = PIL.Image.new('RGB', (1024, 1024), color=color)
-    img.save(filename)
-    return True
+    """Creates a solid color image so the script NEVER crashes"""
+    print("Generating Safety Image...")
+    try:
+        color = (random.randint(0,255), random.randint(0,255), random.randint(0,255))
+        img = PIL.Image.new('RGB', (1024, 1024), color=color)
+        
+        # Add some text so it's not just a blank color
+        draw = PIL.ImageDraw.Draw(img)
+        try:
+            font = PIL.ImageFont.load_default()
+            draw.text((400, 500), "Image Loading...", fill="white", font=font)
+        except:
+            pass
+            
+        img.save(filename)
+        return True
+    except Exception as e:
+        print(f"Safety generator failed: {e}")
+        return False
 
 def download_file(url, filename):
     try:
@@ -118,32 +133,41 @@ def download_file(url, filename):
                 img.verify()
                 return True
             except:
-                print("Downloaded file was corrupt.")
+                print("Downloaded file was corrupt (Verify failed).")
                 return False
-    except:
-        pass
-    return False
+        else:
+            print(f"Download failed: Status {resp.status_code}")
+            return False
+    except Exception as e:
+        print(f"Download Error: {e}")
+        return False
 
 def get_image(visual_desc, action_desc, filename, fixed_seed, keyword):
     print(f"--- Gen Image: {action_desc} ---")
     
-    # 1. AI Generation (Pollinations)
-    full_prompt = f"{visual_desc}, {action_desc}, vibrant colors, 3d render, high quality".replace(" ", "%20")
+    # 1. AI Generation (Pollinations) - Primary
+    # Clean the prompt to ensure it works in URL
+    clean_action = action_desc.replace(" ", "%20").replace(",", "")
+    clean_visual = visual_desc.replace(" ", "%20").replace(",", "")
+    
+    full_prompt = f"{clean_visual}%20{clean_action}%20cartoon%20style%20vibrant"
     url_ai = f"https://image.pollinations.ai/prompt/{full_prompt}?width=1024&height=1024&nologo=true&seed={fixed_seed}&model=turbo"
+    
     if download_file(url_ai, filename): return True
     
-    # 2. Keyword Search (LoremFlickr - Reliable)
-    print("AI Failed. Trying Stock Photo...")
+    # 2. Keyword Search (LoremFlickr) - Secondary
+    # Only use the simple English keyword (e.g. "Cat") NOT the Hindi sentence
+    print(f"AI Failed. Trying Stock Photo for '{keyword}'...")
     url_stock = f"https://loremflickr.com/1024/1024/{keyword.replace(' ','')}"
     if download_file(url_stock, filename): return True
 
-    # 3. Ultimate Safety Net (Generate Local Image)
+    # 3. Ultimate Safety Net - Tertiary
     print("Network Failed. Creating Safety Image.")
-    return generate_backup_image(filename)
+    generate_backup_image(filename)
+    return True
 
 def get_intro_sound(filename):
     if not os.path.exists(filename):
-        # Using a reliable GitHub raw link for a sound effect to avoid bans
         url = "https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3" 
         download_file(url, filename)
 
@@ -153,7 +177,6 @@ def get_intro_sound(filename):
 def create_thumbnail(title, bg_path, output_path):
     print("Generating Thumbnail...")
     try:
-        # Check if bg_path exists, if not create a colored one
         if not os.path.exists(bg_path):
             generate_backup_image(bg_path)
 
@@ -197,13 +220,12 @@ def get_voice(text, filename):
     asyncio.run(generate_voice_async(text, filename))
 
 def create_segment(text_line, image_path, audio_path, is_short=True, is_first=False):
-    # Ensure Audio Exists
+    # Audio Validation
     if not os.path.exists(audio_path) or os.path.getsize(audio_path) == 0:
-        raise ValueError("Audio file missing or empty")
+        return None
 
     voice_clip = AudioFileClip(audio_path)
     
-    # Intro Hook Mix
     if is_first:
         intro_path = os.path.join(ASSETS_DIR, "intro.mp3")
         get_intro_sound(intro_path)
@@ -223,13 +245,23 @@ def create_segment(text_line, image_path, audio_path, is_short=True, is_first=Fa
     duration = final_audio.duration
     w, h = (1080, 1920) if is_short else (1920, 1080)
     
-    # Ensure Image Exists
+    # Image Validation & Recovery
     if not os.path.exists(image_path):
         generate_backup_image(image_path)
-
-    img = ImageClip(image_path)
     
-    # Crop Logic
+    try:
+        img = ImageClip(image_path)
+    except:
+        # If ImageClip fails to load, regenerate clean backup and retry
+        generate_backup_image(image_path)
+        img = ImageClip(image_path)
+
+    # Robust Crop Logic (Prevent 'tile cannot extend' error)
+    if img.w < w or img.h < h:
+        # If image is too small, resize it UP to cover the screen
+        img = img.resize(height=h) if img.w/img.h > w/h else img.resize(width=w)
+    
+    # Standard Crop
     if img.w / img.h > w/h:
         img = img.resize(height=h).crop(x_center=img.w/2, width=w, height=h)
     else:
@@ -244,7 +276,6 @@ def create_segment(text_line, image_path, audio_path, is_short=True, is_first=Fa
         
     anim = anim.set_position('center').set_duration(duration)
 
-    # Text
     font_size = 70 if is_short else 85
     txt = TextClip(
         text_line, fontsize=font_size, color='yellow', font='DejaVu-Sans-Bold', 
@@ -261,6 +292,7 @@ def make_video(content, is_short=True):
     suffix = "s" if is_short else "l"
     
     fixed_seed = random.randint(0, 999999)
+    # Fallbacks in case JSON is missing keys
     char_desc = content.get('main_char_visual', 'cute cartoon character')
     keyword = content.get('keyword', 'cartoon')
     
@@ -269,21 +301,21 @@ def make_video(content, is_short=True):
     
     for i, scene in enumerate(content['scenes']):
         line = scene['line']
-        action = scene['action']
+        action = scene['action'] # This is now ENGLISH
         full_lyrics += line + "\n"
         
         aud_path = os.path.join(ASSETS_DIR, f"aud_{suffix}_{i}.mp3")
         get_voice(line, aud_path)
         
         img_path = os.path.join(ASSETS_DIR, f"img_{suffix}_{i}.jpg")
-        # Ensure we get an image, no matter what
+        # Pass the ENGLISH action prompt
         get_image(char_desc, action, img_path, fixed_seed, keyword)
         
         if i == 0: first_bg_path = img_path
         
         try:
             clip = create_segment(line, img_path, aud_path, is_short, (i==0))
-            clips.append(clip)
+            if clip: clips.append(clip)
         except Exception as e:
             print(f"Error line {i}: {e}")
 
@@ -348,7 +380,7 @@ def upload_video(video_path, content, lyrics, thumb_path, is_short=True):
         return False
 
 if __name__ == "__main__":
-    print("===== SKYROCKET ENGINE (Unbreakable) =====")
+    print("===== SKYROCKET ENGINE (Unbreakable V2) =====")
     
     data_s = generate_content("short")
     if data_s:
