@@ -9,16 +9,15 @@ from pathlib import Path
 import pickle
 
 # ────────────────────────────────────────────────
-# 1. STABILITY PATCHES
+# 1. CRITICAL STABILITY PATCH (Do Not Remove)
 # ────────────────────────────────────────────────
 import PIL.Image
-# Force old Antialias method to satisfy MoviePy 1.0.3
 if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
 
 from moviepy.editor import (
     AudioFileClip, ImageClip, TextClip, CompositeVideoClip, 
-    concatenate_videoclips
+    concatenate_videoclips, ColorClip
 )
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -33,7 +32,7 @@ for d in [MEMORY_DIR, OUTPUT_DIR, ASSETS_DIR]:
     Path(d).mkdir(exist_ok=True)
 
 # ────────────────────────────────────────────────
-# 2. CONTENT GENERATION (Smart)
+# 2. GENERATE TEXT (Groq)
 # ────────────────────────────────────────────────
 def groq_request(prompt):
     try:
@@ -46,8 +45,8 @@ def groq_request(prompt):
             json={
                 "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.85,
-                "max_tokens": 1000
+                "temperature": 0.85, 
+                "max_tokens": 1200
             },
             timeout=30
         )
@@ -56,30 +55,30 @@ def groq_request(prompt):
         print(f"Groq Error: {e}")
         return None
 
-def generate_content():
-    # Prompt for Hindi Rhymes
-    prompt = """
-    Create a catchy, simple Hindi Nursery Rhyme for kids (8 lines).
-    Output ONLY valid JSON:
-    {
-      "keyword": "ONE_ENGLISH_WORD_FOR_IMAGE_SEARCH (e.g. Lion)",
-      "title": "Hindi Title",
-      "rhyme_lines": ["Line 1", "Line 2", "Line 3", "Line 4", "Line 5", "Line 6", "Line 7", "Line 8"],
-      "image_prompt": "cute cartoon Lion face close up, vibrant colors, 3d render style, bright lighting"
-    }
+def generate_content(mode="short"):
+    # Tailor length based on video type
+    lines_count = 6 if mode == "short" else 12
+    topic_type = "Simple and funny" if mode == "short" else "Story-based and educational"
+    
+    prompt = f"""
+    You are a professional Hindi writer for a Kids YouTube Channel.
+    Create a {topic_type} Hindi Nursery Rhyme ({lines_count} lines).
+    
+    Output ONLY valid JSON format:
+    {{
+      "keyword": "ONE_ENGLISH_WORD_FOR_IMAGE (e.g. Train)",
+      "title": "Hindi Title (e.g. रेल चली)",
+      "rhyme_lines": ["Line 1", "Line 2", "Line 3", ...],
+      "image_prompt": "cute cartoon Train scenery, vibrant colors, 3d render style, pixar style"
+    }}
     """
     raw = groq_request(prompt)
-    if not raw: sys.exit(1)
+    if not raw: return None
     try:
         start, end = raw.find('{'), raw.rfind('}') + 1
         return json.loads(raw[start:end])
     except:
-        return {
-            "keyword": "cartoon",
-            "title": "मजेदार कविता",
-            "rhyme_lines": ["मछली जल की रानी है", "जीवन उसका पानी है", "हाथ लगाओ डर जाएगी", "बाहर निकालो मर जाएगी"],
-            "image_prompt": "cute cartoon fish underwater"
-        }
+        return None
 
 # ────────────────────────────────────────────────
 # 3. SMART IMAGE ENGINE
@@ -90,41 +89,35 @@ def download_file(url, filename):
         if resp.status_code == 200:
             with open(filename, 'wb') as f:
                 f.write(resp.content)
-            PIL.Image.open(filename).verify() # Verify image
+            PIL.Image.open(filename).verify() 
             return True
     except:
         pass
     return False
 
 def get_best_image(content, filename):
-    print("--- Finding Best Image ---")
-    
-    # 1. Try AI (Square Turbo)
+    print("--- Fetching Image ---")
     prompt = content.get('image_prompt', 'cartoon').replace(" ", "%20")
     seed = random.randint(0, 99999)
+    
+    # 1. AI (Square Turbo - Stable)
     url_ai = f"https://image.pollinations.ai/prompt/{prompt}?width=1024&height=1024&nologo=true&seed={seed}&model=turbo"
-    
-    print(f"Attempt 1: AI Image ({content.get('keyword')})...")
-    if download_file(url_ai, filename):
-        return True
+    if download_file(url_ai, filename): return True
 
-    # 2. Try Real Photo (Keyword Based)
+    # 2. Real Photo Fallback
     keyword = content.get('keyword', 'cartoon').replace(" ", "")
-    print(f"Attempt 2: Stock Search for '{keyword}'...")
     url_real = f"https://loremflickr.com/1080/1920/{keyword}"
-    
-    if download_file(url_real, filename):
-        return True
+    if download_file(url_real, filename): return True
 
-    # 3. Fallback
-    print("Attempt 3: Generic Fallback")
+    # 3. Generic Fallback
     download_file("https://images.unsplash.com/photo-1502082553048-f009c37129b9?q=80&w=1080", filename)
     return True
 
 # ────────────────────────────────────────────────
-# 4. AUDIO (Neural Voice)
+# 4. AUDIO ENGINE
 # ────────────────────────────────────────────────
 async def generate_voice_async(text, filename):
+    # SwaraNeural is the best storytelling voice
     cmd = ["edge-tts", "--voice", "hi-IN-SwaraNeural", "--text", text, "--write-media", filename]
     process = await asyncio.create_subprocess_exec(*cmd)
     await process.wait()
@@ -133,99 +126,120 @@ def get_voice(text, filename):
     asyncio.run(generate_voice_async(text, filename))
 
 # ────────────────────────────────────────────────
-# 5. VIDEO RENDERER (Crash-Proof Logic)
+# 5. VIDEO RENDERER (Shorts vs Long)
 # ────────────────────────────────────────────────
-def create_segment(text_line, image_path, audio_path):
-    # Load Audio
+def create_segment(text_line, image_path, audio_path, is_short=True):
+    # 1. Audio Setup
     audio = AudioFileClip(audio_path)
-    # FIX: Duration must match EXACTLY. No adding +0.5s or it crashes.
-    duration = audio.duration
+    duration = audio.duration 
+    # CRITICAL FIX: Removed the "+0.5" pause which caused your OSError crash
     
-    # Image Setup
-    img = ImageClip(image_path).set_duration(duration)
+    # 2. Resolution Setup
+    w, h = (1080, 1920) if is_short else (1920, 1080)
     
-    # Smart Crop to Vertical
-    if img.w / img.h > (1080/1920):
-        img = img.resize(height=1920)
-        img = img.crop(x_center=img.w/2, width=1080, height=1920)
+    # 3. Image Setup (Smart Crop)
+    img = ImageClip(image_path)
+    
+    # Logic to fill screen without black bars
+    img_ratio = img.w / img.h
+    target_ratio = w / h
+    
+    if img_ratio > target_ratio:
+        # Image is wider than screen -> Resize height, crop sides
+        img = img.resize(height=h)
+        img = img.crop(x_center=img.w/2, width=w, height=h)
     else:
-        img = img.resize(width=1080)
-        img = img.crop(y_center=img.h/2, width=1080, height=1920)
-        
-    # Gentle Animation
-    anim = img.resize(lambda t: 1 + 0.04 * t).set_position('center')
+        # Image is taller/narrower -> Resize width, crop top/bottom
+        img = img.resize(width=w)
+        img = img.crop(y_center=img.h/2, width=w, height=h)
 
-    # Karaoke Text (Yellow + Outline)
+    # 4. Animation (Zoom)
+    # Zoom In for Shorts, Zoom Out for Long videos for variety
+    zoom_func = (lambda t: 1 + 0.04 * t) if is_short else (lambda t: 1.05 - 0.04 * t)
+    anim = img.resize(zoom_func).set_position('center').set_duration(duration)
+
+    # 5. Text (Karaoke Style)
+    font_size = 75 if is_short else 90
     txt = TextClip(
         text_line, 
-        fontsize=70, 
+        fontsize=font_size, 
         color='yellow', 
         font='DejaVu-Sans-Bold', 
         stroke_color='black', 
         stroke_width=4, 
         method='caption', 
-        size=(900, None)
-    ).set_position(('center', 1450)).set_duration(duration)
+        size=(w - 100, None)
+    ).set_position(('center', 'bottom' if is_short else 'bottom')).set_duration(duration)
+    
+    # Move text up slightly
+    txt = txt.set_position(('center', h - 250))
 
-    # Compose
-    video = CompositeVideoClip([anim, txt], size=(1080,1920))
-    video = video.set_audio(audio).set_duration(duration)
-    return video
+    return CompositeVideoClip([anim, txt], size=(w,h)).set_audio(audio).set_duration(duration)
 
-def make_video(content):
+def make_video(content, is_short=True):
+    print(f"rendering {'SHORT' if is_short else 'LONG'} video...")
     clips = []
-    bg_path = os.path.join(ASSETS_DIR, "bg.jpg")
+    
+    # Asset paths unique to this run
+    suffix = "s" if is_short else "l"
+    bg_path = os.path.join(ASSETS_DIR, f"bg_{suffix}.jpg")
     
     get_best_image(content, bg_path)
     
     full_lyrics = ""
-    print("Rendering Clips...")
     
     for i, line in enumerate(content['rhyme_lines']):
         if not line.strip(): continue
         full_lyrics += line + "\n"
         
-        aud_path = os.path.join(ASSETS_DIR, f"voice_{i}.mp3")
+        aud_path = os.path.join(ASSETS_DIR, f"voice_{suffix}_{i}.mp3")
         get_voice(line, aud_path)
         
         try:
-            # Check if audio exists and has size
-            if os.path.exists(aud_path) and os.path.getsize(aud_path) > 0:
-                clip = create_segment(line, bg_path, aud_path)
+            if os.path.exists(aud_path):
+                clip = create_segment(line, bg_path, aud_path, is_short)
                 clips.append(clip)
-            else:
-                print(f"Skipping empty audio for line {i}")
         except Exception as e:
-            print(f"Error on line {i}: {e}")
+            print(f"Skipped line {i}: {e}")
 
-    if not clips: 
-        print("No clips created. Exiting.")
-        sys.exit(1)
+    if not clips: return None, None
     
     final = concatenate_videoclips(clips, method="compose")
-    out_file = os.path.join(OUTPUT_DIR, "final.mp4")
+    out_file = os.path.join(OUTPUT_DIR, f"final_{suffix}.mp4")
     
     final.write_videofile(out_file, fps=24, codec='libx264', audio_codec='aac', threads=4)
     return out_file, full_lyrics
 
 # ────────────────────────────────────────────────
-# 6. UPLOAD
+# 6. UPLOAD ENGINE
 # ────────────────────────────────────────────────
-def upload_video(video_path, content, lyrics):
+def upload_video(video_path, content, lyrics, is_short=True):
     try:
-        if not os.path.exists(TOKEN_FILE): 
-            print("Token file not found.")
-            return False
-            
+        if not os.path.exists(TOKEN_FILE): return False
         with open(TOKEN_FILE, 'rb') as f: creds = pickle.load(f)
         
         service = build('youtube', 'v3', credentials=creds)
         
-        title = f"{content['title']} | Hindi Rhymes 2026 🦁"
-        desc = f"{content['title']}\n\n{lyrics}\n\n#HindiRhymes #NurseryRhymes #KidsSongs"
+        # PRO METADATA
+        if is_short:
+            title = f"{content['title']} 🦁 #Shorts #HindiRhymes"
+            tags = ['shorts', 'hindi rhymes', 'nursery rhymes', 'kids']
+        else:
+            title = f"{content['title']} | New Hindi Rhymes 2026 🦁"
+            tags = ['hindi rhymes', 'nursery rhymes', 'kids songs', 'bal geet', 'cartoon']
+
+        desc = f"""{content['title']}
+        
+{lyrics}
+
+🦁 SUBSCRIBE for more Rhymes!
+✨ New videos at 7AM, 2PM, and 8PM!
+
+#HindiRhymes #NurseryRhymes #KidsSongs #BalGeet
+"""
         
         body = {
-            'snippet': {'title': title[:99], 'description': desc, 'tags': ['hindi rhymes', 'kids songs'], 'categoryId': '24'},
+            'snippet': {'title': title[:99], 'description': desc, 'tags': tags, 'categoryId': '24'},
             'status': {'privacyStatus': 'public'}
         }
         
@@ -236,7 +250,7 @@ def upload_video(video_path, content, lyrics):
         resp = None
         while resp is None:
             status, resp = req.next_chunk()
-            if status: print(f"Upload: {int(status.progress()*100)}%")
+            if status: print(f"Progress: {int(status.progress()*100)}%")
             
         print(f"SUCCESS! ID: {resp['id']}")
         return True
@@ -244,9 +258,24 @@ def upload_video(video_path, content, lyrics):
         print(f"Upload Error: {e}")
         return False
 
+# ────────────────────────────────────────────────
+# MAIN BROADCAST LOOP
+# ────────────────────────────────────────────────
 if __name__ == "__main__":
-    print("===== Magic Engine (Duration Fix) =====")
-    data = generate_content()
-    print(f"Topic: {data['title']}")
-    vid, lyrics = make_video(data)
-    upload_video(vid, data, lyrics)
+    print("===== PRO BROADCASTER INITIATED =====")
+    
+    # 1. Generate & Upload SHORT
+    print("\n>>> STARTING SHORT VIDEO <<<")
+    data_s = generate_content(mode="short")
+    if data_s:
+        vid_s, lyrics_s = make_video(data_s, is_short=True)
+        if vid_s: upload_video(vid_s, data_s, lyrics_s, is_short=True)
+
+    # 2. Generate & Upload LONG
+    print("\n>>> STARTING LONG VIDEO <<<")
+    data_l = generate_content(mode="long")
+    if data_l:
+        vid_l, lyrics_l = make_video(data_l, is_short=False)
+        if vid_l: upload_video(vid_l, data_l, lyrics_l, is_short=False)
+        
+    print("\n===== BROADCAST COMPLETE =====")
