@@ -9,17 +9,17 @@ from pathlib import Path
 import pickle
 
 # ────────────────────────────────────────────────
-# 1. COMPATIBILITY FIXES
+# 1. STABILITY PATCHES
 # ────────────────────────────────────────────────
 import PIL.Image
+# Force old Antialias method to satisfy MoviePy 1.0.3
 if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
 
 from moviepy.editor import (
     AudioFileClip, ImageClip, TextClip, CompositeVideoClip, 
-    concatenate_videoclips, vfx
+    concatenate_videoclips
 )
-
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
@@ -33,9 +33,9 @@ for d in [MEMORY_DIR, OUTPUT_DIR, ASSETS_DIR]:
     Path(d).mkdir(exist_ok=True)
 
 # ────────────────────────────────────────────────
-# 2. CONTENT GENERATION
+# 2. CONTENT GENERATION (Smart)
 # ────────────────────────────────────────────────
-def groq_request(prompt, model="llama-3.3-70b-versatile"):
+def groq_request(prompt):
     try:
         response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
@@ -44,46 +44,45 @@ def groq_request(prompt, model="llama-3.3-70b-versatile"):
                 "Content-Type": "application/json"
             },
             json={
-                "model": model,
+                "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.8,
+                "temperature": 0.85,
                 "max_tokens": 1000
             },
             timeout=30
         )
-        response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"].strip()
     except Exception as e:
         print(f"Groq Error: {e}")
         return None
 
 def generate_content():
-    # We ask for a "Sing-Along" style rhyme
+    # We ask for a keyword to ensure the image matches the song
     prompt = """
-    Create a catchy, rhythmic Hindi Nursery Rhyme for kids (8 lines).
-    
+    Create a catchy, simple Hindi Nursery Rhyme for kids (8 lines).
     Output ONLY valid JSON:
     {
-      "keyword": "ONE_ENGLISH_WORD (e.g. Monkey)",
+      "keyword": "ONE_ENGLISH_WORD_FOR_IMAGE_SEARCH (e.g. Lion)",
       "title": "Hindi Title",
       "rhyme_lines": ["Line 1", "Line 2", "Line 3", "Line 4", "Line 5", "Line 6", "Line 7", "Line 8"],
-      "image_prompt": "cute cartoon Monkey dancing, vibrant colors, 3d render style, bright lighting"
+      "image_prompt": "cute cartoon Lion face close up, vibrant colors, 3d render style, bright lighting"
     }
     """
     raw = groq_request(prompt)
     if not raw: sys.exit(1)
-        
     try:
-        start = raw.find('{')
-        end = raw.rfind('}') + 1
-        data = json.loads(raw[start:end])
-        return data
-    except Exception as e:
-        print(f"JSON Error: {e}")
-        sys.exit(1)
+        start, end = raw.find('{'), raw.rfind('}') + 1
+        return json.loads(raw[start:end])
+    except:
+        return {
+            "keyword": "cartoon",
+            "title": "मजेदार कविता",
+            "rhyme_lines": ["मछली जल की रानी है", "जीवन उसका पानी है", "हाथ लगाओ डर जाएगी", "बाहर निकालो मर जाएगी"],
+            "image_prompt": "cute cartoon fish underwater"
+        }
 
 # ────────────────────────────────────────────────
-# 3. IMAGE ENGINE (Robust)
+# 3. SMART IMAGE ENGINE (Relevance is King)
 # ────────────────────────────────────────────────
 def download_file(url, filename):
     try:
@@ -91,52 +90,44 @@ def download_file(url, filename):
         if resp.status_code == 200:
             with open(filename, 'wb') as f:
                 f.write(resp.content)
+            PIL.Image.open(filename).verify() # Verify it's a real image
             return True
     except:
         pass
     return False
 
 def get_best_image(content, filename):
-    print("--- Image Engine Started ---")
+    print("--- Finding Best Image ---")
     
-    # 1. Try AI (Square Image - Most Stable)
-    prompt = content['image_prompt'].replace(" ", "%20")
+    # 1. Try AI (Square Turbo - Fast & Stable)
+    prompt = content.get('image_prompt', 'cartoon').replace(" ", "%20")
     seed = random.randint(0, 99999)
-    # Using 'turbo' model for speed and stability
-    ai_url = f"https://image.pollinations.ai/prompt/{prompt}?width=1024&height=1024&nologo=true&seed={seed}&model=turbo"
+    url_ai = f"https://image.pollinations.ai/prompt/{prompt}?width=1024&height=1024&nologo=true&seed={seed}&model=turbo"
     
-    print("Attempt 1: AI Generation...")
-    if download_file(ai_url, filename):
-        try:
-            img = PIL.Image.open(filename)
-            img.verify()
-            print(">>> Success: AI Image!")
-            return True
-        except:
-            print("AI Image invalid.")
-
-    # 2. Fallback: Real Photo
-    keyword = content.get('keyword', 'cartoon').replace(" ", "")
-    print(f"Attempt 2: Real Photo of '{keyword}'...")
-    real_url = f"https://loremflickr.com/1080/1920/{keyword}"
-    
-    if download_file(real_url, filename):
-        print(">>> Success: Real Photo.")
+    print(f"Attempt 1: AI Image ({content.get('keyword')})...")
+    if download_file(url_ai, filename):
         return True
 
-    # 3. Ultimate Fallback
-    print("Attempt 3: Generic Fallback.")
-    download_file("https://loremflickr.com/1080/1920/cartoon", filename)
+    # 2. Try Real Photo (Keyword Based - NOT Random)
+    # This is where Grok failed. We use the actual topic of the song.
+    keyword = content.get('keyword', 'cartoon').replace(" ", "")
+    print(f"Attempt 2: Stock Search for '{keyword}'...")
+    url_real = f"https://loremflickr.com/1080/1920/{keyword}"
+    
+    if download_file(url_real, filename):
+        return True
+
+    # 3. Fallback (Nature - Safe)
+    print("Attempt 3: Generic Fallback")
+    download_file("https://images.unsplash.com/photo-1502082553048-f009c37129b9?q=80&w=1080", filename)
     return True
 
 # ────────────────────────────────────────────────
-# 4. AUDIO ENGINE
+# 4. AUDIO (Neural Voice)
 # ────────────────────────────────────────────────
 async def generate_voice_async(text, filename):
-    # Using a high pitch "Kid" like voice usually requires adjusting pitch, 
-    # but SwaraNeural is the best standard Hindi voice we have for free.
-    voice = "hi-IN-SwaraNeural" 
-    cmd = ["edge-tts", "--voice", voice, "--text", text, "--write-media", filename]
+    # SwaraNeural: The best storytelling voice available for free
+    cmd = ["edge-tts", "--voice", "hi-IN-SwaraNeural", "--text", text, "--write-media", filename]
     process = await asyncio.create_subprocess_exec(*cmd)
     await process.wait()
 
@@ -144,133 +135,109 @@ def get_voice(text, filename):
     asyncio.run(generate_voice_async(text, filename))
 
 # ────────────────────────────────────────────────
-# 5. VIDEO ENGINE (No-Crash Animation)
+# 5. VIDEO RENDERER (Karaoke Style)
 # ────────────────────────────────────────────────
-def create_video_segment(text_line, image_path, audio_path):
-    # 1. Audio
-    audio_clip = AudioFileClip(audio_path)
-    duration = audio_clip.duration + 0.5
+def create_segment(text_line, image_path, audio_path):
+    audio = AudioFileClip(audio_path)
+    duration = audio.duration + 0.5
     
-    # 2. Image Setup
-    # Load and Resize to cover screen
-    img_clip = ImageClip(image_path)
+    img = ImageClip(image_path)
     
-    # Smart resize: Make sure it covers 1080x1920
-    # We make it slightly bigger (1300 width) to allow sliding
-    img_clip = img_clip.resize(height=1920)
-    if img_clip.w < 1080:
-        img_clip = img_clip.resize(width=1080)
-        img_clip = img_clip.crop(x1=0, width=1080, height=1920, y_center=img_clip.h/2)
+    # Smart Crop to Vertical (1080x1920)
+    # Ensures we don't stretch the image, we crop it nicely.
+    if img.w / img.h > (1080/1920):
+        img = img.resize(height=1920)
+        img = img.crop(x_center=img.w/2, width=1080, height=1920)
     else:
-        img_clip = img_clip.crop(x_center=img_clip.w/2, width=1080, height=1920, y_center=img_clip.h/2)
+        img = img.resize(width=1080)
+        img = img.crop(y_center=img.h/2, width=1080, height=1920)
+        
+    # Gentle Zoom (Animation)
+    anim = img.resize(lambda t: 1 + 0.04 * t).set_duration(duration).set_position('center')
 
-    # 3. Safe Animation (Simple Zoom)
-    # We removed the 'Pan' logic that was crashing
-    anim = img_clip.resize(lambda t: 1 + 0.04 * t).set_duration(duration).set_position('center')
-
-    # 4. "Sing-Along" Style Text
-    # Big White Text with Thick Black Outline (Stroke)
-    txt_clip = TextClip(
+    # Karaoke Text (Yellow + Black Outline)
+    # Readable on bright cartoons AND dark photos
+    txt = TextClip(
         text_line, 
-        fontsize=80, 
-        color='white', 
-        font='DejaVu-Sans-Bold',
+        fontsize=70, 
+        color='yellow', 
+        font='DejaVu-Sans-Bold', 
         stroke_color='black', 
-        stroke_width=5, 
-        method='caption',
-        size=(950, None)
-    ).set_position(('center', 1400)).set_duration(duration)
+        stroke_width=4, 
+        method='caption', 
+        size=(900, None)
+    ).set_position(('center', 1450)).set_duration(duration)
 
-    # 5. Compose
-    final = CompositeVideoClip([anim, txt_clip], size=(1080,1920)).set_duration(duration)
-    final.audio = audio_clip
-    return final
+    return CompositeVideoClip([anim, txt], size=(1080,1920)).set_audio(audio).set_duration(duration)
 
-def make_master_video(content):
+def make_video(content):
     clips = []
+    bg_path = os.path.join(ASSETS_DIR, "bg.jpg")
     
-    bg_image_path = os.path.join(ASSETS_DIR, "bg_main.jpg")
-    get_best_image(content, bg_image_path)
+    # Download ONE consistent image for the video
+    get_best_image(content, bg_path)
     
-    print("Rendering...")
     full_lyrics = ""
+    print("Rendering Clips...")
     
     for i, line in enumerate(content['rhyme_lines']):
         if not line.strip(): continue
         full_lyrics += line + "\n"
         
-        aud_path = os.path.join(ASSETS_DIR, f"line_{i}.mp3")
+        aud_path = os.path.join(ASSETS_DIR, f"voice_{i}.mp3")
         get_voice(line, aud_path)
         
         try:
-            segment = create_video_segment(line, bg_image_path, aud_path)
-            clips.append(segment)
+            clip = create_segment(line, bg_path, aud_path)
+            clips.append(clip)
         except Exception as e:
-            print(f"Skipping line: {e}")
+            print(f"Skipped line {i} due to error: {e}")
 
     if not clips: sys.exit(1)
-
-    final_video = concatenate_videoclips(clips, method="compose")
-    output_path = os.path.join(OUTPUT_DIR, "final_upload.mp4")
     
-    # Threads=4 speeds up rendering significantly on GitHub Actions
-    final_video.write_videofile(output_path, fps=24, codec='libx264', audio_codec='aac', threads=4)
+    final = concatenate_videoclips(clips, method="compose")
+    out_file = os.path.join(OUTPUT_DIR, "final.mp4")
     
-    return output_path, full_lyrics
+    # threads=4 is the sweet spot for GitHub Actions speed
+    final.write_videofile(out_file, fps=24, codec='libx264', audio_codec='aac', threads=4)
+    return out_file, full_lyrics
 
 # ────────────────────────────────────────────────
 # 6. UPLOAD
 # ────────────────────────────────────────────────
-def upload_to_youtube(video_path, content, full_lyrics):
+def upload_video(video_path, content, lyrics):
     try:
-        creds = None
-        if os.path.exists(TOKEN_FILE):
-            with open(TOKEN_FILE, 'rb') as f:
-                creds = pickle.load(f)
+        if not os.path.exists(TOKEN_FILE): return False
+        with open(TOKEN_FILE, 'rb') as f: creds = pickle.load(f)
         
-        if not creds: return False
-            
         service = build('youtube', 'v3', credentials=creds)
         
         title = f"{content['title']} | Hindi Rhymes 2026 🦁"
-        if len(title) > 90: title = title[:90] + "..."
+        desc = f"{content['title']}\n\n{lyrics}\n\n#HindiRhymes #NurseryRhymes #KidsSongs #BalGeet"
         
-        desc = f"""{content['title']} - Fun Hindi Rhyme for Kids!
-        
-{full_lyrics}
-
-#HindiRhymes #NurseryRhymes #KidsSongs #BalGeet #Shorts
-"""
         body = {
-            'snippet': {
-                'title': title,
-                'description': desc,
-                'tags': ['hindi rhymes', 'nursery rhymes', 'kids songs', 'bal geet', 'cartoon', 'shorts'],
-                'categoryId': '24'
-            },
+            'snippet': {'title': title[:99], 'description': desc, 'tags': ['hindi rhymes', 'kids songs'], 'categoryId': '24'},
             'status': {'privacyStatus': 'public'}
         }
         
         media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
-        request = service.videos().insert(part="snippet,status", body=body, media_body=media)
+        req = service.videos().insert(part="snippet,status", body=body, media_body=media)
         
         print(f"Uploading '{title}'...")
-        response = None
-        while response is None:
-            status, response = request.next_chunk()
-            if status:
-                print(f"Upload: {int(status.progress() * 100)}%")
-        
-        print(f"SUCCESS! Video ID: {response['id']}")
+        resp = None
+        while resp is None:
+            status, resp = req.next_chunk()
+            if status: print(f"Upload: {int(status.progress()*100)}%")
+            
+        print(f"SUCCESS! ID: {resp['id']}")
         return True
-
     except Exception as e:
-        print(f"Upload failed: {e}")
+        print(f"Upload Error: {e}")
         return False
 
 if __name__ == "__main__":
-    print("===== Magic Engine V5 (Stable) =====")
+    print("===== Magic Engine (Smart + Stable) =====")
     data = generate_content()
     print(f"Topic: {data['title']}")
-    vid_path, lyrics = make_master_video(data)
-    upload_to_youtube(vid_path, data, lyrics)
+    vid, lyrics = make_video(data)
+    upload_video(vid, data, lyrics)
