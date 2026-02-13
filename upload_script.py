@@ -57,7 +57,7 @@ def groq_request(prompt):
         return None
 
 def generate_content():
-    # We ask for a keyword to ensure the image matches the song
+    # Prompt for Hindi Rhymes
     prompt = """
     Create a catchy, simple Hindi Nursery Rhyme for kids (8 lines).
     Output ONLY valid JSON:
@@ -82,7 +82,7 @@ def generate_content():
         }
 
 # ────────────────────────────────────────────────
-# 3. SMART IMAGE ENGINE (Relevance is King)
+# 3. SMART IMAGE ENGINE
 # ────────────────────────────────────────────────
 def download_file(url, filename):
     try:
@@ -90,7 +90,7 @@ def download_file(url, filename):
         if resp.status_code == 200:
             with open(filename, 'wb') as f:
                 f.write(resp.content)
-            PIL.Image.open(filename).verify() # Verify it's a real image
+            PIL.Image.open(filename).verify() # Verify image
             return True
     except:
         pass
@@ -99,7 +99,7 @@ def download_file(url, filename):
 def get_best_image(content, filename):
     print("--- Finding Best Image ---")
     
-    # 1. Try AI (Square Turbo - Fast & Stable)
+    # 1. Try AI (Square Turbo)
     prompt = content.get('image_prompt', 'cartoon').replace(" ", "%20")
     seed = random.randint(0, 99999)
     url_ai = f"https://image.pollinations.ai/prompt/{prompt}?width=1024&height=1024&nologo=true&seed={seed}&model=turbo"
@@ -108,8 +108,7 @@ def get_best_image(content, filename):
     if download_file(url_ai, filename):
         return True
 
-    # 2. Try Real Photo (Keyword Based - NOT Random)
-    # This is where Grok failed. We use the actual topic of the song.
+    # 2. Try Real Photo (Keyword Based)
     keyword = content.get('keyword', 'cartoon').replace(" ", "")
     print(f"Attempt 2: Stock Search for '{keyword}'...")
     url_real = f"https://loremflickr.com/1080/1920/{keyword}"
@@ -117,7 +116,7 @@ def get_best_image(content, filename):
     if download_file(url_real, filename):
         return True
 
-    # 3. Fallback (Nature - Safe)
+    # 3. Fallback
     print("Attempt 3: Generic Fallback")
     download_file("https://images.unsplash.com/photo-1502082553048-f009c37129b9?q=80&w=1080", filename)
     return True
@@ -126,7 +125,6 @@ def get_best_image(content, filename):
 # 4. AUDIO (Neural Voice)
 # ────────────────────────────────────────────────
 async def generate_voice_async(text, filename):
-    # SwaraNeural: The best storytelling voice available for free
     cmd = ["edge-tts", "--voice", "hi-IN-SwaraNeural", "--text", text, "--write-media", filename]
     process = await asyncio.create_subprocess_exec(*cmd)
     await process.wait()
@@ -135,16 +133,18 @@ def get_voice(text, filename):
     asyncio.run(generate_voice_async(text, filename))
 
 # ────────────────────────────────────────────────
-# 5. VIDEO RENDERER (Karaoke Style)
+# 5. VIDEO RENDERER (Crash-Proof Logic)
 # ────────────────────────────────────────────────
 def create_segment(text_line, image_path, audio_path):
+    # Load Audio
     audio = AudioFileClip(audio_path)
-    duration = audio.duration + 0.5
+    # FIX: Duration must match EXACTLY. No adding +0.5s or it crashes.
+    duration = audio.duration
     
-    img = ImageClip(image_path)
+    # Image Setup
+    img = ImageClip(image_path).set_duration(duration)
     
-    # Smart Crop to Vertical (1080x1920)
-    # Ensures we don't stretch the image, we crop it nicely.
+    # Smart Crop to Vertical
     if img.w / img.h > (1080/1920):
         img = img.resize(height=1920)
         img = img.crop(x_center=img.w/2, width=1080, height=1920)
@@ -152,11 +152,10 @@ def create_segment(text_line, image_path, audio_path):
         img = img.resize(width=1080)
         img = img.crop(y_center=img.h/2, width=1080, height=1920)
         
-    # Gentle Zoom (Animation)
-    anim = img.resize(lambda t: 1 + 0.04 * t).set_duration(duration).set_position('center')
+    # Gentle Animation
+    anim = img.resize(lambda t: 1 + 0.04 * t).set_position('center')
 
-    # Karaoke Text (Yellow + Black Outline)
-    # Readable on bright cartoons AND dark photos
+    # Karaoke Text (Yellow + Outline)
     txt = TextClip(
         text_line, 
         fontsize=70, 
@@ -168,13 +167,15 @@ def create_segment(text_line, image_path, audio_path):
         size=(900, None)
     ).set_position(('center', 1450)).set_duration(duration)
 
-    return CompositeVideoClip([anim, txt], size=(1080,1920)).set_audio(audio).set_duration(duration)
+    # Compose
+    video = CompositeVideoClip([anim, txt], size=(1080,1920))
+    video = video.set_audio(audio).set_duration(duration)
+    return video
 
 def make_video(content):
     clips = []
     bg_path = os.path.join(ASSETS_DIR, "bg.jpg")
     
-    # Download ONE consistent image for the video
     get_best_image(content, bg_path)
     
     full_lyrics = ""
@@ -188,17 +189,22 @@ def make_video(content):
         get_voice(line, aud_path)
         
         try:
-            clip = create_segment(line, bg_path, aud_path)
-            clips.append(clip)
+            # Check if audio exists and has size
+            if os.path.exists(aud_path) and os.path.getsize(aud_path) > 0:
+                clip = create_segment(line, bg_path, aud_path)
+                clips.append(clip)
+            else:
+                print(f"Skipping empty audio for line {i}")
         except Exception as e:
-            print(f"Skipped line {i} due to error: {e}")
+            print(f"Error on line {i}: {e}")
 
-    if not clips: sys.exit(1)
+    if not clips: 
+        print("No clips created. Exiting.")
+        sys.exit(1)
     
     final = concatenate_videoclips(clips, method="compose")
     out_file = os.path.join(OUTPUT_DIR, "final.mp4")
     
-    # threads=4 is the sweet spot for GitHub Actions speed
     final.write_videofile(out_file, fps=24, codec='libx264', audio_codec='aac', threads=4)
     return out_file, full_lyrics
 
@@ -207,13 +213,16 @@ def make_video(content):
 # ────────────────────────────────────────────────
 def upload_video(video_path, content, lyrics):
     try:
-        if not os.path.exists(TOKEN_FILE): return False
+        if not os.path.exists(TOKEN_FILE): 
+            print("Token file not found.")
+            return False
+            
         with open(TOKEN_FILE, 'rb') as f: creds = pickle.load(f)
         
         service = build('youtube', 'v3', credentials=creds)
         
         title = f"{content['title']} | Hindi Rhymes 2026 🦁"
-        desc = f"{content['title']}\n\n{lyrics}\n\n#HindiRhymes #NurseryRhymes #KidsSongs #BalGeet"
+        desc = f"{content['title']}\n\n{lyrics}\n\n#HindiRhymes #NurseryRhymes #KidsSongs"
         
         body = {
             'snippet': {'title': title[:99], 'description': desc, 'tags': ['hindi rhymes', 'kids songs'], 'categoryId': '24'},
@@ -236,7 +245,7 @@ def upload_video(video_path, content, lyrics):
         return False
 
 if __name__ == "__main__":
-    print("===== Magic Engine (Smart + Stable) =====")
+    print("===== Magic Engine (Duration Fix) =====")
     data = generate_content()
     print(f"Topic: {data['title']}")
     vid, lyrics = make_video(data)
