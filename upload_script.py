@@ -4,7 +4,6 @@ import json
 import sys
 import asyncio
 import requests
-import textwrap
 import time
 from pathlib import Path
 import pickle
@@ -18,7 +17,7 @@ if not hasattr(PIL.Image, 'ANTIALIAS'):
 
 from moviepy.editor import (
     AudioFileClip, ImageClip, TextClip, CompositeVideoClip, 
-    concatenate_videoclips, vfx
+    concatenate_videoclips
 )
 
 from googleapiclient.discovery import build
@@ -62,19 +61,18 @@ def groq_request(prompt, model="llama-3.3-70b-versatile"):
 def generate_content():
     prompt = """
     You are a creative Hindi poet for kids. Create a new, original, funny Hindi Nursery Rhyme (8-12 lines).
-    The topic should be about animals, nature, or funny situations.
     
     Output ONLY valid JSON format like this:
     {
-      "topic": "English description (e.g., A cute cat playing drums)",
-      "title": "Hindi Title (e.g., बिल्ली रानी)",
+      "keyword": "ONE_ENGLISH_WORD (e.g., Monkey)",
+      "topic": "English description",
+      "title": "Hindi Title (e.g., बंदर मामा)",
       "rhyme_lines": ["Line 1", "Line 2", "Line 3", "Line 4"],
-      "image_prompt": "cute cartoon cat playing drums, vibrant colors, 3d render style, pixar style, bright lighting, high detail"
+      "image_prompt": "cute cartoon Monkey face close up, vibrant colors, 3d render style, bright lighting"
     }
     """
     raw = groq_request(prompt)
-    if not raw:
-        sys.exit(1)
+    if not raw: sys.exit(1)
         
     try:
         start = raw.find('{')
@@ -86,44 +84,56 @@ def generate_content():
         sys.exit(1)
 
 # ────────────────────────────────────────────────
-# 3. AI IMAGE GENERATION (With RETRY & Fallback)
+# 3. ROBUST IMAGE ENGINE
 # ────────────────────────────────────────────────
-def get_ai_image(prompt, filename):
-    # Try 3 different seeds/attempts
-    for attempt in range(1, 4):
-        print(f"Generating Image (Attempt {attempt}/3)...")
-        
-        # Clean prompt
-        clean_prompt = prompt.replace(",", "").replace(".", "").replace(" ", "%20")
-        seed = random.randint(0, 999999)
-        
-        # URL with Flux model (better quality) if available, otherwise default
-        url = f"https://image.pollinations.ai/prompt/{clean_prompt}?width=1080&height=1920&nologo=true&seed={seed}&model=flux"
-        
-        try:
-            resp = requests.get(url, timeout=45)
-            if resp.status_code == 200:
-                with open(filename, 'wb') as f:
-                    f.write(resp.content)
-                # Check if file is valid image
-                try:
-                    img = PIL.Image.open(filename)
-                    img.verify()
-                    print("Image SUCCESS!")
-                    return True
-                except:
-                    print("Invalid image data received.")
-            else:
-                print(f"Server Error: {resp.status_code}")
-                
-        except Exception as e:
-            print(f"Connection Error: {e}")
-        
-        # Wait before retry
-        time.sleep(3)
-
-    print("All image attempts failed.")
+def download_file(url, filename):
+    try:
+        resp = requests.get(url, timeout=20)
+        if resp.status_code == 200:
+            with open(filename, 'wb') as f:
+                f.write(resp.content)
+            return True
+    except:
+        pass
     return False
+
+def get_best_image(content, filename):
+    print("--- Image Engine Started ---")
+    
+    # STRATEGY 1: Pollinations AI (SQUARE + TURBO MODEL)
+    # Using Square (1024x1024) and Turbo is much more stable than Portrait/Flux
+    prompt = content['image_prompt'].replace(" ", "%20")
+    seed = random.randint(0, 99999)
+    
+    # Try Turbo Model
+    ai_url = f"https://image.pollinations.ai/prompt/{prompt}?width=1024&height=1024&nologo=true&seed={seed}&model=turbo"
+    print(f"Attempt 1: AI Generation ({content['image_prompt']})...")
+    
+    if download_file(ai_url, filename):
+        # Verify it's not a text file (error message)
+        try:
+            img = PIL.Image.open(filename)
+            img.verify()
+            print(">>> Success: AI Image Generated!")
+            return True
+        except:
+            print("AI generated broken file.")
+
+    # STRATEGY 2: Smart Fallback (Real Photo via Flickr)
+    # If AI fails, we get a real photo of the "Keyword" (e.g., Monkey)
+    keyword = content.get('keyword', 'cartoon').replace(" ", "")
+    print(f"Attempt 2: Fetching Real Photo of '{keyword}'...")
+    
+    real_url = f"https://loremflickr.com/1080/1920/{keyword}"
+    if download_file(real_url, filename):
+        print(">>> Success: Used Real Photo Fallback.")
+        return True
+
+    # STRATEGY 3: Last Resort (Generic Cartoon)
+    print("Attempt 3: Ultimate Fallback.")
+    fallback_url = "https://loremflickr.com/1080/1920/cartoon"
+    download_file(fallback_url, filename)
+    return True
 
 # ────────────────────────────────────────────────
 # 4. AUDIO GENERATION
@@ -138,51 +148,58 @@ def get_voice(text, filename):
     asyncio.run(generate_voice_async(text, filename))
 
 # ────────────────────────────────────────────────
-# 5. VIDEO ANIMATION (Random Movements)
+# 5. VIDEO ANIMATION (With Center Crop for Square Images)
 # ────────────────────────────────────────────────
 def create_video_segment(text_line, image_path, audio_path):
     audio_clip = AudioFileClip(audio_path)
     duration = audio_clip.duration + 0.5
     
-    # Load Image
-    img_clip = ImageClip(image_path).set_duration(duration)
+    # 1. Load Image
+    img_clip = ImageClip(image_path)
     
-    # Resize to be TALLER than 1920 so we can pan vertically, 
-    # or WIDER than 1080 so we can pan horizontally.
-    # Let's make it slightly larger than screen to allow movement.
-    img_clip = img_clip.resize(height=2200) 
+    # 2. INTELLIGENT CROP/RESIZE
+    # Since we might get a Square AI image (1024x1024) or a Tall Real image (1080x1920)
+    # We must ensure it fills the 1080x1920 Vertical Video frame
     
-    # Crop to initial box
-    w, h = img_clip.size
+    target_ratio = 1080 / 1920
+    img_ratio = img_clip.w / img_clip.h
     
-    # Random Animation Style
-    move_type = random.choice(['zoom_in', 'zoom_out', 'pan_left', 'pan_right'])
+    if img_ratio > target_ratio:
+        # Image is wider (like a Square), crop the sides
+        new_h = 1920
+        new_w = int(new_h * img_ratio)
+        img_clip = img_clip.resize(height=new_h)
+        # Center Crop
+        img_clip = img_clip.crop(x1=(new_w/2 - 540), width=1080, height=1920)
+    else:
+        # Image is tall/thin, resize width to fit
+        new_w = 1080
+        img_clip = img_clip.resize(width=new_w)
+        # Center Crop vertically if needed
+        img_clip = img_clip.crop(y1=0, width=1080, height=1920)
+
+    # 3. Dynamic Animation (Zoom/Pan Mix)
+    move_type = random.choice(['zoom_in', 'zoom_out', 'pan'])
     
     if move_type == 'zoom_in':
-        # Simple center crop then resize up
-        clip = img_clip.crop(width=1080, height=1920, x_center=w/2, y_center=h/2)
-        anim = clip.resize(lambda t: 1 + 0.04 * t)
-        
+        anim = img_clip.resize(lambda t: 1 + 0.04 * t)
     elif move_type == 'zoom_out':
-        # Start zoomed in (1.1) and go to 1.0
-        clip = img_clip.crop(width=1080, height=1920, x_center=w/2, y_center=h/2)
-        anim = clip.resize(lambda t: 1.1 - 0.04 * t)
+        anim = img_clip.resize(lambda t: 1.1 - 0.04 * t) # Start slightly zipped
+    else: # Pan (Simulated via crop movement on a slightly larger resize)
+        # Resize up 10%
+        pan_clip = img_clip.resize(1.1)
+        # Slide window
+        anim = pan_clip.crop(
+            x1=lambda t: 50 + (10 * t), 
+            y1=lambda t: 50, 
+            width=1080, height=1920
+        )
         
-    elif move_type == 'pan_right':
-        # Move x from left to right
-        anim = img_clip.crop(width=1080, height=1920, y_center=h/2, x1=0)
-        # Scroll fx is hard in moviepy 1.0 without custom func, fallback to zoom
-        anim = img_clip.crop(width=1080, height=1920, x_center=w/2, y_center=h/2).resize(lambda t: 1 + 0.03 * t)
-
-    else:
-        # Default Zoom
-        anim = img_clip.crop(width=1080, height=1920, x_center=w/2, y_center=h/2).resize(lambda t: 1 + 0.04 * t)
-
-    # Text Styling
+    # 4. Text Overlay
     txt_clip = TextClip(
         text_line, 
         fontsize=75, 
-        color='white', 
+        color='yellow', 
         font='DejaVu-Sans-Bold',
         stroke_color='black', 
         stroke_width=4,
@@ -190,22 +207,18 @@ def create_video_segment(text_line, image_path, audio_path):
         size=(950, None)
     ).set_position(('center', 1450)).set_duration(duration)
 
-    final = CompositeVideoClip([anim, txt_clip]).set_duration(duration)
+    final = CompositeVideoClip([anim.set_duration(duration), txt_clip]).set_duration(duration)
     final.audio = audio_clip
     return final
 
 def make_master_video(content):
     clips = []
     
-    # 1. Download MAIN Background
+    # Download the best available image
     bg_image_path = os.path.join(ASSETS_DIR, "bg_main.jpg")
+    get_best_image(content, bg_image_path)
     
-    if not get_ai_image(content['image_prompt'], bg_image_path):
-        print("CRITICAL: AI Image failed 3 times. Using generic nature background.")
-        # Fallback to a reliable high-quality nature image, NOT random picsum
-        os.system(f"curl -L -o {bg_image_path} https://images.unsplash.com/photo-1502082553048-f009c37129b9?q=80&w=1080")
-
-    print("Rendering clips...")
+    print("Rendering video clips...")
     full_lyrics = ""
     
     for i, line in enumerate(content['rhyme_lines']):
@@ -215,10 +228,13 @@ def make_master_video(content):
         aud_path = os.path.join(ASSETS_DIR, f"line_{i}.mp3")
         get_voice(line, aud_path)
         
-        # We reuse the same BG for visual consistency, but the 'create_video_segment'
-        # will apply a RANDOM move effect to it each time.
-        segment = create_video_segment(line, bg_image_path, aud_path)
-        clips.append(segment)
+        try:
+            segment = create_video_segment(line, bg_image_path, aud_path)
+            clips.append(segment)
+        except Exception as e:
+            print(f"Skipping line due to error: {e}")
+
+    if not clips: sys.exit(1)
 
     final_video = concatenate_videoclips(clips, method="compose")
     output_path = os.path.join(OUTPUT_DIR, "final_upload.mp4")
@@ -240,21 +256,20 @@ def upload_to_youtube(video_path, content, full_lyrics):
             
         service = build('youtube', 'v3', credentials=creds)
         
-        title = f"{content['title']} | Funny Hindi Rhymes 2026 🦁"
-        if len(title) > 100: title = title[:90] + "..."
+        title = f"{content['title']} | Hindi Rhymes 2026"
+        if len(title) > 90: title = title[:90] + "..."
         
-        desc = f"""{content['title']}
+        desc = f"""{content['title']} - {content.get('topic', 'Kids Song')}
         
 {full_lyrics}
 
-#HindiRhymes #NurseryRhymes #KidsSongs #BalGeet #Shorts #Cartoon
+#HindiRhymes #NurseryRhymes #KidsSongs #BalGeet #Shorts
 """
-        
         body = {
             'snippet': {
                 'title': title,
                 'description': desc,
-                'tags': ['hindi rhymes', 'nursery rhymes', 'kids songs', 'bal geet', 'cartoon', 'shorts'],
+                'tags': ['hindi rhymes', 'nursery rhymes', 'kids songs', 'shorts'],
                 'categoryId': '24'
             },
             'status': {'privacyStatus': 'public'}
@@ -268,7 +283,7 @@ def upload_to_youtube(video_path, content, full_lyrics):
         while response is None:
             status, response = request.next_chunk()
             if status:
-                print(f"Progress: {int(status.progress() * 100)}%")
+                print(f"Upload Progress: {int(status.progress() * 100)}%")
         
         print(f"SUCCESS! Video ID: {response['id']}")
         return True
@@ -278,8 +293,8 @@ def upload_to_youtube(video_path, content, full_lyrics):
         return False
 
 if __name__ == "__main__":
-    print("===== Magic Engine V3 (Robust) =====")
+    print("===== Magic Engine V4 (Robust Image) =====")
     data = generate_content()
-    print(f"Title: {data['title']}")
+    print(f"Topic: {data['topic']}")
     vid_path, lyrics = make_master_video(data)
     upload_to_youtube(vid_path, data, lyrics)
