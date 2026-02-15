@@ -1,19 +1,13 @@
-name: SkyRocket Broadcaster - 3x Daily
+name: Infinite Broadcaster - 3x Daily
 
 on:
   schedule:
-    # GitHub uses UTC. India (IST) is UTC+5:30.
-    # We run the script 20 mins BEFORE the upload time to render the video.
-    
-    # Target: 7:00 AM IST (01:30 UTC) -> Run at 01:10 UTC
+    # 7:00 AM IST (01:30 UTC) -> Run at 01:10 UTC
     - cron: '10 1 * * *'
-    
-    # Target: 2:00 PM IST (08:30 UTC) -> Run at 08:10 UTC
+    # 2:00 PM IST (08:30 UTC) -> Run at 08:10 UTC
     - cron: '10 8 * * *'
-    
-    # Target: 8:00 PM IST (14:30 UTC) -> Run at 14:10 UTC
+    # 8:00 PM IST (14:30 UTC) -> Run at 14:10 UTC
     - cron: '10 14 * * *'
-    
   workflow_dispatch:
 
 jobs:
@@ -27,7 +21,6 @@ jobs:
       - name: Install System Tools
         run: |
           sudo apt-get update
-          # fonts-noto is REQUIRED for Hindi text on Thumbnails
           sudo apt-get install -y ffmpeg imagemagick ghostscript fonts-noto
 
       - name: Fix ImageMagick Policy
