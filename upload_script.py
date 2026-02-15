@@ -17,7 +17,7 @@ if not hasattr(PIL.Image, 'ANTIALIAS'):
 
 from moviepy.editor import (
     AudioFileClip, ImageClip, TextClip, CompositeVideoClip, 
-    concatenate_videoclips, CompositeAudioClip
+    concatenate_videoclips, CompositeAudioClip, ColorClip
 )
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -29,11 +29,10 @@ OUTPUT_DIR = "videos/"
 ASSETS_DIR = "assets/"
 TOKEN_FILE = "youtube_token.pickle"
 
-# Ensure directories exist
 for d in [MEMORY_DIR, OUTPUT_DIR, ASSETS_DIR]:
     Path(d).mkdir(exist_ok=True)
 
-# Initialize memory files if they don't exist
+# Initialize memory files
 for f in ["used_topics.json", "used_rhymes.json"]:
     fpath = os.path.join(MEMORY_DIR, f)
     if not os.path.exists(fpath):
@@ -43,30 +42,24 @@ for f in ["used_topics.json", "used_rhymes.json"]:
 # 2. MEMORY MANAGEMENT
 # ────────────────────────────────────────────────
 def load_memory(filename):
-    """Loads a list of previously used items"""
     path = os.path.join(MEMORY_DIR, filename)
     if os.path.exists(path):
         try:
-            with open(path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except:
-            return []
+            with open(path, 'r', encoding='utf-8') as f: return json.load(f)
+        except: return []
     return []
 
 def save_to_memory(filename, item):
-    """Saves a new item to memory"""
     path = os.path.join(MEMORY_DIR, filename)
     data = load_memory(filename)
     if item not in data:
         data.append(item)
-        # Keep file size manageable (last 1000 items)
         if len(data) > 1000: data = data[-1000:]
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-        print(f"💾 Memory Updated: Added '{item}' to {filename}")
 
 # ────────────────────────────────────────────────
-# 3. GENERATE CONTENT (Memory Aware)
+# 3. CONTENT GENERATION
 # ────────────────────────────────────────────────
 def groq_request(prompt):
     try:
@@ -90,47 +83,34 @@ def groq_request(prompt):
         return None
 
 def generate_unique_topic():
-    """Asks AI for a topic and checks against memory"""
     used_topics = load_memory("used_topics.json")
-    
-    for attempt in range(3): # Try 3 times to get a unique topic
+    for _ in range(3):
         prompt = f"""
-        Generate 1 unique, creative, and specific topic for a Hindi Nursery Rhyme.
-        Examples: "A dinosaur eating ice cream", "A cloud looking for shoes".
-        Do NOT use these previous topics: {", ".join(used_topics[-20:])}
-        Output ONLY the English topic string. No other text.
+        Generate 1 unique, creative topic for a Hindi Nursery Rhyme.
+        Avoid: {", ".join(used_topics[-10:])}
+        Output ONLY the English topic string.
         """
         topic = groq_request(prompt)
-        if topic:
-            clean_topic = topic.replace('"', '').replace("Topic:", "").strip()
-            if clean_topic not in used_topics:
-                return clean_topic
-            print(f"♻️ Repeat topic detected: {clean_topic}. Retrying...")
-    
-    return "A funny magical adventure" # Fallback
+        if topic and topic not in used_topics: return topic.replace('"', '').strip()
+    return "Funny Animal Party"
 
 def generate_content(mode="short"):
     topic = generate_unique_topic()
-    print(f"★ Selected Topic: {topic}")
-
-    lines_count = 8 if mode == "short" else 16
+    print(f"★ Topic: {topic}")
+    lines = 8 if mode == "short" else 16
     
     prompt = f"""
-    You are a professional Hindi writer for a Kids YouTube Channel.
     Topic: "{topic}"
+    Write a Hindi Nursery Rhyme ({lines} lines).
+    For EACH line, write a specific image prompt in ENGLISH.
     
-    1. Create a rhythmic Hindi Nursery Rhyme ({lines_count} lines).
-    2. Define a character visual description in ENGLISH only.
-    3. For EACH line, write a specific image action prompt in ENGLISH only.
-    
-    Output ONLY valid JSON format:
+    Output ONLY JSON:
     {{
       "title": "Hindi Title",
-      "keyword": "Main Subject in English",
-      "main_char_visual": "Detailed visual description in ENGLISH",
+      "keyword": "Main Subject (e.g. Cat)",
       "scenes": [
-        {{ "line": "Hindi Line 1", "action": "Action in ENGLISH" }},
-        ... (Total {lines_count} items)
+        {{ "line": "Hindi Line 1", "action": "English Action 1" }},
+        ...
       ]
     }}
     """
@@ -139,326 +119,230 @@ def generate_content(mode="short"):
     try:
         start, end = raw.find('{'), raw.rfind('}') + 1
         data = json.loads(raw[start:end])
-        # Inject the topic so we can save it later
-        data['generated_topic'] = topic 
+        data['generated_topic'] = topic
         return data
     except:
         return None
 
 # ────────────────────────────────────────────────
-# 4. UNBREAKABLE ASSET ENGINE
+# 4. VARIETY ASSET ENGINE (No Duplicates)
 # ────────────────────────────────────────────────
 def generate_backup_image(filename):
-    print("Generating Safety Image...")
-    try:
-        color = (random.randint(0,255), random.randint(0,255), random.randint(0,255))
-        img = PIL.Image.new('RGB', (1024, 1024), color=color)
-        draw = PIL.ImageDraw.Draw(img)
-        img.save(filename)
-        return True
-    except:
-        return False
+    color = (random.randint(0,255), random.randint(0,255), random.randint(0,255))
+    PIL.Image.new('RGB', (1024, 1024), color=color).save(filename)
+    return True
 
 def download_file(url, filename):
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         resp = requests.get(url, headers=headers, timeout=25)
         if resp.status_code == 200:
-            with open(filename, 'wb') as f:
-                f.write(resp.content)
+            with open(filename, 'wb') as f: f.write(resp.content)
             try:
-                img = PIL.Image.open(filename)
-                img.verify()
-                img = PIL.Image.open(filename)
-                if img.width < 100 or img.height < 100: return False
+                PIL.Image.open(filename).verify()
                 return True
-            except:
-                return False
+            except: return False
         return False
-    except:
-        return False
+    except: return False
 
-def get_image(visual_desc, action_desc, filename, fixed_seed, keyword):
-    print(f"--- Gen Image: {action_desc[:30]}... ---")
+def get_image(action_desc, filename, keyword):
+    print(f"--- Img: {action_desc[:30]}... ---")
     
+    # 1. AI Generation (Random Seed per image = VARIETY)
     clean_action = action_desc.replace(" ", "%20").replace(",", "")
-    clean_visual = visual_desc.replace(" ", "%20").replace(",", "")
-    full_prompt = f"{clean_visual}%20{clean_action}%20cartoon%20style%20vibrant"
-    url_ai = f"https://image.pollinations.ai/prompt/{full_prompt}?width=1024&height=1024&nologo=true&seed={fixed_seed}&model=turbo"
-    
+    seed = random.randint(0, 999999) # NEW SEED EVERY TIME
+    url_ai = f"https://image.pollinations.ai/prompt/cartoon%20{clean_action}%20vibrant?width=1024&height=1024&nologo=true&seed={seed}&model=turbo"
     if download_file(url_ai, filename): return True
     
-    print(f"AI Failed. Trying Stock Photo for '{keyword}'...")
-    url_stock = f"https://loremflickr.com/1024/1024/{keyword.replace(' ','')}"
+    # 2. Stock Photo (Randomized = NO DUPLICATES)
+    print("AI Failed. Trying Random Stock...")
+    random_param = random.randint(1, 10000) # Force new image
+    url_stock = f"https://loremflickr.com/1024/1024/{keyword.replace(' ','')}?random={random_param}"
     if download_file(url_stock, filename): return True
 
-    print("Network Failed. Creating Safety Image.")
     return generate_backup_image(filename)
 
 def get_intro_sound(filename):
     if not os.path.exists(filename):
-        url = "https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3" 
-        download_file(url, filename)
+        download_file("https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3", filename)
 
 # ────────────────────────────────────────────────
-# 5. THUMBNAIL ENGINE
+# 5. THUMBNAIL
 # ────────────────────────────────────────────────
 def create_thumbnail(title, bg_path, output_path):
-    print("Generating Thumbnail...")
     try:
         if not os.path.exists(bg_path): generate_backup_image(bg_path)
-
-        img = PIL.Image.open(bg_path).convert("RGBA")
-        img = img.resize((1280, 720)) 
-        
+        img = PIL.Image.open(bg_path).convert("RGBA").resize((1280, 720))
         overlay = PIL.Image.new("RGBA", img.size, (0,0,0,80))
         img = PIL.Image.alpha_composite(img, overlay)
         draw = PIL.ImageDraw.Draw(img)
         
-        # Font Logic
         font_path = "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf"
-        try:
-            font = PIL.ImageFont.truetype(font_path, 90)
-        except:
-            font = PIL.ImageFont.load_default()
+        try: font = PIL.ImageFont.truetype(font_path, 90)
+        except: font = PIL.ImageFont.load_default()
 
         bbox = draw.textbbox((0, 0), title, font=font)
-        text_w = bbox[2] - bbox[0]
-        text_h = bbox[3] - bbox[1]
-        x = (1280 - text_w) // 2
-        y = (720 - text_h) // 2
+        x = (1280 - (bbox[2] - bbox[0])) // 2
+        y = (720 - (bbox[3] - bbox[1])) // 2
 
         draw.text((x+5, y+5), title, font=font, fill="black")
-        draw.text((x, y), title, font=font, fill="#FFD700") 
-        
-        img = img.convert("RGB")
-        img.save(output_path)
+        draw.text((x, y), title, font=font, fill="#FFD700")
+        img.convert("RGB").save(output_path)
         return output_path
-    except Exception as e:
-        print(f"Thumbnail error: {e}")
-        return None
+    except: return None
 
 # ────────────────────────────────────────────────
 # 6. RENDERER
 # ────────────────────────────────────────────────
 async def generate_voice_async(text, filename):
     cmd = ["edge-tts", "--voice", "hi-IN-SwaraNeural", "--text", text, "--write-media", filename]
-    process = await asyncio.create_subprocess_exec(*cmd)
-    await process.wait()
+    proc = await asyncio.create_subprocess_exec(*cmd)
+    await proc.wait()
 
 def get_voice(text, filename):
     asyncio.run(generate_voice_async(text, filename))
 
-def create_segment(text_line, image_path, audio_path, is_short=True, is_first=False):
-    if not os.path.exists(audio_path) or os.path.getsize(audio_path) == 0: return None
+def create_segment(text_line, image_path, audio_path, is_short, is_first):
+    if not os.path.exists(audio_path): return None
     if not os.path.exists(image_path): generate_backup_image(image_path)
 
     try:
-        voice_clip = AudioFileClip(audio_path)
-        
+        voice = AudioFileClip(audio_path)
         if is_first:
             intro_path = os.path.join(ASSETS_DIR, "intro.mp3")
             get_intro_sound(intro_path)
             if os.path.exists(intro_path):
                 try:
                     intro = AudioFileClip(intro_path).volumex(0.3)
-                    if intro.duration > voice_clip.duration: 
-                        intro = intro.subclip(0, voice_clip.duration)
-                    final_audio = CompositeAudioClip([voice_clip, intro])
-                except:
-                    final_audio = voice_clip
-            else:
-                final_audio = voice_clip
-        else:
-            final_audio = voice_clip
-
-        duration = final_audio.duration
+                    if intro.duration > voice.duration: intro = intro.subclip(0, voice.duration)
+                    voice = CompositeAudioClip([voice, intro])
+                except: pass
+        
         w, h = (1080, 1920) if is_short else (1920, 1080)
         
-        try:
-            img = ImageClip(image_path)
-        except:
+        try: img = ImageClip(image_path)
+        except: 
             generate_backup_image(image_path)
             img = ImageClip(image_path)
 
-        img_ratio = img.w / img.h
-        target_ratio = w / h
-
-        if img_ratio < target_ratio:
-            new_width = w
-            new_height = int(w / img_ratio)
-            img = img.resize(width=new_width)
-        else:
-            new_height = h
-            new_width = int(h * img_ratio)
-            img = img.resize(height=new_height)
-
+        if img.w/img.h > w/h: img = img.resize(height=h)
+        else: img = img.resize(width=w)
         img = img.crop(x_center=img.w/2, y_center=img.h/2, width=w, height=h)
 
         move = random.choice(['zoom_in', 'zoom_out'])
-        if move == 'zoom_in':
-            anim = img.resize(lambda t: 1 + 0.04 * t)
-        else:
-            anim = img.resize(lambda t: 1.05 - 0.04 * t)
-            
-        anim = anim.set_position('center').set_duration(duration)
+        anim = img.resize(lambda t: 1+0.04*t) if move == 'zoom_in' else img.resize(lambda t: 1.05-0.04*t)
+        anim = anim.set_position('center').set_duration(voice.duration)
 
         font_path = "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf"
-        font_size = 70 if is_short else 85
+        font = PIL.ImageFont.truetype(font_path, 80) if os.path.exists(font_path) else None
         
-        if os.path.exists(font_path):
-            txt = TextClip(
-                text_line, fontsize=font_size, color='yellow', font=font_path, 
-                stroke_color='black', stroke_width=4, method='caption', size=(w-100, None)
-            )
-        else:
-            txt = TextClip(
-                text_line, fontsize=font_size, color='yellow', 
-                stroke_color='black', stroke_width=4, method='caption', size=(w-100, None)
-            )
+        # Proper MoviePy Text
+        txt = TextClip(text_line, fontsize=70 if is_short else 85, color='yellow', font=font_path if font else 'Arial', stroke_color='black', stroke_width=3, method='caption', size=(w-100, None))
+        txt = txt.set_position(('center', 'bottom')).set_duration(voice.duration)
 
-        txt = txt.set_position(('center', 'bottom' if is_short else 'bottom')).set_duration(duration)
-        txt = txt.set_position(('center', h - 200))
-
-        return CompositeVideoClip([anim, txt], size=(w,h)).set_audio(final_audio).set_duration(duration)
-
-    except Exception as e:
-        print(f"Segment error: {e}")
-        return None
+        return CompositeVideoClip([anim, txt], size=(w,h)).set_audio(voice).set_duration(voice.duration)
+    except: return None
 
 def make_video(content, is_short=True):
-    print(f"Rendering {'SHORT' if is_short else 'LONG'} video...")
+    print(f"Rendering {'SHORT' if is_short else 'LONG'}...")
     clips = []
     suffix = "s" if is_short else "l"
-    
-    fixed_seed = random.randint(0, 999999)
-    char_desc = content.get('main_char_visual', 'cute cartoon character')
     keyword = content.get('keyword', 'cartoon')
     
     full_lyrics = ""
-    first_bg_path = None
+    first_bg = None
     
     for i, scene in enumerate(content['scenes']):
         line = scene['line']
-        action = scene['action']
         full_lyrics += line + "\n"
         
-        aud_path = os.path.join(ASSETS_DIR, f"aud_{suffix}_{i}.mp3")
-        get_voice(line, aud_path)
+        aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
+        get_voice(line, aud)
         
-        img_path = os.path.join(ASSETS_DIR, f"img_{suffix}_{i}.jpg")
-        get_image(char_desc, action, img_path, fixed_seed, keyword)
+        img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
+        # Pass keyword + random seed per line
+        get_image(scene['action'], img, keyword)
         
-        if i == 0: first_bg_path = img_path
+        if i == 0: first_bg = img
         
-        try:
-            clip = create_segment(line, img_path, aud_path, is_short, (i==0))
-            if clip: clips.append(clip)
-        except Exception as e:
-            print(f"Error line {i}: {e}")
+        clip = create_segment(line, img, aud, is_short, (i==0))
+        if clip: clips.append(clip)
 
     if not clips: return None, None, None
     
     final = concatenate_videoclips(clips, method="compose")
-    out_file = os.path.join(OUTPUT_DIR, f"final_{suffix}.mp4")
+    out = os.path.join(OUTPUT_DIR, f"final_{suffix}.mp4")
+    thumb = os.path.join(OUTPUT_DIR, "thumb.png") if not is_short and first_bg else None
     
-    thumb_path = None
-    if not is_short and first_bg_path:
-        thumb_path = os.path.join(OUTPUT_DIR, "thumb.png")
-        create_thumbnail(content['title'], first_bg_path, thumb_path)
-
-    final.write_videofile(out_file, fps=24, codec='libx264', audio_codec='aac', threads=4)
-    return out_file, full_lyrics, thumb_path
+    if thumb: create_thumbnail(content['title'], first_bg, thumb)
+    
+    final.write_videofile(out, fps=24, codec='libx264', audio_codec='aac', threads=4)
+    return out, full_lyrics, thumb
 
 # ────────────────────────────────────────────────
-# 7. UPLOAD ENGINE (Saves Memory on Success)
+# 7. UPLOAD
 # ────────────────────────────────────────────────
-def upload_video(video_path, content, lyrics, thumb_path, is_short=True):
+def upload_video(vid, content, lyrics, thumb, is_short):
     try:
         if not os.path.exists(TOKEN_FILE): return False
         with open(TOKEN_FILE, 'rb') as f: creds = pickle.load(f)
-        
         service = build('youtube', 'v3', credentials=creds)
         
-        if is_short:
-            title = f"{content['title']} 🦁 #Shorts #HindiRhymes"
-            tags = ['shorts', 'hindi rhymes', 'nursery rhymes', 'kids']
-        else:
-            title = f"{content['title']} | Hindi Rhymes 2026 🦁"
-            tags = ['hindi rhymes', 'kids songs', 'bal geet', 'cartoon']
-
+        title = f"{content['title']} 🦁 #Shorts" if is_short else f"{content['title']} | Hindi Rhymes 2026 🦁"
         desc = f"{content['title']}\n\n{lyrics}\n\n#HindiRhymes #KidsSongs"
+        tags = ['shorts', 'hindi rhymes', 'kids'] if is_short else ['hindi rhymes', 'kids songs']
         
         body = {'snippet': {'title': title[:99], 'description': desc, 'tags': tags, 'categoryId': '24'}, 'status': {'privacyStatus': 'public'}}
+        media = MediaFileUpload(vid, chunksize=-1, resumable=True)
         
-        media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
-        try:
-            req = service.videos().insert(part="snippet,status", body=body, media_body=media)
-            resp = None
-            while resp is None:
-                status, resp = req.next_chunk()
-                if status: print(f"Progress: {int(status.progress()*100)}%")
-            vid_id = resp['id']
-            print(f"SUCCESS! ID: {vid_id}")
+        req = service.videos().insert(part="snippet,status", body=body, media_body=media)
+        resp = None
+        while resp is None:
+            status, resp = req.next_chunk()
+            if status: print(f"Progress: {int(status.progress()*100)}%")
             
-            # === MEMORY SAVE ===
-            # Only save if upload succeeded
-            save_to_memory("used_topics.json", content.get('generated_topic', ''))
-            save_to_memory("used_rhymes.json", content['title'])
-            # ===================
+        print(f"SUCCESS! ID: {resp['id']}")
+        
+        # Save Memory
+        save_to_memory("used_topics.json", content.get('generated_topic', ''))
+        save_to_memory("used_rhymes.json", content['title'])
 
-            if thumb_path and os.path.exists(thumb_path):
-                try:
-                    service.thumbnails().set(videoId=vid_id, media_body=MediaFileUpload(thumb_path)).execute()
-                except:
-                    print("Thumbnail upload failed.")
-            return True
-        except HttpError as e:
-            if "uploadLimitExceeded" in str(e):
-                print("⚠️ Daily Quota Reached.")
-                return False
-            print(f"Upload Error: {e}")
-            return False
-    except Exception as e:
-        print(f"Upload Error: {e}")
+        if thumb: 
+            try: service.thumbnails().set(videoId=resp['id'], media_body=MediaFileUpload(thumb)).execute()
+            except: pass
+            
+        return True
+    except HttpError as e:
+        if "uploadLimitExceeded" in str(e): print("⚠️ Quota Reached.")
+        else: print(f"Upload Error: {e}")
         return False
+    except: return False
 
 # ────────────────────────────────────────────────
-# MAIN EXECUTION
+# MAIN
 # ────────────────────────────────────────────────
 if __name__ == "__main__":
-    print("===== INFINITE MEMORY ENGINE =====")
-    
+    print("===== VARIETY ENGINE =====")
     summary = []
 
     # Short
-    print("\n>>> SHORT <<<")
     try:
-        data_s = generate_content("short")
-        if data_s:
-            v, l, t = make_video(data_s, True)
+        d = generate_content("short")
+        if d:
+            v, l, t = make_video(d, True)
             if v: 
-                success = upload_video(v, data_s, l, t, True)
-                status = "✅ Uploaded" if success else "❌ Upload Failed"
-                summary.append(f"Short: {status} ({data_s['title']})")
-    except Exception as e:
-        summary.append(f"Short: ❌ Error ({e})")
+                res = upload_video(v, d, l, t, True)
+                summary.append(f"Short: {'✅' if res else '❌'} {d['title']}")
+    except Exception as e: summary.append(f"Short Error: {e}")
 
     # Long
-    print("\n>>> LONG <<<")
     try:
-        data_l = generate_content("long")
-        if data_l:
-            v, l, t = make_video(data_l, False)
+        d = generate_content("long")
+        if d:
+            v, l, t = make_video(d, False)
             if v: 
-                success = upload_video(v, data_l, l, t, False)
-                status = "✅ Uploaded" if success else "❌ Upload Failed"
-                summary.append(f"Long:  {status} ({data_l['title']})")
-    except Exception as e:
-        summary.append(f"Long:  ❌ Error ({e})")
-        
-    print("\n" + "="*40)
-    print("📢 BROADCAST SUMMARY")
-    print("="*40)
-    for line in summary: print(line)
-    print("="*40)
+                res = upload_video(v, d, l, t, False)
+                summary.append(f"Long: {'✅' if res else '❌'} {d['title']}")
+    except Exception as e: summary.append(f"Long Error: {e}")
+
+    print("\n".join(summary))
