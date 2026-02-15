@@ -17,7 +17,7 @@ if not hasattr(PIL.Image, 'ANTIALIAS'):
 
 from moviepy.editor import (
     AudioFileClip, ImageClip, TextClip, CompositeVideoClip, 
-    concatenate_videoclips, CompositeAudioClip, ColorClip
+    concatenate_videoclips, CompositeAudioClip
 )
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -29,11 +29,44 @@ OUTPUT_DIR = "videos/"
 ASSETS_DIR = "assets/"
 TOKEN_FILE = "youtube_token.pickle"
 
+# Ensure directories exist
 for d in [MEMORY_DIR, OUTPUT_DIR, ASSETS_DIR]:
     Path(d).mkdir(exist_ok=True)
 
+# Initialize memory files if they don't exist
+for f in ["used_topics.json", "used_rhymes.json"]:
+    fpath = os.path.join(MEMORY_DIR, f)
+    if not os.path.exists(fpath):
+        with open(fpath, "w") as file: json.dump([], file)
+
 # ────────────────────────────────────────────────
-# 2. INFINITE CONTENT GENERATION (Groq)
+# 2. MEMORY MANAGEMENT
+# ────────────────────────────────────────────────
+def load_memory(filename):
+    """Loads a list of previously used items"""
+    path = os.path.join(MEMORY_DIR, filename)
+    if os.path.exists(path):
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return []
+    return []
+
+def save_to_memory(filename, item):
+    """Saves a new item to memory"""
+    path = os.path.join(MEMORY_DIR, filename)
+    data = load_memory(filename)
+    if item not in data:
+        data.append(item)
+        # Keep file size manageable (last 1000 items)
+        if len(data) > 1000: data = data[-1000:]
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        print(f"💾 Memory Updated: Added '{item}' to {filename}")
+
+# ────────────────────────────────────────────────
+# 3. GENERATE CONTENT (Memory Aware)
 # ────────────────────────────────────────────────
 def groq_request(prompt):
     try:
@@ -57,21 +90,28 @@ def groq_request(prompt):
         return None
 
 def generate_unique_topic():
-    """Asks AI to invent a new topic every time"""
-    prompt = """
-    Generate 1 unique, creative, and specific topic for a Hindi Nursery Rhyme.
-    Do NOT use common topics like "Cat", "Dog", or "Johny Johny".
-    Think of creative scenarios like "A dinosaur eating ice cream", "A cloud looking for shoes", "A pencil fighting an eraser".
-    Output ONLY the English topic string. No other text.
-    """
-    topic = groq_request(prompt)
-    if topic:
-        return topic.replace('"', '').replace("Topic:", "").strip()
-    return "A funny magical adventure" 
+    """Asks AI for a topic and checks against memory"""
+    used_topics = load_memory("used_topics.json")
+    
+    for attempt in range(3): # Try 3 times to get a unique topic
+        prompt = f"""
+        Generate 1 unique, creative, and specific topic for a Hindi Nursery Rhyme.
+        Examples: "A dinosaur eating ice cream", "A cloud looking for shoes".
+        Do NOT use these previous topics: {", ".join(used_topics[-20:])}
+        Output ONLY the English topic string. No other text.
+        """
+        topic = groq_request(prompt)
+        if topic:
+            clean_topic = topic.replace('"', '').replace("Topic:", "").strip()
+            if clean_topic not in used_topics:
+                return clean_topic
+            print(f"♻️ Repeat topic detected: {clean_topic}. Retrying...")
+    
+    return "A funny magical adventure" # Fallback
 
 def generate_content(mode="short"):
     topic = generate_unique_topic()
-    print(f"★ Generated Topic: {topic}")
+    print(f"★ Selected Topic: {topic}")
 
     lines_count = 8 if mode == "short" else 16
     
@@ -86,7 +126,7 @@ def generate_content(mode="short"):
     Output ONLY valid JSON format:
     {{
       "title": "Hindi Title",
-      "keyword": "Main Subject in English (e.g. Dinosaur)",
+      "keyword": "Main Subject in English",
       "main_char_visual": "Detailed visual description in ENGLISH",
       "scenes": [
         {{ "line": "Hindi Line 1", "action": "Action in ENGLISH" }},
@@ -98,12 +138,15 @@ def generate_content(mode="short"):
     if not raw: return None
     try:
         start, end = raw.find('{'), raw.rfind('}') + 1
-        return json.loads(raw[start:end])
+        data = json.loads(raw[start:end])
+        # Inject the topic so we can save it later
+        data['generated_topic'] = topic 
+        return data
     except:
         return None
 
 # ────────────────────────────────────────────────
-# 3. UNBREAKABLE ASSET ENGINE
+# 4. UNBREAKABLE ASSET ENGINE
 # ────────────────────────────────────────────────
 def generate_backup_image(filename):
     print("Generating Safety Image...")
@@ -136,7 +179,7 @@ def download_file(url, filename):
         return False
 
 def get_image(visual_desc, action_desc, filename, fixed_seed, keyword):
-    print(f"--- Gen Image: {action_desc} ---")
+    print(f"--- Gen Image: {action_desc[:30]}... ---")
     
     clean_action = action_desc.replace(" ", "%20").replace(",", "")
     clean_visual = visual_desc.replace(" ", "%20").replace(",", "")
@@ -158,7 +201,7 @@ def get_intro_sound(filename):
         download_file(url, filename)
 
 # ────────────────────────────────────────────────
-# 4. THUMBNAIL ENGINE
+# 5. THUMBNAIL ENGINE
 # ────────────────────────────────────────────────
 def create_thumbnail(title, bg_path, output_path):
     print("Generating Thumbnail...")
@@ -172,6 +215,7 @@ def create_thumbnail(title, bg_path, output_path):
         img = PIL.Image.alpha_composite(img, overlay)
         draw = PIL.ImageDraw.Draw(img)
         
+        # Font Logic
         font_path = "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf"
         try:
             font = PIL.ImageFont.truetype(font_path, 90)
@@ -195,7 +239,7 @@ def create_thumbnail(title, bg_path, output_path):
         return None
 
 # ────────────────────────────────────────────────
-# 5. RENDERER
+# 6. RENDERER
 # ────────────────────────────────────────────────
 async def generate_voice_async(text, filename):
     cmd = ["edge-tts", "--voice", "hi-IN-SwaraNeural", "--text", text, "--write-media", filename]
@@ -279,7 +323,7 @@ def create_segment(text_line, image_path, audio_path, is_short=True, is_first=Fa
         return CompositeVideoClip([anim, txt], size=(w,h)).set_audio(final_audio).set_duration(duration)
 
     except Exception as e:
-        print(f"Segment creation error: {e}")
+        print(f"Segment error: {e}")
         return None
 
 def make_video(content, is_short=True):
@@ -327,7 +371,7 @@ def make_video(content, is_short=True):
     return out_file, full_lyrics, thumb_path
 
 # ────────────────────────────────────────────────
-# 6. UPLOAD ENGINE
+# 7. UPLOAD ENGINE (Saves Memory on Success)
 # ────────────────────────────────────────────────
 def upload_video(video_path, content, lyrics, thumb_path, is_short=True):
     try:
@@ -340,10 +384,10 @@ def upload_video(video_path, content, lyrics, thumb_path, is_short=True):
             title = f"{content['title']} 🦁 #Shorts #HindiRhymes"
             tags = ['shorts', 'hindi rhymes', 'nursery rhymes', 'kids']
         else:
-            title = f"{content['title']} | New Hindi Rhymes 2026 🦁"
-            tags = ['hindi rhymes', 'nursery rhymes', 'kids songs', 'bal geet', 'cartoon']
+            title = f"{content['title']} | Hindi Rhymes 2026 🦁"
+            tags = ['hindi rhymes', 'kids songs', 'bal geet', 'cartoon']
 
-        desc = f"{content['title']}\n\n{lyrics}\n\n#HindiRhymes #KidsSongs #BalGeet"
+        desc = f"{content['title']}\n\n{lyrics}\n\n#HindiRhymes #KidsSongs"
         
         body = {'snippet': {'title': title[:99], 'description': desc, 'tags': tags, 'categoryId': '24'}, 'status': {'privacyStatus': 'public'}}
         
@@ -357,6 +401,12 @@ def upload_video(video_path, content, lyrics, thumb_path, is_short=True):
             vid_id = resp['id']
             print(f"SUCCESS! ID: {vid_id}")
             
+            # === MEMORY SAVE ===
+            # Only save if upload succeeded
+            save_to_memory("used_topics.json", content.get('generated_topic', ''))
+            save_to_memory("used_rhymes.json", content['title'])
+            # ===================
+
             if thumb_path and os.path.exists(thumb_path):
                 try:
                     service.thumbnails().set(videoId=vid_id, media_body=MediaFileUpload(thumb_path)).execute()
@@ -374,15 +424,15 @@ def upload_video(video_path, content, lyrics, thumb_path, is_short=True):
         return False
 
 # ────────────────────────────────────────────────
-# MAIN EXECUTION (INDEPENDENT LOOPS & REPORTING)
+# MAIN EXECUTION
 # ────────────────────────────────────────────────
 if __name__ == "__main__":
-    print("===== INFINITE BROADCASTER =====")
+    print("===== INFINITE MEMORY ENGINE =====")
     
     summary = []
 
-    # PART 1: SHORT VIDEO
-    print("\n>>> PRODUCING SHORT <<<")
+    # Short
+    print("\n>>> SHORT <<<")
     try:
         data_s = generate_content("short")
         if data_s:
@@ -390,17 +440,12 @@ if __name__ == "__main__":
             if v: 
                 success = upload_video(v, data_s, l, t, True)
                 status = "✅ Uploaded" if success else "❌ Upload Failed"
-                summary.append(f"Short Video: {status} - {data_s['title']}")
-            else:
-                summary.append("Short Video: ❌ Render Failed")
-        else:
-            summary.append("Short Video: ❌ Content Gen Failed")
+                summary.append(f"Short: {status} ({data_s['title']})")
     except Exception as e:
-        print(f"Short Video Failed: {e}")
-        summary.append(f"Short Video: ❌ Error - {str(e)}")
+        summary.append(f"Short: ❌ Error ({e})")
 
-    # PART 2: LONG VIDEO (Runs even if Short fails)
-    print("\n>>> PRODUCING LONG <<<")
+    # Long
+    print("\n>>> LONG <<<")
     try:
         data_l = generate_content("long")
         if data_l:
@@ -408,18 +453,12 @@ if __name__ == "__main__":
             if v: 
                 success = upload_video(v, data_l, l, t, False)
                 status = "✅ Uploaded" if success else "❌ Upload Failed"
-                summary.append(f"Long Video:  {status} - {data_l['title']}")
-            else:
-                summary.append("Long Video:  ❌ Render Failed")
-        else:
-            summary.append("Long Video:  ❌ Content Gen Failed")
+                summary.append(f"Long:  {status} ({data_l['title']})")
     except Exception as e:
-        print(f"Long Video Failed: {e}")
-        summary.append(f"Long Video:  ❌ Error - {str(e)}")
+        summary.append(f"Long:  ❌ Error ({e})")
         
     print("\n" + "="*40)
-    print("📢 FINAL BROADCAST SUMMARY")
+    print("📢 BROADCAST SUMMARY")
     print("="*40)
-    for line in summary:
-        print(line)
+    for line in summary: print(line)
     print("="*40)
