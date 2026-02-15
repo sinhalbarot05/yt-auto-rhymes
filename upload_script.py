@@ -28,7 +28,7 @@ MEMORY_DIR = "memory/"
 OUTPUT_DIR = "videos/"
 ASSETS_DIR = "assets/"
 TOKEN_FILE = "youtube_token.pickle"
-FONT_FILE = os.path.join(ASSETS_DIR, "HindiFont.ttf") # We will save font here
+FONT_FILE = os.path.join(ASSETS_DIR, "HindiFont.ttf")
 
 for d in [MEMORY_DIR, OUTPUT_DIR, ASSETS_DIR]:
     Path(d).mkdir(exist_ok=True)
@@ -40,26 +40,21 @@ for f in ["used_topics.json", "used_rhymes.json"]:
         with open(fpath, "w") as file: json.dump([], file)
 
 # ────────────────────────────────────────────────
-# 2. FONT ENGINE (The Fix for Boxes/Missing Text)
+# 2. FONT DOWNLOADER (Fixes Boxes & Subtitles)
 # ────────────────────────────────────────────────
 def download_font():
-    """Downloads NotoSansDevanagari-Bold.ttf locally"""
     if not os.path.exists(FONT_FILE):
         print("📥 Downloading Hindi Font...")
-        # Direct reliable link to the font file
         url = "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf"
         try:
             resp = requests.get(url, timeout=30)
             if resp.status_code == 200:
-                with open(FONT_FILE, 'wb') as f:
-                    f.write(resp.content)
-                print("✅ Font downloaded successfully.")
-            else:
-                print("❌ Font download failed.")
-        except Exception as e:
-            print(f"❌ Font Error: {e}")
+                with open(FONT_FILE, 'wb') as f: f.write(resp.content)
+                print("✅ Font downloaded.")
+            else: print("❌ Font download failed.")
+        except: print("❌ Font connection failed.")
 
-# CALL THIS IMMEDIATELY
+# Run immediately
 download_font()
 
 # ────────────────────────────────────────────────
@@ -149,7 +144,7 @@ def generate_content(mode="short"):
         return None
 
 # ────────────────────────────────────────────────
-# 5. ASSET ENGINE (Visual Variety)
+# 5. ASSET ENGINE
 # ────────────────────────────────────────────────
 def generate_backup_image(filename):
     color = (random.randint(0,255), random.randint(0,255), random.randint(0,255))
@@ -171,17 +166,17 @@ def download_file(url, filename):
 
 def get_image(action_desc, filename, keyword):
     print(f"--- Img: {action_desc[:30]}... ---")
-    
-    # 1. AI Generation (Random Seed per image = VARIETY)
     clean_action = action_desc.replace(" ", "%20").replace(",", "")
     seed = random.randint(0, 999999) 
+    
+    # 1. AI
     url_ai = f"https://image.pollinations.ai/prompt/cartoon%20{clean_action}%20vibrant?width=1024&height=1024&nologo=true&seed={seed}&model=turbo"
     if download_file(url_ai, filename): return True
     
-    # 2. Stock Photo (Randomized)
-    print("AI Failed. Trying Random Stock...")
-    random_param = random.randint(1, 10000)
-    url_stock = f"https://loremflickr.com/1024/1024/{keyword.replace(' ','')}?random={random_param}"
+    # 2. Stock
+    print("AI Failed. Trying Stock...")
+    rand_id = random.randint(1, 10000)
+    url_stock = f"https://loremflickr.com/1024/1024/{keyword.replace(' ','')}?random={rand_id}"
     if download_file(url_stock, filename): return True
 
     return generate_backup_image(filename)
@@ -191,7 +186,7 @@ def get_intro_sound(filename):
         download_file("https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3", filename)
 
 # ────────────────────────────────────────────────
-# 6. THUMBNAIL (Uses Local Font)
+# 6. THUMBNAIL
 # ────────────────────────────────────────────────
 def create_thumbnail(title, bg_path, output_path):
     try:
@@ -201,7 +196,6 @@ def create_thumbnail(title, bg_path, output_path):
         img = PIL.Image.alpha_composite(img, overlay)
         draw = PIL.ImageDraw.Draw(img)
         
-        # USE LOCAL FONT
         try: font = PIL.ImageFont.truetype(FONT_FILE, 90)
         except: font = PIL.ImageFont.load_default()
 
@@ -216,12 +210,13 @@ def create_thumbnail(title, bg_path, output_path):
     except: return None
 
 # ────────────────────────────────────────────────
-# 7. RENDERER (Uses Local Font for Subtitles)
+# 7. RENDERER
 # ────────────────────────────────────────────────
 async def generate_voice_async(text, filename):
     cmd = ["edge-tts", "--voice", "hi-IN-SwaraNeural", "--text", text, "--write-media", filename]
+    # FIXED: Variable name matches await logic
     proc = await asyncio.create_subprocess_exec(*cmd)
-    await process.wait()
+    await proc.wait()
 
 def get_voice(text, filename):
     asyncio.run(generate_voice_async(text, filename))
@@ -257,24 +252,11 @@ def create_segment(text_line, image_path, audio_path, is_short, is_first):
         anim = img.resize(lambda t: 1+0.04*t) if move == 'zoom_in' else img.resize(lambda t: 1.05-0.04*t)
         anim = anim.set_position('center').set_duration(voice.duration)
 
-        # SUBTITLE LOGIC
-        font_size = 70 if is_short else 85
-        # Pass the explicit path to the downloaded font
-        if os.path.exists(FONT_FILE):
-             txt = TextClip(
-                text_line, fontsize=font_size, color='yellow', font=FONT_FILE, 
-                stroke_color='black', stroke_width=4, method='caption', size=(w-100, None)
-            )
-        else:
-             # This should barely happen now
-             txt = TextClip(
-                text_line, fontsize=font_size, color='yellow', 
-                stroke_color='black', stroke_width=4, method='caption', size=(w-100, None)
-            )
-
-        txt = txt.set_position(('center', 'bottom')).set_duration(voice.duration)
+        # FIXED: Use the Downloaded Font Variable for Subtitles
+        font_arg = FONT_FILE if os.path.exists(FONT_FILE) else 'Arial'
         
-        # Raise text slightly up
+        txt = TextClip(text_line, fontsize=70 if is_short else 85, color='yellow', font=font_arg, stroke_color='black', stroke_width=3, method='caption', size=(w-100, None))
+        txt = txt.set_position(('center', 'bottom')).set_duration(voice.duration)
         txt = txt.set_position(('center', h - 250))
 
         return CompositeVideoClip([anim, txt], size=(w,h)).set_audio(voice).set_duration(voice.duration)
@@ -299,7 +281,6 @@ def make_video(content, is_short=True):
         get_voice(line, aud)
         
         img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
-        # Pass keyword + random seed per line
         get_image(scene['action'], img, keyword)
         
         if i == 0: first_bg = img
@@ -342,7 +323,6 @@ def upload_video(vid, content, lyrics, thumb, is_short):
             
         print(f"SUCCESS! ID: {resp['id']}")
         
-        # Save Memory
         save_to_memory("used_topics.json", content.get('generated_topic', ''))
         save_to_memory("used_rhymes.json", content['title'])
 
