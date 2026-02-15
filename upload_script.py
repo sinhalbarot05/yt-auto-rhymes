@@ -28,6 +28,7 @@ MEMORY_DIR = "memory/"
 OUTPUT_DIR = "videos/"
 ASSETS_DIR = "assets/"
 TOKEN_FILE = "youtube_token.pickle"
+FONT_FILE = os.path.join(ASSETS_DIR, "HindiFont.ttf") # We will save font here
 
 for d in [MEMORY_DIR, OUTPUT_DIR, ASSETS_DIR]:
     Path(d).mkdir(exist_ok=True)
@@ -39,7 +40,30 @@ for f in ["used_topics.json", "used_rhymes.json"]:
         with open(fpath, "w") as file: json.dump([], file)
 
 # ────────────────────────────────────────────────
-# 2. MEMORY MANAGEMENT
+# 2. FONT ENGINE (The Fix for Boxes/Missing Text)
+# ────────────────────────────────────────────────
+def download_font():
+    """Downloads NotoSansDevanagari-Bold.ttf locally"""
+    if not os.path.exists(FONT_FILE):
+        print("📥 Downloading Hindi Font...")
+        # Direct reliable link to the font file
+        url = "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf"
+        try:
+            resp = requests.get(url, timeout=30)
+            if resp.status_code == 200:
+                with open(FONT_FILE, 'wb') as f:
+                    f.write(resp.content)
+                print("✅ Font downloaded successfully.")
+            else:
+                print("❌ Font download failed.")
+        except Exception as e:
+            print(f"❌ Font Error: {e}")
+
+# CALL THIS IMMEDIATELY
+download_font()
+
+# ────────────────────────────────────────────────
+# 3. MEMORY MANAGEMENT
 # ────────────────────────────────────────────────
 def load_memory(filename):
     path = os.path.join(MEMORY_DIR, filename)
@@ -59,7 +83,7 @@ def save_to_memory(filename, item):
             json.dump(data, f, indent=2, ensure_ascii=False)
 
 # ────────────────────────────────────────────────
-# 3. CONTENT GENERATION
+# 4. CONTENT GENERATION
 # ────────────────────────────────────────────────
 def groq_request(prompt):
     try:
@@ -125,7 +149,7 @@ def generate_content(mode="short"):
         return None
 
 # ────────────────────────────────────────────────
-# 4. VARIETY ASSET ENGINE (No Duplicates)
+# 5. ASSET ENGINE (Visual Variety)
 # ────────────────────────────────────────────────
 def generate_backup_image(filename):
     color = (random.randint(0,255), random.randint(0,255), random.randint(0,255))
@@ -150,13 +174,13 @@ def get_image(action_desc, filename, keyword):
     
     # 1. AI Generation (Random Seed per image = VARIETY)
     clean_action = action_desc.replace(" ", "%20").replace(",", "")
-    seed = random.randint(0, 999999) # NEW SEED EVERY TIME
+    seed = random.randint(0, 999999) 
     url_ai = f"https://image.pollinations.ai/prompt/cartoon%20{clean_action}%20vibrant?width=1024&height=1024&nologo=true&seed={seed}&model=turbo"
     if download_file(url_ai, filename): return True
     
-    # 2. Stock Photo (Randomized = NO DUPLICATES)
+    # 2. Stock Photo (Randomized)
     print("AI Failed. Trying Random Stock...")
-    random_param = random.randint(1, 10000) # Force new image
+    random_param = random.randint(1, 10000)
     url_stock = f"https://loremflickr.com/1024/1024/{keyword.replace(' ','')}?random={random_param}"
     if download_file(url_stock, filename): return True
 
@@ -167,7 +191,7 @@ def get_intro_sound(filename):
         download_file("https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3", filename)
 
 # ────────────────────────────────────────────────
-# 5. THUMBNAIL
+# 6. THUMBNAIL (Uses Local Font)
 # ────────────────────────────────────────────────
 def create_thumbnail(title, bg_path, output_path):
     try:
@@ -177,8 +201,8 @@ def create_thumbnail(title, bg_path, output_path):
         img = PIL.Image.alpha_composite(img, overlay)
         draw = PIL.ImageDraw.Draw(img)
         
-        font_path = "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf"
-        try: font = PIL.ImageFont.truetype(font_path, 90)
+        # USE LOCAL FONT
+        try: font = PIL.ImageFont.truetype(FONT_FILE, 90)
         except: font = PIL.ImageFont.load_default()
 
         bbox = draw.textbbox((0, 0), title, font=font)
@@ -192,12 +216,12 @@ def create_thumbnail(title, bg_path, output_path):
     except: return None
 
 # ────────────────────────────────────────────────
-# 6. RENDERER
+# 7. RENDERER (Uses Local Font for Subtitles)
 # ────────────────────────────────────────────────
 async def generate_voice_async(text, filename):
     cmd = ["edge-tts", "--voice", "hi-IN-SwaraNeural", "--text", text, "--write-media", filename]
     proc = await asyncio.create_subprocess_exec(*cmd)
-    await proc.wait()
+    await process.wait()
 
 def get_voice(text, filename):
     asyncio.run(generate_voice_async(text, filename))
@@ -233,15 +257,30 @@ def create_segment(text_line, image_path, audio_path, is_short, is_first):
         anim = img.resize(lambda t: 1+0.04*t) if move == 'zoom_in' else img.resize(lambda t: 1.05-0.04*t)
         anim = anim.set_position('center').set_duration(voice.duration)
 
-        font_path = "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf"
-        font = PIL.ImageFont.truetype(font_path, 80) if os.path.exists(font_path) else None
-        
-        # Proper MoviePy Text
-        txt = TextClip(text_line, fontsize=70 if is_short else 85, color='yellow', font=font_path if font else 'Arial', stroke_color='black', stroke_width=3, method='caption', size=(w-100, None))
+        # SUBTITLE LOGIC
+        font_size = 70 if is_short else 85
+        # Pass the explicit path to the downloaded font
+        if os.path.exists(FONT_FILE):
+             txt = TextClip(
+                text_line, fontsize=font_size, color='yellow', font=FONT_FILE, 
+                stroke_color='black', stroke_width=4, method='caption', size=(w-100, None)
+            )
+        else:
+             # This should barely happen now
+             txt = TextClip(
+                text_line, fontsize=font_size, color='yellow', 
+                stroke_color='black', stroke_width=4, method='caption', size=(w-100, None)
+            )
+
         txt = txt.set_position(('center', 'bottom')).set_duration(voice.duration)
+        
+        # Raise text slightly up
+        txt = txt.set_position(('center', h - 250))
 
         return CompositeVideoClip([anim, txt], size=(w,h)).set_audio(voice).set_duration(voice.duration)
-    except: return None
+    except Exception as e:
+        print(f"Segment Error: {e}") 
+        return None
 
 def make_video(content, is_short=True):
     print(f"Rendering {'SHORT' if is_short else 'LONG'}...")
@@ -280,7 +319,7 @@ def make_video(content, is_short=True):
     return out, full_lyrics, thumb
 
 # ────────────────────────────────────────────────
-# 7. UPLOAD
+# 8. UPLOAD
 # ────────────────────────────────────────────────
 def upload_video(vid, content, lyrics, thumb, is_short):
     try:
@@ -322,7 +361,7 @@ def upload_video(vid, content, lyrics, thumb, is_short):
 # MAIN
 # ────────────────────────────────────────────────
 if __name__ == "__main__":
-    print("===== VARIETY ENGINE =====")
+    print("===== VARIETY ENGINE (WITH FONT FIX) =====")
     summary = []
 
     # Short
