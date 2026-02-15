@@ -46,7 +46,7 @@ def groq_request(prompt):
             json={
                 "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.95, # High creativity for unique topics
+                "temperature": 0.95, 
                 "max_tokens": 1500
             },
             timeout=30
@@ -66,16 +66,13 @@ def generate_unique_topic():
     """
     topic = groq_request(prompt)
     if topic:
-        # Cleanup
         return topic.replace('"', '').replace("Topic:", "").strip()
-    return "A funny magical adventure" # Fallback
+    return "A funny magical adventure" 
 
 def generate_content(mode="short"):
-    # 1. Get a Unique Topic
     topic = generate_unique_topic()
     print(f"★ Generated Topic: {topic}")
 
-    # 2. Set Length (8 lines for Short >= 25s, 16 lines for Long >= 40s)
     lines_count = 8 if mode == "short" else 16
     
     prompt = f"""
@@ -109,7 +106,6 @@ def generate_content(mode="short"):
 # 3. UNBREAKABLE ASSET ENGINE
 # ────────────────────────────────────────────────
 def generate_backup_image(filename):
-    """Creates a solid color image so the script NEVER crashes"""
     print("Generating Safety Image...")
     try:
         color = (random.randint(0,255), random.randint(0,255), random.randint(0,255))
@@ -142,7 +138,6 @@ def download_file(url, filename):
 def get_image(visual_desc, action_desc, filename, fixed_seed, keyword):
     print(f"--- Gen Image: {action_desc} ---")
     
-    # 1. AI Generation
     clean_action = action_desc.replace(" ", "%20").replace(",", "")
     clean_visual = visual_desc.replace(" ", "%20").replace(",", "")
     full_prompt = f"{clean_visual}%20{clean_action}%20cartoon%20style%20vibrant"
@@ -150,12 +145,10 @@ def get_image(visual_desc, action_desc, filename, fixed_seed, keyword):
     
     if download_file(url_ai, filename): return True
     
-    # 2. Keyword Search
     print(f"AI Failed. Trying Stock Photo for '{keyword}'...")
     url_stock = f"https://loremflickr.com/1024/1024/{keyword.replace(' ','')}"
     if download_file(url_stock, filename): return True
 
-    # 3. Safety Net
     print("Network Failed. Creating Safety Image.")
     return generate_backup_image(filename)
 
@@ -179,7 +172,6 @@ def create_thumbnail(title, bg_path, output_path):
         img = PIL.Image.alpha_composite(img, overlay)
         draw = PIL.ImageDraw.Draw(img)
         
-        # Load Hindi Font
         font_path = "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf"
         try:
             font = PIL.ImageFont.truetype(font_path, 90)
@@ -239,14 +231,12 @@ def create_segment(text_line, image_path, audio_path, is_short=True, is_first=Fa
         duration = final_audio.duration
         w, h = (1080, 1920) if is_short else (1920, 1080)
         
-        # Load Image
         try:
             img = ImageClip(image_path)
         except:
             generate_backup_image(image_path)
             img = ImageClip(image_path)
 
-        # Smart Crop (Fixes Tile Error)
         img_ratio = img.w / img.h
         target_ratio = w / h
 
@@ -261,7 +251,6 @@ def create_segment(text_line, image_path, audio_path, is_short=True, is_first=Fa
 
         img = img.crop(x_center=img.w/2, y_center=img.h/2, width=w, height=h)
 
-        # Animation
         move = random.choice(['zoom_in', 'zoom_out'])
         if move == 'zoom_in':
             anim = img.resize(lambda t: 1 + 0.04 * t)
@@ -270,7 +259,6 @@ def create_segment(text_line, image_path, audio_path, is_short=True, is_first=Fa
             
         anim = anim.set_position('center').set_duration(duration)
 
-        # Text (Hindi Font)
         font_path = "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Bold.ttf"
         font_size = 70 if is_short else 85
         
@@ -350,12 +338,12 @@ def upload_video(video_path, content, lyrics, thumb_path, is_short=True):
         
         if is_short:
             title = f"{content['title']} 🦁 #Shorts #HindiRhymes"
-            tags = ['shorts', 'hindi rhymes', 'kids']
+            tags = ['shorts', 'hindi rhymes', 'nursery rhymes', 'kids']
         else:
-            title = f"{content['title']} | Hindi Rhymes 2026 🦁"
-            tags = ['hindi rhymes', 'kids songs', 'bal geet', 'cartoon']
+            title = f"{content['title']} | New Hindi Rhymes 2026 🦁"
+            tags = ['hindi rhymes', 'nursery rhymes', 'kids songs', 'bal geet', 'cartoon']
 
-        desc = f"{content['title']}\n\n{lyrics}\n\n#HindiRhymes #KidsSongs"
+        desc = f"{content['title']}\n\n{lyrics}\n\n#HindiRhymes #KidsSongs #BalGeet"
         
         body = {'snippet': {'title': title[:99], 'description': desc, 'tags': tags, 'categoryId': '24'}, 'status': {'privacyStatus': 'public'}}
         
@@ -386,20 +374,30 @@ def upload_video(video_path, content, lyrics, thumb_path, is_short=True):
         return False
 
 # ────────────────────────────────────────────────
-# MAIN EXECUTION (INDEPENDENT LOOPS)
+# MAIN EXECUTION (INDEPENDENT LOOPS & REPORTING)
 # ────────────────────────────────────────────────
 if __name__ == "__main__":
     print("===== INFINITE BROADCASTER =====")
     
+    summary = []
+
     # PART 1: SHORT VIDEO
     print("\n>>> PRODUCING SHORT <<<")
     try:
         data_s = generate_content("short")
         if data_s:
             v, l, t = make_video(data_s, True)
-            if v: upload_video(v, data_s, l, t, True)
+            if v: 
+                success = upload_video(v, data_s, l, t, True)
+                status = "✅ Uploaded" if success else "❌ Upload Failed"
+                summary.append(f"Short Video: {status} - {data_s['title']}")
+            else:
+                summary.append("Short Video: ❌ Render Failed")
+        else:
+            summary.append("Short Video: ❌ Content Gen Failed")
     except Exception as e:
         print(f"Short Video Failed: {e}")
+        summary.append(f"Short Video: ❌ Error - {str(e)}")
 
     # PART 2: LONG VIDEO (Runs even if Short fails)
     print("\n>>> PRODUCING LONG <<<")
@@ -407,8 +405,21 @@ if __name__ == "__main__":
         data_l = generate_content("long")
         if data_l:
             v, l, t = make_video(data_l, False)
-            if v: upload_video(v, data_l, l, t, False)
+            if v: 
+                success = upload_video(v, data_l, l, t, False)
+                status = "✅ Uploaded" if success else "❌ Upload Failed"
+                summary.append(f"Long Video:  {status} - {data_l['title']}")
+            else:
+                summary.append("Long Video:  ❌ Render Failed")
+        else:
+            summary.append("Long Video:  ❌ Content Gen Failed")
     except Exception as e:
         print(f"Long Video Failed: {e}")
+        summary.append(f"Long Video:  ❌ Error - {str(e)}")
         
-    print("\n===== BROADCAST COMPLETE =====")
+    print("\n" + "="*40)
+    print("📢 FINAL BROADCAST SUMMARY")
+    print("="*40)
+    for line in summary:
+        print(line)
+    print("="*40)
