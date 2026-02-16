@@ -20,7 +20,6 @@ from moviepy.editor import (
     AudioFileClip, ImageClip, TextClip, CompositeVideoClip, 
     concatenate_videoclips, CompositeAudioClip, ColorClip
 )
-import google.generativeai as genai
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
@@ -41,9 +40,6 @@ for f in ["used_topics.json", "used_rhymes.json"]:
     fpath = os.path.join(MEMORY_DIR, f)
     if not os.path.exists(fpath):
         with open(fpath, "w") as file: json.dump([], file)
-
-# Configure Gemini
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 # ────────────────────────────────────────────────
 # 2. FONT & ASSETS ENGINE
@@ -91,12 +87,32 @@ def save_to_memory(filename, item):
             json.dump(data, f, indent=2, ensure_ascii=False)
 
 # ────────────────────────────────────────────────
-# 4. CONTENT GENERATION (POWERED BY GEMINI 1.5)
+# 4. CONTENT GENERATION (POWERED BY GROQ)
 # ────────────────────────────────────────────────
-def clean_json(text):
-    """Cleans Markdown ```json ... ``` formatting from Gemini"""
+def groq_request(prompt):
     try:
-        # Find the first { and last }
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.9, 
+                "max_tokens": 2000
+            },
+            timeout=30
+        )
+        return response.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        print(f"Groq Error: {e}")
+        return None
+
+def clean_json(text):
+    """Cleans Markdown formatting from LLM"""
+    try:
         start = text.find('{')
         end = text.rfind('}') + 1
         if start == -1 or end == 0: return None
@@ -109,29 +125,20 @@ def generate_content(mode="short"):
     # 1. Topic Selection (Rhyme Only)
     used_topics = load_memory("used_topics.json")
     
-    # FIXED: Switched to Stable Model 'gemini-1.5-flash'
-    topic_model = genai.GenerativeModel("gemini-1.5-flash")
-    
     topic_prompt = f"""
     Generate 1 unique, creative, and funny topic for a Hindi Nursery Rhyme for kids.
     Examples: "A monkey driving a bus", "A star falling into a pond", "An elephant dancing".
     Do NOT use these previous topics: {", ".join(used_topics[-15:])}
     Output ONLY the English topic string. No explanations.
     """
-    try:
-        topic_resp = topic_model.generate_content(topic_prompt)
-        topic = topic_resp.text.strip().replace('"', '')
-    except Exception as e:
-        print(f"Topic Gen Error: {e}")
-        topic = "Funny Animal Party" # Fallback
+    topic = groq_request(topic_prompt)
+    if not topic: topic = "Funny Animal Party"
+    topic = topic.replace('"', '').replace("Topic:", "").strip()
 
     print(f"★ Generated Topic: {topic}")
     
     # 2. Script Generation
     lines = 8 if mode == "short" else 16
-    
-    # FIXED: Switched to Stable Model 'gemini-1.5-flash'
-    script_model = genai.GenerativeModel("gemini-1.5-flash")
     
     script_prompt = f"""
     You are a professional Hindi poet for Kids YouTube.
@@ -153,19 +160,15 @@ def generate_content(mode="short"):
     }}
     """
     
-    # Retry Logic for Stability
-    for attempt in range(3):
-        try:
-            resp = script_model.generate_content(script_prompt)
-            data = clean_json(resp.text)
-            if data:
-                data['generated_topic'] = topic
-                return data
-        except Exception as e:
-            print(f"Gemini Attempt {attempt+1} failed: {e}")
-            time.sleep(5) # Wait 5 seconds before retrying
-            
-    return None
+    raw = groq_request(script_prompt)
+    data = clean_json(raw)
+    
+    if data:
+        data['generated_topic'] = topic
+        return data
+    else:
+        print("Failed to parse Groq JSON")
+        return None
 
 # ────────────────────────────────────────────────
 # 5. SMART VISUALS (Cartoon Style)
@@ -406,33 +409,4 @@ def upload_video(vid, content, lyrics, thumb, is_short):
 # ────────────────────────────────────────────────
 # MAIN EXECUTION
 # ────────────────────────────────────────────────
-if __name__ == "__main__":
-    print("===== HINDI RHYMES PRO AUTOMATION =====")
-    summary = []
-
-    # Short
-    try:
-        print("\n>>> PRODUCING SHORT <<<")
-        d = generate_content("short")
-        if d:
-            v, l, t = make_video(d, True)
-            if v: 
-                res = upload_video(v, d, l, t, True)
-                summary.append(f"Short: {'✅' if res else '❌'} {d['title']}")
-    except Exception as e: summary.append(f"Short Error: {e}")
-
-    # Long
-    try:
-        print("\n>>> PRODUCING LONG <<<")
-        d = generate_content("long")
-        if d:
-            v, l, t = make_video(d, False)
-            if v: 
-                res = upload_video(v, d, l, t, False)
-                summary.append(f"Long: {'✅' if res else '❌'} {d['title']}")
-    except Exception as e: summary.append(f"Long Error: {e}")
-
-    print("\n" + "="*40)
-    print("📢 BROADCAST SUMMARY")
-    for line in summary: print(line)
-    print("="*40)
+if __name__
