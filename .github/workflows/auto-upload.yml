@@ -2,12 +2,11 @@ name: Infinite Broadcaster - 3x Daily
 
 on:
   schedule:
-    - cron: '10 1 * * *'   # 7:00 AM IST
-    - cron: '10 8 * * *'   # 2:00 PM IST
-    - cron: '10 14 * * *'  # 8:00 PM IST
+    - cron: '30 1 * * *'   # 7:00 AM IST
+    - cron: '30 8 * * *'   # 2:00 PM IST
+    - cron: '30 14 * * *'  # 8:00 PM IST
   workflow_dispatch:
 
-# Grant permission to save memory files back to the repo
 permissions:
   contents: write
 
@@ -44,7 +43,8 @@ jobs:
             edge-tts \
             moviepy==1.0.3 \
             numpy==1.26.4 \
-            "Pillow==9.5.0"
+            "Pillow==9.5.0" \
+            google-generativeai
 
       - name: Login to YouTube
         run: |
@@ -53,15 +53,13 @@ jobs:
 
       - name: Start Broadcast
         env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python upload_script.py
 
-      # NEW STEP: Save the updated memory files back to GitHub
       - name: Save Memory
         if: success()
         run: |
           git config --global user.name "Auto-Broadcaster"
           git config --global user.email "bot@noreply.github.com"
           git add memory/*.json
-          # Only commit if there are changes
           git diff --quiet && git diff --staged --quiet || (git commit -m "🧠 Update Channel Memory [skip ci]" && git push)
