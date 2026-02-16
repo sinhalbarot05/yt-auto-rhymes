@@ -40,21 +40,35 @@ for f in ["used_topics.json", "used_rhymes.json"]:
         with open(fpath, "w") as file: json.dump([], file)
 
 # ────────────────────────────────────────────────
-# 2. FONT ENGINE
+# 2. FONT & MUSIC ENGINE (New!)
 # ────────────────────────────────────────────────
-def download_font():
+def download_assets():
+    """Downloads Font + Random Music Tracks"""
+    # 1. Font
     if not os.path.exists(FONT_FILE):
         print("📥 Downloading Hindi Font...")
         url = "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf"
         try:
-            resp = requests.get(url, timeout=30)
-            if resp.status_code == 200:
-                with open(FONT_FILE, 'wb') as f: f.write(resp.content)
-                print("✅ Font downloaded.")
-            else: print("❌ Font download failed.")
-        except: print("❌ Font connection failed.")
+            with open(FONT_FILE, 'wb') as f: f.write(requests.get(url, timeout=30).content)
+        except: pass
 
-download_font()
+    # 2. Music Library (Royalty Free)
+    music_tracks = {
+        "happy.mp3": "https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3",
+        "calm.mp3": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", # Placeholder safe links
+    }
+    
+    # Just ensure we have at least one usable track
+    default_bg = os.path.join(ASSETS_DIR, "bg_music.mp3")
+    if not os.path.exists(default_bg):
+        print("📥 Downloading Background Music...")
+        try:
+            # Using a known safe sample for now
+            url = "https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3"
+            with open(default_bg, 'wb') as f: f.write(requests.get(url, timeout=30).content)
+        except: pass
+
+download_assets()
 
 # ────────────────────────────────────────────────
 # 3. MEMORY MANAGEMENT
@@ -77,22 +91,14 @@ def save_to_memory(filename, item):
             json.dump(data, f, indent=2, ensure_ascii=False)
 
 # ────────────────────────────────────────────────
-# 4. SMART CONTENT GENERATION (AI TAGS)
+# 4. MULTI-NICHE BRAIN (The "Implant")
 # ────────────────────────────────────────────────
 def groq_request(prompt):
     try:
         response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": "llama-3.3-70b-versatile",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.95, 
-                "max_tokens": 1500
-            },
+            headers={"Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}", "Content-Type": "application/json"},
+            json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.95, "max_tokens": 1500},
             timeout=30
         )
         return response.json()["choices"][0]["message"]["content"].strip()
@@ -100,54 +106,64 @@ def groq_request(prompt):
         print(f"Groq Error: {e}")
         return None
 
-def generate_unique_topic():
-    used_topics = load_memory("used_topics.json")
-    for _ in range(3):
-        prompt = f"""
-        Generate 1 unique, creative topic for a Hindi Nursery Rhyme.
-        Avoid: {", ".join(used_topics[-10:])}
-        Output ONLY the English topic string.
-        """
-        topic = groq_request(prompt)
-        if topic and topic not in used_topics: return topic.replace('"', '').strip()
-    return "Funny Animal Party"
-
 def generate_content(mode="short"):
-    topic = generate_unique_topic()
+    # RANDOMIZE NICHE to keep channel fresh
+    niche_type = random.choice(["rhyme", "fact", "riddle"])
+    print(f"★ Selected Niche: {niche_type.upper()}")
+
+    used_topics = load_memory("used_topics.json")
+    
+    # 1. Generate Topic based on Niche
+    topic_prompt = f"""
+    Generate 1 unique topic for a Hindi {niche_type}.
+    - If Rhyme: Funny animal or daily life.
+    - If Fact: Surprising science or nature fact.
+    - If Riddle: "Guess who am I?" style.
+    Avoid: {", ".join(used_topics[-10:])}
+    Output ONLY the English topic string.
+    """
+    topic = groq_request(topic_prompt)
+    if not topic: topic = "Funny Cat"
+    topic = topic.replace('"', '').strip()
+    
     print(f"★ Topic: {topic}")
     lines = 8 if mode == "short" else 16
     
-    # NEW PROMPT: Asks for specific tags and hashtags
-    prompt = f"""
+    # 2. Generate Script
+    script_prompt = f"""
+    You are a Hindi content creator.
+    Type: {niche_type.upper()}
     Topic: "{topic}"
-    Write a Hindi Nursery Rhyme ({lines} lines).
-    For EACH line, write a specific image prompt in ENGLISH.
+    Length: {lines} lines/sentences.
     
-    IMPORTANT: Generate 5-8 viral YouTube Tags related to this specific topic.
+    Instructions:
+    - If Rhyme: Rhyming, funny, for kids.
+    - If Fact: "Did you know?" style, engaging, clear Hindi.
+    - If Riddle: Clues first, answer at the end.
     
     Output ONLY JSON:
     {{
-      "title": "Hindi Title",
-      "keyword": "Main Subject (e.g. Cat)",
+      "title": "Hindi Title (Engaging)",
+      "keyword": "Main Subject in English (e.g. Tiger)",
+      "style": "{niche_type}",
       "video_tags": ["Tag1", "Tag2", "Tag3", "Tag4", "Tag5"],
       "scenes": [
-        {{ "line": "Hindi Line 1", "action": "English Action 1" }},
+        {{ "line": "Hindi text line 1", "action": "Specific Image Prompt in English (Visual description)" }},
         ...
       ]
     }}
     """
-    raw = groq_request(prompt)
+    raw = groq_request(script_prompt)
     if not raw: return None
     try:
         start, end = raw.find('{'), raw.rfind('}') + 1
         data = json.loads(raw[start:end])
         data['generated_topic'] = topic
         return data
-    except:
-        return None
+    except: return None
 
 # ────────────────────────────────────────────────
-# 5. ASSET ENGINE
+# 5. SMART VISUALS (Real vs Cartoon)
 # ────────────────────────────────────────────────
 def generate_backup_image(filename):
     color = (random.randint(0,255), random.randint(0,255), random.randint(0,255))
@@ -160,33 +176,35 @@ def download_file(url, filename):
         resp = requests.get(url, headers=headers, timeout=25)
         if resp.status_code == 200:
             with open(filename, 'wb') as f: f.write(resp.content)
-            try:
-                PIL.Image.open(filename).verify()
-                return True
+            try: PIL.Image.open(filename).verify(); return True
             except: return False
         return False
     except: return False
 
-def get_image(action_desc, filename, keyword):
+def get_image(action_desc, filename, keyword, style):
     print(f"--- Img: {action_desc[:30]}... ---")
-    clean_action = action_desc.replace(" ", "%20").replace(",", "")
-    seed = random.randint(0, 999999) 
+    seed = random.randint(0, 999999)
     
-    # 1. AI
-    url_ai = f"https://image.pollinations.ai/prompt/cartoon%20{clean_action}%20vibrant?width=1024&height=1024&nologo=true&seed={seed}&model=turbo"
+    # Adjust style based on Niche
+    if style == "fact":
+        visual_style = "realistic, 4k, high quality photo, national geographic style"
+    else:
+        visual_style = "cartoon style, vibrant, 3d render, pixar style"
+
+    clean_action = action_desc.replace(" ", "%20").replace(",", "")
+    clean_style = visual_style.replace(" ", "%20").replace(",", "")
+    
+    # 1. AI Generation
+    url_ai = f"https://image.pollinations.ai/prompt/{clean_action}%20{clean_style}?width=1024&height=1024&nologo=true&seed={seed}&model=turbo"
     if download_file(url_ai, filename): return True
     
-    # 2. Stock (Randomized)
+    # 2. Stock Fallback
     print("AI Failed. Trying Stock...")
     rand_id = random.randint(1, 10000)
     url_stock = f"https://loremflickr.com/1024/1024/{keyword.replace(' ','')}?random={rand_id}"
     if download_file(url_stock, filename): return True
 
     return generate_backup_image(filename)
-
-def get_intro_sound(filename):
-    if not os.path.exists(filename):
-        download_file("https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3", filename)
 
 # ────────────────────────────────────────────────
 # 6. THUMBNAIL
@@ -213,7 +231,7 @@ def create_thumbnail(title, bg_path, output_path):
     except: return None
 
 # ────────────────────────────────────────────────
-# 7. RENDERER
+# 7. RENDERER (With Background Music)
 # ────────────────────────────────────────────────
 async def generate_voice_async(text, filename):
     cmd = ["edge-tts", "--voice", "hi-IN-SwaraNeural", "--text", text, "--write-media", filename]
@@ -229,15 +247,22 @@ def create_segment(text_line, image_path, audio_path, is_short, is_first):
 
     try:
         voice = AudioFileClip(audio_path)
-        if is_first:
-            intro_path = os.path.join(ASSETS_DIR, "intro.mp3")
-            get_intro_sound(intro_path)
-            if os.path.exists(intro_path):
-                try:
-                    intro = AudioFileClip(intro_path).volumex(0.3)
-                    if intro.duration > voice.duration: intro = intro.subclip(0, voice.duration)
-                    voice = CompositeAudioClip([voice, intro])
-                except: pass
+        
+        # Add Background Music (Low Volume)
+        bg_music_path = os.path.join(ASSETS_DIR, "bg_music.mp3")
+        if os.path.exists(bg_music_path):
+            try:
+                bg = AudioFileClip(bg_music_path).volumex(0.15) # 15% volume
+                # Loop background if voice is longer, or subclip if shorter
+                if bg.duration < voice.duration:
+                    bg = bg.loop(duration=voice.duration)
+                else:
+                    # Random start point for variety
+                    start = random.uniform(0, max(0, bg.duration - voice.duration))
+                    bg = bg.subclip(start, start + voice.duration)
+                
+                voice = CompositeAudioClip([voice, bg])
+            except: pass
         
         w, h = (1080, 1920) if is_short else (1920, 1080)
         
@@ -254,21 +279,22 @@ def create_segment(text_line, image_path, audio_path, is_short, is_first):
         anim = img.resize(lambda t: 1+0.04*t) if move == 'zoom_in' else img.resize(lambda t: 1.05-0.04*t)
         anim = anim.set_position('center').set_duration(voice.duration)
 
-        # SUBTITLE FONT FIX
         font_arg = FONT_FILE if os.path.exists(FONT_FILE) else 'Arial'
-        
         txt = TextClip(text_line, fontsize=70 if is_short else 85, color='yellow', font=font_arg, stroke_color='black', stroke_width=3, method='caption', size=(w-100, None))
         txt = txt.set_position(('center', 'bottom')).set_duration(voice.duration)
         txt = txt.set_position(('center', h - 250))
 
         return CompositeVideoClip([anim, txt], size=(w,h)).set_audio(voice).set_duration(voice.duration)
-    except: return None
+    except Exception as e:
+        print(f"Segment Error: {e}") 
+        return None
 
 def make_video(content, is_short=True):
     print(f"Rendering {'SHORT' if is_short else 'LONG'}...")
     clips = []
     suffix = "s" if is_short else "l"
     keyword = content.get('keyword', 'cartoon')
+    style = content.get('style', 'rhyme')
     
     full_lyrics = ""
     first_bg = None
@@ -281,7 +307,7 @@ def make_video(content, is_short=True):
         get_voice(line, aud)
         
         img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
-        get_image(scene['action'], img, keyword)
+        get_image(scene['action'], img, keyword, style)
         
         if i == 0: first_bg = img
         
@@ -300,7 +326,7 @@ def make_video(content, is_short=True):
     return out, full_lyrics, thumb
 
 # ────────────────────────────────────────────────
-# 8. SMART UPLOAD (Hybrid Tags + Kids Mode)
+# 8. UPLOAD
 # ────────────────────────────────────────────────
 def upload_video(vid, content, lyrics, thumb, is_short):
     try:
@@ -308,42 +334,30 @@ def upload_video(vid, content, lyrics, thumb, is_short):
         with open(TOKEN_FILE, 'rb') as f: creds = pickle.load(f)
         service = build('youtube', 'v3', credentials=creds)
         
-        # 1. SMART TITLE
-        title = f"{content['title']} 🦁 #Shorts" if is_short else f"{content['title']} | Hindi Rhymes 2026 🦁"
+        style_icon = "🦁"
+        if content.get('style') == 'fact': style_icon = "🧠"
+        if content.get('style') == 'riddle': style_icon = "🕵️"
+
+        title = f"{content['title']} {style_icon} #Shorts" if is_short else f"{content['title']} | Hindi {content.get('style','Video').title()} 2026 {style_icon}"
         
-        # 2. SMART TAGS (Static + AI Generated)
-        static_tags = ['hindi rhymes', 'kids songs', 'bal geet', 'cartoon']
+        static_tags = ['hindi rhymes', 'kids songs', 'facts', 'gk', 'trivia']
         ai_tags = content.get('video_tags', [])
-        # Combine and remove duplicates
-        final_tags = list(set(static_tags + ai_tags))
-        # Keep only top 15 tags to avoid errors
-        final_tags = final_tags[:15]
+        final_tags = list(set(static_tags + ai_tags))[:15]
         
-        # 3. SMART DESCRIPTION (With Dynamic Hashtags)
-        # Convert tags to hashtags (e.g. "Rail Gadi" -> "#RailGadi")
         dynamic_hashtags = " ".join([f"#{t.replace(' ', '')}" for t in ai_tags[:5]])
         
         desc = f"""{content['title']}
 
 {lyrics}
 
-🦁 SUBSCRIBE for more Rhymes!
+🦁 SUBSCRIBE for more!
 ✨ New videos daily!
 
-{dynamic_hashtags} #HindiRhymes #KidsSongs #BalGeet
+{dynamic_hashtags} #HindiRhymes #KidsSongs #GK #Facts
 """
-        # 4. KIDS MODE ENABLED (Crucial for Audience Reach)
         body = {
-            'snippet': {
-                'title': title[:99], 
-                'description': desc, 
-                'tags': final_tags, 
-                'categoryId': '24'
-            },
-            'status': {
-                'privacyStatus': 'public',
-                'selfDeclaredMadeForKids': True  # <--- FORCES YOUTUBE KIDS APP REACH
-            }
+            'snippet': {'title': title[:99], 'description': desc, 'tags': final_tags, 'categoryId': '24'},
+            'status': {'privacyStatus': 'public', 'selfDeclaredMadeForKids': True}
         }
         
         media = MediaFileUpload(vid, chunksize=-1, resumable=True)
@@ -374,7 +388,7 @@ def upload_video(vid, content, lyrics, thumb, is_short):
 # MAIN
 # ────────────────────────────────────────────────
 if __name__ == "__main__":
-    print("===== SKYROCKET V3 (SMART TARGETING) =====")
+    print("===== MULTI-NICHE BROADCASTER =====")
     summary = []
 
     # Short
@@ -384,7 +398,7 @@ if __name__ == "__main__":
             v, l, t = make_video(d, True)
             if v: 
                 res = upload_video(v, d, l, t, True)
-                summary.append(f"Short: {'✅' if res else '❌'} {d['title']}")
+                summary.append(f"Short ({d.get('style','?')}) : {'✅' if res else '❌'} {d['title']}")
     except Exception as e: summary.append(f"Short Error: {e}")
 
     # Long
@@ -394,7 +408,7 @@ if __name__ == "__main__":
             v, l, t = make_video(d, False)
             if v: 
                 res = upload_video(v, d, l, t, False)
-                summary.append(f"Long: {'✅' if res else '❌'} {d['title']}")
+                summary.append(f"Long ({d.get('style','?')}): {'✅' if res else '❌'} {d['title']}")
     except Exception as e: summary.append(f"Long Error: {e}")
 
     print("\n".join(summary))
