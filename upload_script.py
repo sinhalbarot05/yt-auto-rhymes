@@ -91,7 +91,7 @@ def save_to_memory(filename, item):
             json.dump(data, f, indent=2, ensure_ascii=False)
 
 # ────────────────────────────────────────────────
-# 4. CONTENT GENERATION (POWERED BY GEMINI)
+# 4. CONTENT GENERATION (POWERED BY GEMINI 1.5)
 # ────────────────────────────────────────────────
 def clean_json(text):
     """Cleans Markdown ```json ... ``` formatting from Gemini"""
@@ -109,8 +109,9 @@ def generate_content(mode="short"):
     # 1. Topic Selection (Rhyme Only)
     used_topics = load_memory("used_topics.json")
     
-    # Prompt for Topic
-    topic_model = genai.GenerativeModel("gemini-2.0-flash")
+    # FIXED: Switched to Stable Model 'gemini-1.5-flash'
+    topic_model = genai.GenerativeModel("gemini-1.5-flash")
+    
     topic_prompt = f"""
     Generate 1 unique, creative, and funny topic for a Hindi Nursery Rhyme for kids.
     Examples: "A monkey driving a bus", "A star falling into a pond", "An elephant dancing".
@@ -120,14 +121,17 @@ def generate_content(mode="short"):
     try:
         topic_resp = topic_model.generate_content(topic_prompt)
         topic = topic_resp.text.strip().replace('"', '')
-    except:
+    except Exception as e:
+        print(f"Topic Gen Error: {e}")
         topic = "Funny Animal Party" # Fallback
 
     print(f"★ Generated Topic: {topic}")
     
     # 2. Script Generation
     lines = 8 if mode == "short" else 16
-    script_model = genai.GenerativeModel("gemini-2.0-flash")
+    
+    # FIXED: Switched to Stable Model 'gemini-1.5-flash'
+    script_model = genai.GenerativeModel("gemini-1.5-flash")
     
     script_prompt = f"""
     You are a professional Hindi poet for Kids YouTube.
@@ -149,15 +153,18 @@ def generate_content(mode="short"):
     }}
     """
     
-    try:
-        resp = script_model.generate_content(script_prompt)
-        data = clean_json(resp.text)
-        if data:
-            data['generated_topic'] = topic
-            return data
-    except Exception as e:
-        print(f"Gemini Error: {e}")
-        return None
+    # Retry Logic for Stability
+    for attempt in range(3):
+        try:
+            resp = script_model.generate_content(script_prompt)
+            data = clean_json(resp.text)
+            if data:
+                data['generated_topic'] = topic
+                return data
+        except Exception as e:
+            print(f"Gemini Attempt {attempt+1} failed: {e}")
+            time.sleep(5) # Wait 5 seconds before retrying
+            
     return None
 
 # ────────────────────────────────────────────────
