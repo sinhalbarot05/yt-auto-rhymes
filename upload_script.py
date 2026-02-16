@@ -87,7 +87,7 @@ def save_to_memory(filename, item):
             json.dump(data, f, indent=2, ensure_ascii=False)
 
 # ────────────────────────────────────────────────
-# 4. CONTENT GENERATION (POWERED BY GROQ)
+# 4. CONTENT GENERATION (GROQ)
 # ────────────────────────────────────────────────
 def groq_request(prompt):
     try:
@@ -111,7 +111,6 @@ def groq_request(prompt):
         return None
 
 def clean_json(text):
-    """Cleans Markdown formatting from LLM"""
     try:
         start = text.find('{')
         end = text.rfind('}') + 1
@@ -122,7 +121,6 @@ def clean_json(text):
         return None
 
 def generate_content(mode="short"):
-    # 1. Topic Selection (Rhyme Only)
     used_topics = load_memory("used_topics.json")
     
     topic_prompt = f"""
@@ -137,7 +135,6 @@ def generate_content(mode="short"):
 
     print(f"★ Generated Topic: {topic}")
     
-    # 2. Script Generation
     lines = 8 if mode == "short" else 16
     
     script_prompt = f"""
@@ -171,18 +168,17 @@ def generate_content(mode="short"):
         return None
 
 # ────────────────────────────────────────────────
-# 5. SMART VISUALS (Cartoon Style)
+# 5. NEW IMAGE ENGINE (FLUX + POLLINATIONS)
 # ────────────────────────────────────────────────
 def generate_backup_image(filename):
-    """Creates a solid color image as safety net"""
     color = (random.randint(50,255), random.randint(50,255), random.randint(50,255))
     PIL.Image.new('RGB', (1024, 1024), color=color).save(filename)
     return True
 
-def download_file(url, filename):
+def download_file(url, filename, headers=None):
     try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        resp = requests.get(url, headers=headers, timeout=25)
+        if headers is None: headers = {"User-Agent": "Mozilla/5.0"}
+        resp = requests.get(url, headers=headers, timeout=40) # Increased timeout for Flux
         if resp.status_code == 200:
             with open(filename, 'wb') as f: f.write(resp.content)
             try: PIL.Image.open(filename).verify(); return True
@@ -194,15 +190,28 @@ def get_image(action_desc, filename, keyword):
     print(f"--- Img: {action_desc[:40]}... ---")
     seed = random.randint(0, 999999)
     
-    # 1. AI Generation (Pollinations - Turbo Model)
-    # Force "Pixar/Disney Style" for consistency
-    prompt = f"cartoon {action_desc}, 3d render, pixar style, vibrant colors, cute, high quality"
-    clean_prompt = prompt.replace(" ", "%20").replace(",", "")
+    # NEW 2026 LOGIC: Use Flux Model for Pixar Quality
+    visual_style = "cartoon style, vibrant, 3d render, pixar style, cute kids illustration"
+    clean_prompt = f"{action_desc} {visual_style}".replace(" ", "%20").replace(",", "")
     
-    url_ai = f"https://image.pollinations.ai/prompt/{clean_prompt}?width=1024&height=1024&nologo=true&seed={seed}&model=turbo"
-    if download_file(url_ai, filename): return True
+    # 1. Try Authenticated Pollinations (Flux) - Best Quality
+    api_key = os.getenv('POLLINATIONS_API_KEY')
+    if api_key:
+        url_flux = f"https://gen.pollinations.ai/image/{clean_prompt}?model=flux&width=1024&height=1024&nologo=true&seed={seed}"
+        headers = {"Authorization": f"Bearer {api_key}"}
+        
+        # Retry loop for stability
+        for attempt in range(2):
+            if download_file(url_flux, filename, headers):
+                return True
+            time.sleep(2)
+            
+    # 2. Try Public Pollinations (Legacy/Feed) - Backup
+    print("Trying Public API...")
+    url_public = f"https://image.pollinations.ai/prompt/{clean_prompt}?width=1024&height=1024&nologo=true&seed={seed}&model=flux"
+    if download_file(url_public, filename): return True
     
-    # 2. Stock Fallback
+    # 3. Stock Fallback - Last Resort
     print("AI Failed. Trying Stock...")
     rand_id = random.randint(1, 10000)
     url_stock = f"https://loremflickr.com/1024/1024/{keyword.replace(' ','')}?random={rand_id}"
@@ -244,7 +253,6 @@ def create_thumbnail(title, bg_path, output_path):
 # 7. RENDERER (Karaoke Style)
 # ────────────────────────────────────────────────
 async def generate_voice_async(text, filename):
-    # SwaraNeural is the industry standard for Hindi AI narration
     cmd = ["edge-tts", "--voice", "hi-IN-SwaraNeural", "--text", text, "--write-media", filename]
     proc = await asyncio.create_subprocess_exec(*cmd)
     await proc.wait()
@@ -345,7 +353,7 @@ def make_video(content, is_short=True):
     return out, full_lyrics, thumb
 
 # ────────────────────────────────────────────────
-# 8. UPLOAD ENGINE (Smart Metadata)
+# 8. UPLOAD ENGINE
 # ────────────────────────────────────────────────
 def upload_video(vid, content, lyrics, thumb, is_short):
     try:
@@ -353,15 +361,11 @@ def upload_video(vid, content, lyrics, thumb, is_short):
         with open(TOKEN_FILE, 'rb') as f: creds = pickle.load(f)
         service = build('youtube', 'v3', credentials=creds)
         
-        # Smart Titles
         title = f"{content['title']} 🦁 #Shorts" if is_short else f"{content['title']} | Hindi Rhymes 2026 🦁"
         
-        # Tags Logic
         static_tags = ['hindi rhymes', 'kids songs', 'bal geet', 'cartoon', 'nursery rhymes']
         ai_tags = content.get('video_tags', [])
         final_tags = list(set(static_tags + ai_tags))[:15]
-        
-        # Hashtags
         dynamic_hashtags = " ".join([f"#{t.replace(' ', '')}" for t in ai_tags[:5]])
         
         desc = f"""{content['title']}
@@ -377,7 +381,7 @@ def upload_video(vid, content, lyrics, thumb, is_short):
             'snippet': {'title': title[:99], 'description': desc, 'tags': final_tags, 'categoryId': '24'},
             'status': {
                 'privacyStatus': 'public',
-                'selfDeclaredMadeForKids': True # Pushes to Kids App
+                'selfDeclaredMadeForKids': True
             }
         }
         
@@ -391,7 +395,6 @@ def upload_video(vid, content, lyrics, thumb, is_short):
             
         print(f"SUCCESS! ID: {resp['id']}")
         
-        # Save Memory
         save_to_memory("used_topics.json", content.get('generated_topic', ''))
         save_to_memory("used_rhymes.json", content['title'])
 
@@ -410,7 +413,7 @@ def upload_video(vid, content, lyrics, thumb, is_short):
 # MAIN EXECUTION
 # ────────────────────────────────────────────────
 if __name__ == "__main__":
-    print("===== HINDI RHYMES PRO (GROQ EDITION) =====")
+    print("===== HINDI RHYMES PRO (GROQ + FLUX) =====")
     summary = []
 
     # Short
