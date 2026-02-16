@@ -40,7 +40,7 @@ for f in ["used_topics.json", "used_rhymes.json"]:
         with open(fpath, "w") as file: json.dump([], file)
 
 # ────────────────────────────────────────────────
-# 2. FONT DOWNLOADER (Fixes Boxes & Subtitles)
+# 2. FONT ENGINE
 # ────────────────────────────────────────────────
 def download_font():
     if not os.path.exists(FONT_FILE):
@@ -54,7 +54,6 @@ def download_font():
             else: print("❌ Font download failed.")
         except: print("❌ Font connection failed.")
 
-# Run immediately
 download_font()
 
 # ────────────────────────────────────────────────
@@ -78,7 +77,7 @@ def save_to_memory(filename, item):
             json.dump(data, f, indent=2, ensure_ascii=False)
 
 # ────────────────────────────────────────────────
-# 4. CONTENT GENERATION
+# 4. SMART CONTENT GENERATION (AI TAGS)
 # ────────────────────────────────────────────────
 def groq_request(prompt):
     try:
@@ -118,15 +117,19 @@ def generate_content(mode="short"):
     print(f"★ Topic: {topic}")
     lines = 8 if mode == "short" else 16
     
+    # NEW PROMPT: Asks for specific tags and hashtags
     prompt = f"""
     Topic: "{topic}"
     Write a Hindi Nursery Rhyme ({lines} lines).
     For EACH line, write a specific image prompt in ENGLISH.
     
+    IMPORTANT: Generate 5-8 viral YouTube Tags related to this specific topic.
+    
     Output ONLY JSON:
     {{
       "title": "Hindi Title",
       "keyword": "Main Subject (e.g. Cat)",
+      "video_tags": ["Tag1", "Tag2", "Tag3", "Tag4", "Tag5"],
       "scenes": [
         {{ "line": "Hindi Line 1", "action": "English Action 1" }},
         ...
@@ -173,7 +176,7 @@ def get_image(action_desc, filename, keyword):
     url_ai = f"https://image.pollinations.ai/prompt/cartoon%20{clean_action}%20vibrant?width=1024&height=1024&nologo=true&seed={seed}&model=turbo"
     if download_file(url_ai, filename): return True
     
-    # 2. Stock
+    # 2. Stock (Randomized)
     print("AI Failed. Trying Stock...")
     rand_id = random.randint(1, 10000)
     url_stock = f"https://loremflickr.com/1024/1024/{keyword.replace(' ','')}?random={rand_id}"
@@ -214,7 +217,6 @@ def create_thumbnail(title, bg_path, output_path):
 # ────────────────────────────────────────────────
 async def generate_voice_async(text, filename):
     cmd = ["edge-tts", "--voice", "hi-IN-SwaraNeural", "--text", text, "--write-media", filename]
-    # FIXED: Variable name matches await logic
     proc = await asyncio.create_subprocess_exec(*cmd)
     await proc.wait()
 
@@ -252,7 +254,7 @@ def create_segment(text_line, image_path, audio_path, is_short, is_first):
         anim = img.resize(lambda t: 1+0.04*t) if move == 'zoom_in' else img.resize(lambda t: 1.05-0.04*t)
         anim = anim.set_position('center').set_duration(voice.duration)
 
-        # FIXED: Use the Downloaded Font Variable for Subtitles
+        # SUBTITLE FONT FIX
         font_arg = FONT_FILE if os.path.exists(FONT_FILE) else 'Arial'
         
         txt = TextClip(text_line, fontsize=70 if is_short else 85, color='yellow', font=font_arg, stroke_color='black', stroke_width=3, method='caption', size=(w-100, None))
@@ -260,9 +262,7 @@ def create_segment(text_line, image_path, audio_path, is_short, is_first):
         txt = txt.set_position(('center', h - 250))
 
         return CompositeVideoClip([anim, txt], size=(w,h)).set_audio(voice).set_duration(voice.duration)
-    except Exception as e:
-        print(f"Segment Error: {e}") 
-        return None
+    except: return None
 
 def make_video(content, is_short=True):
     print(f"Rendering {'SHORT' if is_short else 'LONG'}...")
@@ -300,7 +300,7 @@ def make_video(content, is_short=True):
     return out, full_lyrics, thumb
 
 # ────────────────────────────────────────────────
-# 8. UPLOAD
+# 8. SMART UPLOAD (Hybrid Tags + Kids Mode)
 # ────────────────────────────────────────────────
 def upload_video(vid, content, lyrics, thumb, is_short):
     try:
@@ -308,11 +308,44 @@ def upload_video(vid, content, lyrics, thumb, is_short):
         with open(TOKEN_FILE, 'rb') as f: creds = pickle.load(f)
         service = build('youtube', 'v3', credentials=creds)
         
+        # 1. SMART TITLE
         title = f"{content['title']} 🦁 #Shorts" if is_short else f"{content['title']} | Hindi Rhymes 2026 🦁"
-        desc = f"{content['title']}\n\n{lyrics}\n\n#HindiRhymes #KidsSongs"
-        tags = ['shorts', 'hindi rhymes', 'kids'] if is_short else ['hindi rhymes', 'kids songs']
         
-        body = {'snippet': {'title': title[:99], 'description': desc, 'tags': tags, 'categoryId': '24'}, 'status': {'privacyStatus': 'public'}}
+        # 2. SMART TAGS (Static + AI Generated)
+        static_tags = ['hindi rhymes', 'kids songs', 'bal geet', 'cartoon']
+        ai_tags = content.get('video_tags', [])
+        # Combine and remove duplicates
+        final_tags = list(set(static_tags + ai_tags))
+        # Keep only top 15 tags to avoid errors
+        final_tags = final_tags[:15]
+        
+        # 3. SMART DESCRIPTION (With Dynamic Hashtags)
+        # Convert tags to hashtags (e.g. "Rail Gadi" -> "#RailGadi")
+        dynamic_hashtags = " ".join([f"#{t.replace(' ', '')}" for t in ai_tags[:5]])
+        
+        desc = f"""{content['title']}
+
+{lyrics}
+
+🦁 SUBSCRIBE for more Rhymes!
+✨ New videos daily!
+
+{dynamic_hashtags} #HindiRhymes #KidsSongs #BalGeet
+"""
+        # 4. KIDS MODE ENABLED (Crucial for Audience Reach)
+        body = {
+            'snippet': {
+                'title': title[:99], 
+                'description': desc, 
+                'tags': final_tags, 
+                'categoryId': '24'
+            },
+            'status': {
+                'privacyStatus': 'public',
+                'selfDeclaredMadeForKids': True  # <--- FORCES YOUTUBE KIDS APP REACH
+            }
+        }
+        
         media = MediaFileUpload(vid, chunksize=-1, resumable=True)
         
         req = service.videos().insert(part="snippet,status", body=body, media_body=media)
@@ -341,7 +374,7 @@ def upload_video(vid, content, lyrics, thumb, is_short):
 # MAIN
 # ────────────────────────────────────────────────
 if __name__ == "__main__":
-    print("===== VARIETY ENGINE (WITH FONT FIX) =====")
+    print("===== SKYROCKET V3 (SMART TARGETING) =====")
     summary = []
 
     # Short
