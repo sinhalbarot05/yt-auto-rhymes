@@ -46,7 +46,6 @@ for f in ["used_topics.json", "used_rhymes.json"]:
 # ────────────────────────────────────────────────
 def download_assets():
     """Downloads Font + Background Music"""
-    # 1. Font (Noto Sans Devanagari)
     if not os.path.exists(FONT_FILE):
         print("📥 Downloading Hindi Font...")
         url = "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf"
@@ -54,12 +53,10 @@ def download_assets():
             with open(FONT_FILE, 'wb') as f: f.write(requests.get(url, timeout=30).content)
         except: pass
 
-    # 2. Music (Royalty Free Kids Loop)
     bg_music = os.path.join(ASSETS_DIR, "bg_music.mp3")
     if not os.path.exists(bg_music):
         print("📥 Downloading Background Music...")
         try:
-            # A cheerful, safe-for-youtube kids track
             url = "https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3"
             with open(bg_music, 'wb') as f: f.write(requests.get(url, timeout=30).content)
         except: pass
@@ -87,7 +84,7 @@ def save_to_memory(filename, item):
             json.dump(data, f, indent=2, ensure_ascii=False)
 
 # ────────────────────────────────────────────────
-# 4. CONTENT GENERATION (GROQ)
+# 4. CONTENT GENERATION (GROQ WITH RETRY)
 # ────────────────────────────────────────────────
 def groq_request(prompt):
     try:
@@ -100,7 +97,7 @@ def groq_request(prompt):
             json={
                 "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.9, 
+                "temperature": 0.8, 
                 "max_tokens": 2000
             },
             timeout=30
@@ -123,6 +120,7 @@ def clean_json(text):
 def generate_content(mode="short"):
     used_topics = load_memory("used_topics.json")
     
+    # 1. Get Topic
     topic_prompt = f"""
     Generate 1 unique, creative, and funny topic for a Hindi Nursery Rhyme for kids.
     Examples: "A monkey driving a bus", "A star falling into a pond", "An elephant dancing".
@@ -135,6 +133,7 @@ def generate_content(mode="short"):
 
     print(f"★ Generated Topic: {topic}")
     
+    # 2. Get Script (With Retry Logic)
     lines = 8 if mode == "short" else 16
     
     script_prompt = f"""
@@ -157,18 +156,21 @@ def generate_content(mode="short"):
     }}
     """
     
-    raw = groq_request(script_prompt)
-    data = clean_json(raw)
-    
-    if data:
-        data['generated_topic'] = topic
-        return data
-    else:
-        print("Failed to parse Groq JSON")
-        return None
+    # Retry 3 times if JSON fails
+    for attempt in range(3):
+        raw = groq_request(script_prompt)
+        data = clean_json(raw)
+        if data:
+            data['generated_topic'] = topic
+            return data
+        print(f"⚠️ Groq JSON failed (Attempt {attempt+1}). Retrying...")
+        time.sleep(2)
+        
+    print("❌ Failed to parse Groq JSON after 3 attempts.")
+    return None
 
 # ────────────────────────────────────────────────
-# 5. NEW IMAGE ENGINE (FLUX + POLLINATIONS)
+# 5. AUTHENTICATED IMAGE ENGINE (FLUX)
 # ────────────────────────────────────────────────
 def generate_backup_image(filename):
     color = (random.randint(50,255), random.randint(50,255), random.randint(50,255))
@@ -178,7 +180,7 @@ def generate_backup_image(filename):
 def download_file(url, filename, headers=None):
     try:
         if headers is None: headers = {"User-Agent": "Mozilla/5.0"}
-        resp = requests.get(url, headers=headers, timeout=40) # Increased timeout for Flux
+        resp = requests.get(url, headers=headers, timeout=60) # Increased timeout for Flux
         if resp.status_code == 200:
             with open(filename, 'wb') as f: f.write(resp.content)
             try: PIL.Image.open(filename).verify(); return True
@@ -190,28 +192,25 @@ def get_image(action_desc, filename, keyword):
     print(f"--- Img: {action_desc[:40]}... ---")
     seed = random.randint(0, 999999)
     
-    # NEW 2026 LOGIC: Use Flux Model for Pixar Quality
+    # Force Cartoon Style
     visual_style = "cartoon style, vibrant, 3d render, pixar style, cute kids illustration"
     clean_prompt = f"{action_desc} {visual_style}".replace(" ", "%20").replace(",", "")
     
-    # 1. Try Authenticated Pollinations (Flux) - Best Quality
+    # 1. AUTHENTICATED FLUX (The Fix)
     api_key = os.getenv('POLLINATIONS_API_KEY')
     if api_key:
+        # New API Endpoint
         url_flux = f"https://gen.pollinations.ai/image/{clean_prompt}?model=flux&width=1024&height=1024&nologo=true&seed={seed}"
         headers = {"Authorization": f"Bearer {api_key}"}
         
-        # Retry loop for stability
-        for attempt in range(2):
+        # Retry loop for API stability
+        for attempt in range(3):
             if download_file(url_flux, filename, headers):
                 return True
-            time.sleep(2)
+            print(f"   Flux Attempt {attempt+1} failed. Retrying...")
+            time.sleep(3)
             
-    # 2. Try Public Pollinations (Legacy/Feed) - Backup
-    print("Trying Public API...")
-    url_public = f"https://image.pollinations.ai/prompt/{clean_prompt}?width=1024&height=1024&nologo=true&seed={seed}&model=flux"
-    if download_file(url_public, filename): return True
-    
-    # 3. Stock Fallback - Last Resort
+    # 2. Stock Fallback
     print("AI Failed. Trying Stock...")
     rand_id = random.randint(1, 10000)
     url_stock = f"https://loremflickr.com/1024/1024/{keyword.replace(' ','')}?random={rand_id}"
@@ -227,7 +226,6 @@ def create_thumbnail(title, bg_path, output_path):
         if not os.path.exists(bg_path): generate_backup_image(bg_path)
         img = PIL.Image.open(bg_path).convert("RGBA").resize((1280, 720))
         
-        # Add slight dark overlay for text pop
         overlay = PIL.Image.new("RGBA", img.size, (0,0,0,60))
         img = PIL.Image.alpha_composite(img, overlay)
         draw = PIL.ImageDraw.Draw(img)
@@ -235,16 +233,14 @@ def create_thumbnail(title, bg_path, output_path):
         try: font = PIL.ImageFont.truetype(FONT_FILE, 100)
         except: font = PIL.ImageFont.load_default()
 
-        # Center Text
         bbox = draw.textbbox((0, 0), title, font=font)
         text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
         x, y = (1280 - text_w) // 2, (720 - text_h) // 2
 
-        # Stroke/Shadow
         for off in range(1, 6):
             draw.text((x+off, y+off), title, font=font, fill="black")
         
-        draw.text((x, y), title, font=font, fill="#FFD700") # Gold
+        draw.text((x, y), title, font=font, fill="#FFD700")
         img.convert("RGB").save(output_path)
         return output_path
     except: return None
@@ -267,11 +263,10 @@ def create_segment(text_line, image_path, audio_path, is_short, is_first):
     try:
         voice = AudioFileClip(audio_path)
         
-        # Add Background Music (Low Volume)
         bg_path = os.path.join(ASSETS_DIR, "bg_music.mp3")
         if os.path.exists(bg_path):
             try:
-                bg = AudioFileClip(bg_path).volumex(0.1) # 10% volume
+                bg = AudioFileClip(bg_path).volumex(0.1) 
                 if bg.duration < voice.duration:
                     bg = bg.loop(duration=voice.duration)
                 else:
@@ -287,12 +282,10 @@ def create_segment(text_line, image_path, audio_path, is_short, is_first):
             generate_backup_image(image_path)
             img = ImageClip(image_path)
 
-        # Smart Crop (Fill Screen)
         if img.w/img.h > w/h: img = img.resize(height=h)
         else: img = img.resize(width=w)
         img = img.crop(x_center=img.w/2, y_center=img.h/2, width=w, height=h)
 
-        # Subtle Animation (Zoom)
         move = random.choice(['zoom_in', 'zoom_out'])
         if move == 'zoom_in':
             anim = img.resize(lambda t: 1 + 0.04 * t)
@@ -300,17 +293,15 @@ def create_segment(text_line, image_path, audio_path, is_short, is_first):
             anim = img.resize(lambda t: 1.05 - 0.04 * t)
         anim = anim.set_position('center').set_duration(voice.duration)
 
-        # Subtitles (Using Local Hindi Font)
         font_arg = FONT_FILE if os.path.exists(FONT_FILE) else 'Arial'
         font_size = 75 if is_short else 90
         
-        # Yellow Text with Black Stroke
         txt = TextClip(
             text_line, fontsize=font_size, color='yellow', font=font_arg, 
             stroke_color='black', stroke_width=4, method='caption', size=(w-100, None)
         )
         txt = txt.set_position(('center', 'bottom')).set_duration(voice.duration)
-        txt = txt.set_position(('center', h - 250)) # Lift from bottom edge
+        txt = txt.set_position(('center', h - 250))
 
         return CompositeVideoClip([anim, txt], size=(w,h)).set_audio(voice).set_duration(voice.duration)
     except Exception as e:
@@ -413,7 +404,7 @@ def upload_video(vid, content, lyrics, thumb, is_short):
 # MAIN EXECUTION
 # ────────────────────────────────────────────────
 if __name__ == "__main__":
-    print("===== HINDI RHYMES PRO (GROQ + FLUX) =====")
+    print("===== HINDI RHYMES PRO (GROQ + AUTH FLUX) =====")
     summary = []
 
     # Short
