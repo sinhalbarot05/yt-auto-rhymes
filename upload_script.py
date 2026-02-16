@@ -409,4 +409,33 @@ def upload_video(vid, content, lyrics, thumb, is_short):
 # ────────────────────────────────────────────────
 # MAIN EXECUTION
 # ────────────────────────────────────────────────
-if __name__
+if __name__ == "__main__":
+    print("===== HINDI RHYMES PRO (GROQ EDITION) =====")
+    summary = []
+
+    # Short
+    try:
+        print("\n>>> PRODUCING SHORT <<<")
+        d = generate_content("short")
+        if d:
+            v, l, t = make_video(d, True)
+            if v: 
+                res = upload_video(v, d, l, t, True)
+                summary.append(f"Short: {'✅' if res else '❌'} {d['title']}")
+    except Exception as e: summary.append(f"Short Error: {e}")
+
+    # Long
+    try:
+        print("\n>>> PRODUCING LONG <<<")
+        d = generate_content("long")
+        if d:
+            v, l, t = make_video(d, False)
+            if v: 
+                res = upload_video(v, d, l, t, False)
+                summary.append(f"Long: {'✅' if res else '❌'} {d['title']}")
+    except Exception as e: summary.append(f"Long Error: {e}")
+
+    print("\n" + "="*40)
+    print("📢 BROADCAST SUMMARY")
+    for line in summary: print(line)
+    print("="*40)
