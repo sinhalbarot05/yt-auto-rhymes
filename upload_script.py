@@ -6,11 +6,12 @@ import asyncio
 import requests
 import time
 import re
+import numpy as np
 from pathlib import Path
 import pickle
 
 # ────────────────────────────────────────────────
-# 1. ADVANCED IMAGE ENGINE IMPORTS
+# 1. ADVANCED IMAGE & TEXT ENGINE
 # ────────────────────────────────────────────────
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 
@@ -18,8 +19,8 @@ if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.LANCZOS
 
 from moviepy.editor import (
-    AudioFileClip, ImageClip, TextClip, CompositeVideoClip, 
-    concatenate_videoclips, CompositeAudioClip, ColorClip
+    AudioFileClip, ImageClip, CompositeVideoClip, 
+    concatenate_videoclips, CompositeAudioClip, ColorClip, TextClip
 )
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -49,6 +50,7 @@ def download_assets():
     """Downloads Font + Background Music"""
     if not os.path.exists(FONT_FILE):
         print("📥 Downloading Hindi Font...")
+        # Using a reliable Noto Sans Hindi font
         url = "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf"
         try:
             with open(FONT_FILE, 'wb') as f: f.write(requests.get(url, timeout=30).content)
@@ -85,7 +87,7 @@ def save_to_memory(filename, item):
             json.dump(data, f, indent=2, ensure_ascii=False)
 
 # ────────────────────────────────────────────────
-# 4. CONTENT GENERATION (GROQ WITH RETRY)
+# 4. CONTENT GENERATION (GRAMMAR FIXED)
 # ────────────────────────────────────────────────
 def groq_request(prompt):
     try:
@@ -98,7 +100,7 @@ def groq_request(prompt):
             json={
                 "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.8, 
+                "temperature": 0.7, # Lower temp for better grammar
                 "max_tokens": 2000
             },
             timeout=30
@@ -121,57 +123,59 @@ def clean_json(text):
 def generate_content(mode="short"):
     used_topics = load_memory("used_topics.json")
     
-    # 1. Get Topic
     topic_prompt = f"""
-    Generate 1 unique, creative, and funny topic for a Hindi Nursery Rhyme for kids.
-    Examples: "A monkey driving a bus", "A star falling into a pond", "An elephant dancing".
-    Do NOT use these previous topics: {", ".join(used_topics[-15:])}
-    Output ONLY the English topic string. No explanations.
+    Generate 1 unique, simple topic for a Hindi Nursery Rhyme.
+    Subject: Funny animals or Indian daily life.
+    Do NOT use these: {", ".join(used_topics[-15:])}
+    Output ONLY the English topic string.
     """
     topic = groq_request(topic_prompt)
-    if not topic: topic = "Funny Animal Party"
+    if not topic: topic = "Funny Cat Party"
     topic = topic.replace('"', '').replace("Topic:", "").strip()
 
     print(f"★ Generated Topic: {topic}")
     
-    # 2. Get Script (With Retry Logic)
     lines = 8 if mode == "short" else 16
     
+    # IMPROVED PROMPT FOR GRAMMAR
     script_prompt = f"""
-    You are a professional Hindi poet for Kids YouTube.
+    You are a professional Hindi Teacher and Poet for kids.
     Topic: "{topic}"
     Format: Hindi Nursery Rhyme (Bal Geet).
     Length: {lines} lines.
-    Style: Funny, rhythmic, easy to sing.
     
-    Output ONLY valid JSON with this structure:
+    STRICT RULES:
+    1. Use simple, grammatically correct Hindi.
+    2. Check gender (Pulling/Streeling) carefully.
+    3. Use rhyme scheme AABB.
+    4. Each line must be short (3-6 words).
+    
+    Output ONLY valid JSON:
     {{
-      "title": "Hindi Title (in Hindi Script)",
-      "keyword": "Main Subject in English (e.g. Monkey)",
-      "video_tags": ["Tag1", "Tag2", "Tag3", "Tag4", "Tag5"],
+      "title": "Hindi Title (Short & Catchy)",
+      "keyword": "Main Subject (English)",
+      "video_tags": ["Tag1", "Tag2"],
       "scenes": [
-        {{ "line": "Hindi Line 1", "action": "Detailed visual description in English for AI image generator (Pixar style)" }},
-        {{ "line": "Hindi Line 2", "action": "Detailed visual description in English" }},
+        {{ "line": "Hindi Line 1", "action": "Visual description in English (Pixar style)" }},
+        {{ "line": "Hindi Line 2", "action": "Visual description in English" }},
         ...
       ]
     }}
     """
     
-    # Retry 3 times if JSON fails
     for attempt in range(3):
         raw = groq_request(script_prompt)
         data = clean_json(raw)
         if data:
             data['generated_topic'] = topic
             return data
-        print(f"⚠️ Groq JSON failed (Attempt {attempt+1}). Retrying...")
+        print(f"⚠️ Retrying Script Generation ({attempt+1})...")
         time.sleep(2)
         
-    print("❌ Failed to parse Groq JSON after 3 attempts.")
     return None
 
 # ────────────────────────────────────────────────
-# 5. ADVANCED IMAGE ENGINE (NATIVE RES + LANCZOS)
+# 5. IMAGE ENGINE (FLUX 1080p)
 # ────────────────────────────────────────────────
 def download_file(url, filename, headers=None):
     try:
@@ -185,116 +189,121 @@ def download_file(url, filename, headers=None):
     except: return False
 
 def apply_pro_enhancement(filename, target_w, target_h):
-    """LANCZOS resize + UnsharpMask + professional cartoon enhancement"""
     try:
         with Image.open(filename) as img:
             img = img.convert("RGB")
-            
-            # LANCZOS – best quality up/down-sampling
             if img.size != (target_w, target_h):
                 img = img.resize((target_w, target_h), resample=Image.LANCZOS)
-            
-            # UnsharpMask (industry standard for crisp video frames)
             img = img.filter(ImageFilter.UnsharpMask(radius=1.5, percent=250, threshold=3))
-            
-            # Final cartoon pop
             img = ImageEnhance.Contrast(img).enhance(1.15)
-            img = ImageEnhance.Sharpness(img).enhance(1.8)
             img = ImageEnhance.Color(img).enhance(1.10)
-            
-            img.save(filename, "JPEG", quality=98, optimize=True, subsampling=0)
-        print(f"  ✓ LANCZOS + UnsharpMask enhanced to exact {target_w}×{target_h}")
-    except Exception as e:
-        print(f"  Enhance note: {e}")
+            img.save(filename, "JPEG", quality=98, optimize=True)
+    except: pass
 
 def generate_backup_image(filename, target_w=1920, target_h=1080):
     color = (random.randint(60, 220), random.randint(60, 220), random.randint(60, 220))
     img = Image.new('RGB', (target_w, target_h), color=color)
-    img.save(filename, quality=95, optimize=True)
+    img.save(filename)
     return True
 
 def get_image(action_desc, filename, keyword, is_short=False):
-    print(f"--- HD Img: {action_desc[:40]}... ( {'1080x1920 SHORT' if is_short else '1920x1080 LONG'} ) ---")
+    print(f"--- HD Img: {action_desc[:30]}... ---")
     seed = random.randint(0, 999999)
-    
     target_w = 1080 if is_short else 1920
     target_h = 1920 if is_short else 1080
     
-    # Enhanced prompt for maximum sharpness at 1080p
-    visual_style = "cute pixar 3d cartoon, vibrant colors, highly detailed, sharp focus, intricate details, masterpiece, 8k uhd, smooth edges, professional kids animation"
-    clean_prompt = f"{action_desc}, {visual_style}".replace(" ", "%20").replace(",", "%2C").replace("'", "%27").replace("(", "%28").replace(")", "%29")
+    clean_prompt = f"{action_desc}, cute pixar 3d cartoon, vibrant colors, masterpiece, 8k uhd".replace(" ", "%20")
     
-    success = False
     api_key = os.getenv('POLLINATIONS_API_KEY')
+    success = False
+    
     if api_key:
         url_flux = f"https://gen.pollinations.ai/image/{clean_prompt}?model=flux&width={target_w}&height={target_h}&nologo=true&seed={seed}&enhance=true"
         headers = {"Authorization": f"Bearer {api_key}"}
-        
-        for attempt in range(3):
+        for _ in range(3):
             if download_file(url_flux, filename, headers):
-                print(f"  ✓ Direct {target_w}×{target_h} Flux HD image!")
                 success = True
                 break
-            print(f"   Retry {attempt+1}/3...")
-            time.sleep(4)
+            time.sleep(3)
     
     if not success:
-        print("  → HD Stock fallback...")
-        rand_id = random.randint(1, 10000)
-        # Using lormeflickr with exact dimensions
-        url_stock = f"https://loremflickr.com/{target_w}/{target_h}/{keyword.replace(' ','')}/?random={rand_id}"
+        print("Using Stock Fallback...")
+        url_stock = f"https://loremflickr.com/{target_w}/{target_h}/{keyword.replace(' ','')}/?random={seed}"
         success = download_file(url_stock, filename)
     
-    if not success:
-        generate_backup_image(filename, target_w, target_h)
+    if not success: generate_backup_image(filename, target_w, target_h)
     
-    # === ADVANCED RESIZING TECHNIQUES (LANCZOS + Pro Enhancements) ===
     apply_pro_enhancement(filename, target_w, target_h)
     return True
 
 # ────────────────────────────────────────────────
-# 6. THUMBNAIL ENGINE (PRO RESIZE)
+# 6. PERFECT HINDI TEXT RENDERER (The Big Fix)
 # ────────────────────────────────────────────────
+def generate_text_clip_pil(text, w, h, font_size, duration):
+    """
+    Generates a Hindi text clip using PIL (Pillow) instead of ImageMagick.
+    This fixes broken ligatures/matras.
+    """
+    # Create transparent canvas
+    img = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    
+    # Load Font
+    try:
+        font = ImageFont.truetype(FONT_FILE, font_size)
+    except:
+        font = ImageFont.load_default()
+    
+    # Calculate Text Position (Bottom Center)
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_w = bbox[2] - bbox[0]
+    text_h = bbox[3] - bbox[1]
+    
+    x = (w - text_w) // 2
+    y = h - text_h - 250 # Lift from bottom
+    
+    # Draw Stroke (Black Border)
+    stroke_width = 6
+    for off_x in range(-stroke_width, stroke_width+1):
+        for off_y in range(-stroke_width, stroke_width+1):
+            draw.text((x+off_x, y+off_y), text, font=font, fill='black')
+            
+    # Draw Main Text (Yellow)
+    draw.text((x, y), text, font=font, fill='#FFFF00') # Bright Yellow
+    
+    # Convert to MoviePy Clip
+    return ImageClip(np.array(img)).set_duration(duration)
+
 def create_thumbnail(title, bg_path, output_path):
     try:
-        if not os.path.exists(bg_path): 
-            generate_backup_image(bg_path, 1920, 1080)
+        if not os.path.exists(bg_path): generate_backup_image(bg_path, 1920, 1080)
+        img = Image.open(bg_path).convert("RGBA").resize((1280, 720))
         
-        with Image.open(bg_path) as img:
-            img = img.convert("RGB")
-            img = img.resize((1280, 720), resample=Image.LANCZOS)   # ← Pro resize
-            
-            # Match video enhancements
-            img = img.filter(ImageFilter.UnsharpMask(radius=1.2, percent=180, threshold=3))
-            img = ImageEnhance.Contrast(img).enhance(1.12)
-            img = ImageEnhance.Color(img).enhance(1.08)
-            
-            # Dark overlay
-            overlay = Image.new("RGBA", img.size, (0,0,0,75))
-            img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
-            
-            draw = ImageDraw.Draw(img)
-            try: font = ImageFont.truetype(FONT_FILE, 105)
-            except: font = ImageFont.load_default()
+        # Darken for text pop
+        overlay = Image.new("RGBA", img.size, (0,0,0,80))
+        img = Image.alpha_composite(img, overlay).convert("RGB")
+        draw = ImageDraw.Draw(img)
+        
+        try: font = ImageFont.truetype(FONT_FILE, 100)
+        except: font = ImageFont.load_default()
 
-            bbox = draw.textbbox((0, 0), title, font=font)
-            text_w = bbox[2] - bbox[0]
-            x = (1280 - text_w) // 2
-            y = 160   # Better thumbnail positioning
+        bbox = draw.textbbox((0, 0), title, font=font)
+        text_w = bbox[2] - bbox[0]
+        x = (1280 - text_w) // 2
+        y = (720 - bbox[3]) // 2
 
-            # Shadow for pop
-            for off in [(4,4), (5,5)]:
-                draw.text((x+off[0], y+off[1]), title, font=font, fill=(0,0,0))
-            draw.text((x, y), title, font=font, fill="#FFEA00")
-            
-            img.save(output_path, quality=98, optimize=True)
+        # Thick Stroke
+        for off in range(-4, 5):
+            draw.text((x+off, y), title, font=font, fill="black")
+            draw.text((x, y+off), title, font=font, fill="black")
+        
+        draw.text((x, y), title, font=font, fill="#FFD700")
+        img.save(output_path, quality=95)
         return output_path
-    except Exception as e:
-        print(f"Thumbnail error: {e}")
-        return None
+    except: return None
 
 # ────────────────────────────────────────────────
-# 7. RENDERER (Karaoke Style)
+# 7. RENDERER
 # ────────────────────────────────────────────────
 async def generate_voice_async(text, filename):
     cmd = ["edge-tts", "--voice", "hi-IN-SwaraNeural", "--text", text, "--write-media", filename]
@@ -306,16 +315,14 @@ def get_voice(text, filename):
 
 def create_segment(text_line, image_path, audio_path, is_short):
     if not os.path.exists(audio_path): return None
-    
     w, h = (1080, 1920) if is_short else (1920, 1080)
     
-    if not os.path.exists(image_path): 
-        generate_backup_image(image_path, w, h)
+    if not os.path.exists(image_path): generate_backup_image(image_path, w, h)
 
     try:
         voice = AudioFileClip(audio_path)
         
-        # Background music mix
+        # Background Music
         bg_path = os.path.join(ASSETS_DIR, "bg_music.mp3")
         if os.path.exists(bg_path):
             try:
@@ -328,37 +335,24 @@ def create_segment(text_line, image_path, audio_path, is_short):
                 voice = CompositeAudioClip([voice, bg])
             except: pass
         
-        # Image + gentle Ken-Burns zoom (perfect for kids rhymes)
-        img = ImageClip(image_path)
+        # Image Animation
+        try: img = ImageClip(image_path)
+        except: 
+            generate_backup_image(image_path, w, h)
+            img = ImageClip(image_path)
+
         move = random.choice(['zoom_in', 'zoom_out'])
-        if move == 'zoom_in':
-            anim = img.resize(lambda t: 1 + 0.035 * t)
-        else:
-            anim = img.resize(lambda t: 1.04 - 0.035 * t)
+        if move == 'zoom_in': anim = img.resize(lambda t: 1 + 0.035 * t)
+        else: anim = img.resize(lambda t: 1.04 - 0.035 * t)
         anim = anim.set_position('center').set_duration(voice.duration)
 
-        # === PRO KARAOKE TEXT WITH GLOW (much better readability) ===
-        font_size = 78 if is_short else 95
-        font_to_use = FONT_FILE if os.path.exists(FONT_FILE) else 'Arial'
+        # TEXT FIX: Use Custom PIL Renderer (Perfect Hindi)
+        font_size = 85 if is_short else 100
+        txt_clip = generate_text_clip_pil(text_line, w, h, font_size, voice.duration)
 
-        # Main yellow text
-        txt = TextClip(
-            text_line, fontsize=font_size, color='#FFFF00', font=font_to_use,
-            stroke_color='black', stroke_width=6, method='caption',
-            size=(w-140, None), align='center'
-        ).set_position(('center', h - 280)).set_duration(voice.duration)
-
-        # Soft white glow layer (kids love this pop)
-        glow = TextClip(
-            text_line, fontsize=font_size, color='white', font=font_to_use,
-            stroke_color='white', stroke_width=3, method='caption',
-            size=(w-140, None), align='center'
-        ).set_position(('center', h - 280)).set_duration(voice.duration).set_opacity(0.35)
-
-        return CompositeVideoClip([anim, glow, txt], size=(w, h)).set_audio(voice)
-
+        return CompositeVideoClip([anim, txt_clip], size=(w,h)).set_audio(voice)
     except Exception as e:
-        print(f"Segment Error: {e}")
+        print(f"Segment Error: {e}") 
         return None
 
 def make_video(content, is_short=True):
@@ -368,7 +362,6 @@ def make_video(content, is_short=True):
     keyword = content.get('keyword', 'cartoon')
     
     full_lyrics = ""
-    first_bg = None
     
     for i, scene in enumerate(content['scenes']):
         line = scene['line']
@@ -378,11 +371,7 @@ def make_video(content, is_short=True):
         get_voice(line, aud)
         
         img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
-        
-        # PATCH 4: Pass is_short to generate correct size
         get_image(scene['action'], img, keyword, is_short=is_short)
-        
-        if i == 0: first_bg = img
         
         clip = create_segment(line, img, aud, is_short)
         if clip: clips.append(clip)
@@ -391,27 +380,20 @@ def make_video(content, is_short=True):
     
     final = concatenate_videoclips(clips, method="compose")
     out = os.path.join(OUTPUT_DIR, f"final_{suffix}.mp4")
-    thumb = os.path.join(OUTPUT_DIR, "thumb.png") if not is_short and first_bg else None
+    thumb = os.path.join(OUTPUT_DIR, "thumb.png") if not is_short else None
     
-    if thumb: create_thumbnail(content['title'], first_bg, thumb)
+    if thumb: create_thumbnail(content['title'], os.path.join(ASSETS_DIR, f"i_{suffix}_0.jpg"), thumb)
     
-    # PATCH 5: Pro Encoding Settings (CRF 18 + Medium) + Cleanup
-    final.write_videofile(
-        out, 
-        fps=24, 
-        codec='libx264', 
-        audio_codec='aac', 
-        threads=4,
-        preset='medium',
-        ffmpeg_params=['-crf', '18', '-pix_fmt', 'yuv420p', '-tune', 'film']
-    )
-    
-    # === CLEANUP temp files (prevents disk bloat) ===
+    # Clean Temp Files
     for f in os.listdir(ASSETS_DIR):
-        if f.startswith(('a_s_', 'a_l_', 'i_s_', 'i_l_')) and f.endswith(('.mp3', '.jpg')):
+        if f.endswith(('.mp3', '.jpg')) and f != "bg_music.mp3" and f != "HindiFont.ttf":
             try: os.remove(os.path.join(ASSETS_DIR, f))
             except: pass
 
+    final.write_videofile(
+        out, fps=24, codec='libx264', audio_codec='aac', threads=4,
+        preset='medium', ffmpeg_params=['-crf', '18', '-pix_fmt', 'yuv420p']
+    )
     return out, full_lyrics, thumb
 
 # ────────────────────────────────────────────────
@@ -441,14 +423,10 @@ def upload_video(vid, content, lyrics, thumb, is_short):
 """
         body = {
             'snippet': {'title': title[:99], 'description': desc, 'tags': final_tags, 'categoryId': '24'},
-            'status': {
-                'privacyStatus': 'public',
-                'selfDeclaredMadeForKids': True
-            }
+            'status': {'privacyStatus': 'public', 'selfDeclaredMadeForKids': True}
         }
         
         media = MediaFileUpload(vid, chunksize=-1, resumable=True)
-        
         req = service.videos().insert(part="snippet,status", body=body, media_body=media)
         resp = None
         while resp is None:
@@ -475,7 +453,7 @@ def upload_video(vid, content, lyrics, thumb, is_short):
 # MAIN EXECUTION
 # ────────────────────────────────────────────────
 if __name__ == "__main__":
-    print("===== HINDI RHYMES PRO (CINEMA QUALITY 1080p) =====")
+    print("===== HINDI RHYMES PRO (GRAMMAR + RENDER FIX) =====")
     summary = []
 
     # Short
