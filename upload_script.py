@@ -10,11 +10,13 @@ from pathlib import Path
 import pickle
 
 # ────────────────────────────────────────────────
-# 1. STABILITY PATCHES
+# 1. ADVANCED IMAGE ENGINE IMPORTS
 # ────────────────────────────────────────────────
-import PIL.Image, PIL.ImageDraw, PIL.ImageFont
-if not hasattr(PIL.Image, 'ANTIALIAS'):
-    PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
+# PATCH 0: Added ImageFilter and ImageEnhance for Pro Look
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
+
+if not hasattr(Image, 'ANTIALIAS'):
+    Image.ANTIALIAS = Image.LANCZOS
 
 from moviepy.editor import (
     AudioFileClip, ImageClip, TextClip, CompositeVideoClip, 
@@ -170,68 +172,104 @@ def generate_content(mode="short"):
     return None
 
 # ────────────────────────────────────────────────
-# 5. AUTHENTICATED IMAGE ENGINE (FLUX)
+# 5. ADVANCED IMAGE ENGINE (NATIVE RES + LANCZOS)
 # ────────────────────────────────────────────────
-def generate_backup_image(filename):
-    color = (random.randint(50,255), random.randint(50,255), random.randint(50,255))
-    PIL.Image.new('RGB', (1024, 1024), color=color).save(filename)
-    return True
-
 def download_file(url, filename, headers=None):
     try:
         if headers is None: headers = {"User-Agent": "Mozilla/5.0"}
-        resp = requests.get(url, headers=headers, timeout=60) # Increased timeout for Flux
+        resp = requests.get(url, headers=headers, timeout=60)
         if resp.status_code == 200:
             with open(filename, 'wb') as f: f.write(resp.content)
-            try: PIL.Image.open(filename).verify(); return True
+            try: Image.open(filename).verify(); return True
             except: return False
         return False
     except: return False
 
-def get_image(action_desc, filename, keyword):
-    print(f"--- Img: {action_desc[:40]}... ---")
+# PATCH 3: Helper function for Pro Enhancements
+def apply_pro_enhancement(filename, target_w, target_h):
+    """LANCZOS resize + UnsharpMask + professional cartoon enhancement"""
+    try:
+        with Image.open(filename) as img:
+            img = img.convert("RGB")
+            
+            # LANCZOS – best quality up/down-sampling
+            if img.size != (target_w, target_h):
+                img = img.resize((target_w, target_h), resample=Image.LANCZOS)
+            
+            # UnsharpMask (industry standard for crisp video frames)
+            img = img.filter(ImageFilter.UnsharpMask(radius=1.5, percent=250, threshold=3))
+            
+            # Final cartoon pop
+            img = ImageEnhance.Contrast(img).enhance(1.15)
+            img = ImageEnhance.Sharpness(img).enhance(1.8)
+            img = ImageEnhance.Color(img).enhance(1.10)
+            
+            img.save(filename, "JPEG", quality=98, optimize=True, subsampling=0)
+        print(f"  ✓ LANCZOS + UnsharpMask enhanced to exact {target_w}×{target_h}")
+    except Exception as e:
+        print(f"  Enhance note: {e}")
+
+# PATCH 1: Updated Backup Image
+def generate_backup_image(filename, target_w=1920, target_h=1080):
+    color = (random.randint(60, 220), random.randint(60, 220), random.randint(60, 220))
+    img = Image.new('RGB', (target_w, target_h), color=color)
+    img.save(filename, quality=95, optimize=True)
+    return True
+
+# PATCH 2: Advanced Get Image (Native Resolution)
+def get_image(action_desc, filename, keyword, is_short=False):
+    print(f"--- HD Img: {action_desc[:40]}... ( {'1080x1920 SHORT' if is_short else '1920x1080 LONG'} ) ---")
     seed = random.randint(0, 999999)
     
-    # Force Cartoon Style
-    visual_style = "cartoon style, vibrant, 3d render, pixar style, cute kids illustration"
-    clean_prompt = f"{action_desc} {visual_style}".replace(" ", "%20").replace(",", "")
+    target_w = 1080 if is_short else 1920
+    target_h = 1920 if is_short else 1080
     
-    # 1. AUTHENTICATED FLUX (The Fix)
+    # Enhanced prompt for maximum sharpness at 1080p
+    visual_style = "cute pixar 3d cartoon, vibrant colors, highly detailed, sharp focus, intricate details, masterpiece, 8k uhd, smooth edges, professional kids animation"
+    clean_prompt = f"{action_desc}, {visual_style}".replace(" ", "%20").replace(",", "%2C").replace("'", "%27").replace("(", "%28").replace(")", "%29")
+    
+    success = False
     api_key = os.getenv('POLLINATIONS_API_KEY')
     if api_key:
-        # New API Endpoint
-        url_flux = f"https://gen.pollinations.ai/image/{clean_prompt}?model=flux&width=1024&height=1024&nologo=true&seed={seed}"
+        url_flux = f"https://gen.pollinations.ai/image/{clean_prompt}?model=flux&width={target_w}&height={target_h}&nologo=true&seed={seed}&enhance=true"
         headers = {"Authorization": f"Bearer {api_key}"}
         
-        # Retry loop for API stability
         for attempt in range(3):
             if download_file(url_flux, filename, headers):
-                return True
-            print(f"   Flux Attempt {attempt+1} failed. Retrying...")
-            time.sleep(3)
-            
-    # 2. Stock Fallback
-    print("AI Failed. Trying Stock...")
-    rand_id = random.randint(1, 10000)
-    url_stock = f"https://loremflickr.com/1024/1024/{keyword.replace(' ','')}?random={rand_id}"
-    if download_file(url_stock, filename): return True
-
-    return generate_backup_image(filename)
+                print(f"  ✓ Direct {target_w}×{target_h} Flux HD image!")
+                success = True
+                break
+            print(f"   Retry {attempt+1}/3...")
+            time.sleep(4)
+    
+    if not success:
+        print("  → HD Stock fallback...")
+        rand_id = random.randint(1, 10000)
+        # Using lormeflickr with exact dimensions
+        url_stock = f"https://loremflickr.com/{target_w}/{target_h}/{keyword.replace(' ','')}/?random={rand_id}"
+        success = download_file(url_stock, filename)
+    
+    if not success:
+        generate_backup_image(filename, target_w, target_h)
+    
+    # === ADVANCED RESIZING TECHNIQUES (LANCZOS + Pro Enhancements) ===
+    apply_pro_enhancement(filename, target_w, target_h)
+    return True
 
 # ────────────────────────────────────────────────
 # 6. THUMBNAIL ENGINE
 # ────────────────────────────────────────────────
 def create_thumbnail(title, bg_path, output_path):
     try:
-        if not os.path.exists(bg_path): generate_backup_image(bg_path)
-        img = PIL.Image.open(bg_path).convert("RGBA").resize((1280, 720))
+        if not os.path.exists(bg_path): generate_backup_image(bg_path, 1920, 1080)
+        img = Image.open(bg_path).convert("RGBA").resize((1280, 720))
         
-        overlay = PIL.Image.new("RGBA", img.size, (0,0,0,60))
-        img = PIL.Image.alpha_composite(img, overlay)
-        draw = PIL.ImageDraw.Draw(img)
+        overlay = Image.new("RGBA", img.size, (0,0,0,60))
+        img = Image.alpha_composite(img, overlay)
+        draw = ImageDraw.Draw(img)
         
-        try: font = PIL.ImageFont.truetype(FONT_FILE, 100)
-        except: font = PIL.ImageFont.load_default()
+        try: font = ImageFont.truetype(FONT_FILE, 100)
+        except: font = ImageFont.load_default()
 
         bbox = draw.textbbox((0, 0), title, font=font)
         text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
@@ -258,7 +296,10 @@ def get_voice(text, filename):
 
 def create_segment(text_line, image_path, audio_path, is_short, is_first):
     if not os.path.exists(audio_path): return None
-    if not os.path.exists(image_path): generate_backup_image(image_path)
+    
+    w, h = (1080, 1920) if is_short else (1920, 1080)
+    
+    if not os.path.exists(image_path): generate_backup_image(image_path, w, h)
 
     try:
         voice = AudioFileClip(audio_path)
@@ -275,16 +316,12 @@ def create_segment(text_line, image_path, audio_path, is_short, is_first):
                 voice = CompositeAudioClip([voice, bg])
             except: pass
         
-        w, h = (1080, 1920) if is_short else (1920, 1080)
-        
-        try: img = ImageClip(image_path)
-        except: 
-            generate_backup_image(image_path)
+        # Optimized: No need for heavy resize if image is already correct
+        try: 
             img = ImageClip(image_path)
-
-        if img.w/img.h > w/h: img = img.resize(height=h)
-        else: img = img.resize(width=w)
-        img = img.crop(x_center=img.w/2, y_center=img.h/2, width=w, height=h)
+        except:
+            generate_backup_image(image_path, w, h)
+            img = ImageClip(image_path)
 
         move = random.choice(['zoom_in', 'zoom_out'])
         if move == 'zoom_in':
@@ -325,7 +362,9 @@ def make_video(content, is_short=True):
         get_voice(line, aud)
         
         img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
-        get_image(scene['action'], img, keyword)
+        
+        # PATCH 4: Pass is_short to generate correct size
+        get_image(scene['action'], img, keyword, is_short=is_short)
         
         if i == 0: first_bg = img
         
@@ -340,7 +379,16 @@ def make_video(content, is_short=True):
     
     if thumb: create_thumbnail(content['title'], first_bg, thumb)
     
-    final.write_videofile(out, fps=24, codec='libx264', audio_codec='aac', threads=4)
+    # PATCH 5: Pro Encoding Settings (CRF 17 + Slow)
+    final.write_videofile(
+        out, 
+        fps=24, 
+        codec='libx264', 
+        audio_codec='aac', 
+        threads=os.cpu_count() or 6,
+        preset='slow',
+        ffmpeg_params=['-crf', '17', '-pix_fmt', 'yuv420p', '-tune', 'film']
+    )
     return out, full_lyrics, thumb
 
 # ────────────────────────────────────────────────
@@ -404,7 +452,7 @@ def upload_video(vid, content, lyrics, thumb, is_short):
 # MAIN EXECUTION
 # ────────────────────────────────────────────────
 if __name__ == "__main__":
-    print("===== HINDI RHYMES PRO (GROQ + AUTH FLUX) =====")
+    print("===== HINDI RHYMES PRO (CINEMA QUALITY 1080p) =====")
     summary = []
 
     # Short
