@@ -12,7 +12,6 @@ import pickle
 # ────────────────────────────────────────────────
 # 1. ADVANCED IMAGE ENGINE IMPORTS
 # ────────────────────────────────────────────────
-# PATCH 0: Added ImageFilter and ImageEnhance for Pro Look
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 
 if not hasattr(Image, 'ANTIALIAS'):
@@ -185,7 +184,6 @@ def download_file(url, filename, headers=None):
         return False
     except: return False
 
-# PATCH 3: Helper function for Pro Enhancements
 def apply_pro_enhancement(filename, target_w, target_h):
     """LANCZOS resize + UnsharpMask + professional cartoon enhancement"""
     try:
@@ -209,14 +207,12 @@ def apply_pro_enhancement(filename, target_w, target_h):
     except Exception as e:
         print(f"  Enhance note: {e}")
 
-# PATCH 1: Updated Backup Image
 def generate_backup_image(filename, target_w=1920, target_h=1080):
     color = (random.randint(60, 220), random.randint(60, 220), random.randint(60, 220))
     img = Image.new('RGB', (target_w, target_h), color=color)
     img.save(filename, quality=95, optimize=True)
     return True
 
-# PATCH 2: Advanced Get Image (Native Resolution)
 def get_image(action_desc, filename, keyword, is_short=False):
     print(f"--- HD Img: {action_desc[:40]}... ( {'1080x1920 SHORT' if is_short else '1920x1080 LONG'} ) ---")
     seed = random.randint(0, 999999)
@@ -257,31 +253,45 @@ def get_image(action_desc, filename, keyword, is_short=False):
     return True
 
 # ────────────────────────────────────────────────
-# 6. THUMBNAIL ENGINE
+# 6. THUMBNAIL ENGINE (PRO RESIZE)
 # ────────────────────────────────────────────────
 def create_thumbnail(title, bg_path, output_path):
     try:
-        if not os.path.exists(bg_path): generate_backup_image(bg_path, 1920, 1080)
-        img = Image.open(bg_path).convert("RGBA").resize((1280, 720))
+        if not os.path.exists(bg_path): 
+            generate_backup_image(bg_path, 1920, 1080)
         
-        overlay = Image.new("RGBA", img.size, (0,0,0,60))
-        img = Image.alpha_composite(img, overlay)
-        draw = ImageDraw.Draw(img)
-        
-        try: font = ImageFont.truetype(FONT_FILE, 100)
-        except: font = ImageFont.load_default()
+        with Image.open(bg_path) as img:
+            img = img.convert("RGB")
+            img = img.resize((1280, 720), resample=Image.LANCZOS)   # ← Pro resize
+            
+            # Match video enhancements
+            img = img.filter(ImageFilter.UnsharpMask(radius=1.2, percent=180, threshold=3))
+            img = ImageEnhance.Contrast(img).enhance(1.12)
+            img = ImageEnhance.Color(img).enhance(1.08)
+            
+            # Dark overlay
+            overlay = Image.new("RGBA", img.size, (0,0,0,75))
+            img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+            
+            draw = ImageDraw.Draw(img)
+            try: font = ImageFont.truetype(FONT_FILE, 105)
+            except: font = ImageFont.load_default()
 
-        bbox = draw.textbbox((0, 0), title, font=font)
-        text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-        x, y = (1280 - text_w) // 2, (720 - text_h) // 2
+            bbox = draw.textbbox((0, 0), title, font=font)
+            text_w = bbox[2] - bbox[0]
+            x = (1280 - text_w) // 2
+            y = 160   # Better thumbnail positioning
 
-        for off in range(1, 6):
-            draw.text((x+off, y+off), title, font=font, fill="black")
-        
-        draw.text((x, y), title, font=font, fill="#FFD700")
-        img.convert("RGB").save(output_path)
+            # Shadow for pop
+            for off in [(4,4), (5,5)]:
+                draw.text((x+off[0], y+off[1]), title, font=font, fill=(0,0,0))
+            draw.text((x, y), title, font=font, fill="#FFEA00")
+            
+            img.save(output_path, quality=98, optimize=True)
         return output_path
-    except: return None
+    except Exception as e:
+        print(f"Thumbnail error: {e}")
+        return None
 
 # ────────────────────────────────────────────────
 # 7. RENDERER (Karaoke Style)
@@ -294,55 +304,61 @@ async def generate_voice_async(text, filename):
 def get_voice(text, filename):
     asyncio.run(generate_voice_async(text, filename))
 
-def create_segment(text_line, image_path, audio_path, is_short, is_first):
+def create_segment(text_line, image_path, audio_path, is_short):
     if not os.path.exists(audio_path): return None
     
     w, h = (1080, 1920) if is_short else (1920, 1080)
     
-    if not os.path.exists(image_path): generate_backup_image(image_path, w, h)
+    if not os.path.exists(image_path): 
+        generate_backup_image(image_path, w, h)
 
     try:
         voice = AudioFileClip(audio_path)
         
+        # Background music mix
         bg_path = os.path.join(ASSETS_DIR, "bg_music.mp3")
         if os.path.exists(bg_path):
             try:
-                bg = AudioFileClip(bg_path).volumex(0.1) 
+                bg = AudioFileClip(bg_path).volumex(0.12)
                 if bg.duration < voice.duration:
                     bg = bg.loop(duration=voice.duration)
                 else:
-                    start = random.uniform(0, bg.duration - voice.duration)
+                    start = random.uniform(0, max(0, bg.duration - voice.duration))
                     bg = bg.subclip(start, start + voice.duration)
                 voice = CompositeAudioClip([voice, bg])
             except: pass
         
-        # Optimized: No need for heavy resize if image is already correct
-        try: 
-            img = ImageClip(image_path)
-        except:
-            generate_backup_image(image_path, w, h)
-            img = ImageClip(image_path)
-
+        # Image + gentle Ken-Burns zoom (perfect for kids rhymes)
+        img = ImageClip(image_path)
         move = random.choice(['zoom_in', 'zoom_out'])
         if move == 'zoom_in':
-            anim = img.resize(lambda t: 1 + 0.04 * t)
+            anim = img.resize(lambda t: 1 + 0.035 * t)
         else:
-            anim = img.resize(lambda t: 1.05 - 0.04 * t)
+            anim = img.resize(lambda t: 1.04 - 0.035 * t)
         anim = anim.set_position('center').set_duration(voice.duration)
 
-        font_arg = FONT_FILE if os.path.exists(FONT_FILE) else 'Arial'
-        font_size = 75 if is_short else 90
-        
-        txt = TextClip(
-            text_line, fontsize=font_size, color='yellow', font=font_arg, 
-            stroke_color='black', stroke_width=4, method='caption', size=(w-100, None)
-        )
-        txt = txt.set_position(('center', 'bottom')).set_duration(voice.duration)
-        txt = txt.set_position(('center', h - 250))
+        # === PRO KARAOKE TEXT WITH GLOW (much better readability) ===
+        font_size = 78 if is_short else 95
+        font_to_use = FONT_FILE if os.path.exists(FONT_FILE) else 'Arial'
 
-        return CompositeVideoClip([anim, txt], size=(w,h)).set_audio(voice).set_duration(voice.duration)
+        # Main yellow text
+        txt = TextClip(
+            text_line, fontsize=font_size, color='#FFFF00', font=font_to_use,
+            stroke_color='black', stroke_width=6, method='caption',
+            size=(w-140, None), align='center'
+        ).set_position(('center', h - 280)).set_duration(voice.duration)
+
+        # Soft white glow layer (kids love this pop)
+        glow = TextClip(
+            text_line, fontsize=font_size, color='white', font=font_to_use,
+            stroke_color='white', stroke_width=3, method='caption',
+            size=(w-140, None), align='center'
+        ).set_position(('center', h - 280)).set_duration(voice.duration).set_opacity(0.35)
+
+        return CompositeVideoClip([anim, glow, txt], size=(w, h)).set_audio(voice)
+
     except Exception as e:
-        print(f"Segment Error: {e}") 
+        print(f"Segment Error: {e}")
         return None
 
 def make_video(content, is_short=True):
@@ -368,7 +384,7 @@ def make_video(content, is_short=True):
         
         if i == 0: first_bg = img
         
-        clip = create_segment(line, img, aud, is_short, (i==0))
+        clip = create_segment(line, img, aud, is_short)
         if clip: clips.append(clip)
 
     if not clips: return None, None, None
@@ -379,16 +395,23 @@ def make_video(content, is_short=True):
     
     if thumb: create_thumbnail(content['title'], first_bg, thumb)
     
-    # PATCH 5: Pro Encoding Settings (CRF 17 + Slow)
+    # PATCH 5: Pro Encoding Settings (CRF 18 + Medium) + Cleanup
     final.write_videofile(
         out, 
         fps=24, 
         codec='libx264', 
         audio_codec='aac', 
-        threads=os.cpu_count() or 6,
-        preset='slow',
-        ffmpeg_params=['-crf', '17', '-pix_fmt', 'yuv420p', '-tune', 'film']
+        threads=4,
+        preset='medium',
+        ffmpeg_params=['-crf', '18', '-pix_fmt', 'yuv420p', '-tune', 'film']
     )
+    
+    # === CLEANUP temp files (prevents disk bloat) ===
+    for f in os.listdir(ASSETS_DIR):
+        if f.startswith(('a_s_', 'a_l_', 'i_s_', 'i_l_')) and f.endswith(('.mp3', '.jpg')):
+            try: os.remove(os.path.join(ASSETS_DIR, f))
+            except: pass
+
     return out, full_lyrics, thumb
 
 # ────────────────────────────────────────────────
