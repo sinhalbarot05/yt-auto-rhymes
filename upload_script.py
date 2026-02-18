@@ -6,7 +6,7 @@ import asyncio
 import requests
 import time
 import re
-import numpy as np
+import numpy as np  # <--- FIXED: Added this missing import
 from pathlib import Path
 import pickle
 
@@ -50,7 +50,6 @@ def download_assets():
     """Downloads Font + Background Music"""
     if not os.path.exists(FONT_FILE):
         print("📥 Downloading Hindi Font...")
-        # Using a reliable Noto Sans Hindi font
         url = "https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf"
         try:
             with open(FONT_FILE, 'wb') as f: f.write(requests.get(url, timeout=30).content)
@@ -87,7 +86,7 @@ def save_to_memory(filename, item):
             json.dump(data, f, indent=2, ensure_ascii=False)
 
 # ────────────────────────────────────────────────
-# 4. CONTENT GENERATION (GRAMMAR FIXED)
+# 4. CONTENT GENERATION (CREATIVE MODE RESTORED)
 # ────────────────────────────────────────────────
 def groq_request(prompt):
     try:
@@ -100,7 +99,7 @@ def groq_request(prompt):
             json={
                 "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.7, # Lower temp for better grammar
+                "temperature": 0.9, # High creativity
                 "max_tokens": 2000
             },
             timeout=30
@@ -123,41 +122,42 @@ def clean_json(text):
 def generate_content(mode="short"):
     used_topics = load_memory("used_topics.json")
     
+    # 1. Creative Topic Generation
     topic_prompt = f"""
-    Generate 1 unique, simple topic for a Hindi Nursery Rhyme.
-    Subject: Funny animals or Indian daily life.
-    Do NOT use these: {", ".join(used_topics[-15:])}
+    Generate 1 funny, imaginative topic for a Hindi Kids Rhyme.
+    Examples: "Elephant flying a kite", "Cat wearing sunglasses", "Sun eating ice cream".
+    Do NOT use: {", ".join(used_topics[-15:])}
     Output ONLY the English topic string.
     """
     topic = groq_request(topic_prompt)
-    if not topic: topic = "Funny Cat Party"
+    if not topic: topic = "Funny Animal Dance"
     topic = topic.replace('"', '').replace("Topic:", "").strip()
 
     print(f"★ Generated Topic: {topic}")
     
     lines = 8 if mode == "short" else 16
     
-    # IMPROVED PROMPT FOR GRAMMAR
+    # 2. Script Generation (RESTORED TO FUN MODE)
     script_prompt = f"""
-    You are a professional Hindi Teacher and Poet for kids.
+    You are a creative songwriter for a Hindi Kids YouTube Channel (like ChuChu TV).
     Topic: "{topic}"
-    Format: Hindi Nursery Rhyme (Bal Geet).
+    Format: Nursery Rhyme (Bal Geet).
     Length: {lines} lines.
     
-    STRICT RULES:
-    1. Use simple, grammatically correct Hindi.
-    2. Check gender (Pulling/Streeling) carefully.
-    3. Use rhyme scheme AABB.
-    4. Each line must be short (3-6 words).
+    INSTRUCTIONS:
+    1. Write in HINDI (Devanagari script).
+    2. MUST RHYME (AABB scheme).
+    3. Make it funny and rhythmic. Kids should want to dance.
+    4. Simple words, distinct rhyming endings.
     
     Output ONLY valid JSON:
     {{
-      "title": "Hindi Title (Short & Catchy)",
-      "keyword": "Main Subject (English)",
-      "video_tags": ["Tag1", "Tag2"],
+      "title": "Hindi Title (Fun & Catchy)",
+      "keyword": "Main Character (English)",
+      "video_tags": ["Tag1", "Tag2", "Tag3"],
       "scenes": [
-        {{ "line": "Hindi Line 1", "action": "Visual description in English (Pixar style)" }},
-        {{ "line": "Hindi Line 2", "action": "Visual description in English" }},
+        {{ "line": "Hindi Rhyme Line 1", "action": "Visual description in English (Cartoon style)" }},
+        {{ "line": "Hindi Rhyme Line 2", "action": "Visual description in English" }},
         ...
       ]
     }}
@@ -237,22 +237,17 @@ def get_image(action_desc, filename, keyword, is_short=False):
     return True
 
 # ────────────────────────────────────────────────
-# 6. PERFECT HINDI TEXT RENDERER (The Big Fix)
+# 6. PERFECT HINDI TEXT RENDERER
 # ────────────────────────────────────────────────
 def generate_text_clip_pil(text, w, h, font_size, duration):
-    """
-    Generates a Hindi text clip using PIL (Pillow) instead of ImageMagick.
-    This fixes broken ligatures/matras.
-    """
+    """Generates a Hindi text clip using PIL (Fixes broken font issues)"""
     # Create transparent canvas
     img = Image.new('RGBA', (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     
     # Load Font
-    try:
-        font = ImageFont.truetype(FONT_FILE, font_size)
-    except:
-        font = ImageFont.load_default()
+    try: font = ImageFont.truetype(FONT_FILE, font_size)
+    except: font = ImageFont.load_default()
     
     # Calculate Text Position (Bottom Center)
     bbox = draw.textbbox((0, 0), text, font=font)
@@ -262,16 +257,15 @@ def generate_text_clip_pil(text, w, h, font_size, duration):
     x = (w - text_w) // 2
     y = h - text_h - 250 # Lift from bottom
     
-    # Draw Stroke (Black Border)
-    stroke_width = 6
+    # Draw Thick Black Stroke
+    stroke_width = 8
     for off_x in range(-stroke_width, stroke_width+1):
         for off_y in range(-stroke_width, stroke_width+1):
             draw.text((x+off_x, y+off_y), text, font=font, fill='black')
             
-    # Draw Main Text (Yellow)
-    draw.text((x, y), text, font=font, fill='#FFFF00') # Bright Yellow
+    # Draw Main Text (Bright Yellow)
+    draw.text((x, y), text, font=font, fill='#FFFF00')
     
-    # Convert to MoviePy Clip
     return ImageClip(np.array(img)).set_duration(duration)
 
 def create_thumbnail(title, bg_path, output_path):
@@ -279,7 +273,6 @@ def create_thumbnail(title, bg_path, output_path):
         if not os.path.exists(bg_path): generate_backup_image(bg_path, 1920, 1080)
         img = Image.open(bg_path).convert("RGBA").resize((1280, 720))
         
-        # Darken for text pop
         overlay = Image.new("RGBA", img.size, (0,0,0,80))
         img = Image.alpha_composite(img, overlay).convert("RGB")
         draw = ImageDraw.Draw(img)
@@ -292,7 +285,6 @@ def create_thumbnail(title, bg_path, output_path):
         x = (1280 - text_w) // 2
         y = (720 - bbox[3]) // 2
 
-        # Thick Stroke
         for off in range(-4, 5):
             draw.text((x+off, y), title, font=font, fill="black")
             draw.text((x, y+off), title, font=font, fill="black")
@@ -322,7 +314,6 @@ def create_segment(text_line, image_path, audio_path, is_short):
     try:
         voice = AudioFileClip(audio_path)
         
-        # Background Music
         bg_path = os.path.join(ASSETS_DIR, "bg_music.mp3")
         if os.path.exists(bg_path):
             try:
@@ -335,7 +326,6 @@ def create_segment(text_line, image_path, audio_path, is_short):
                 voice = CompositeAudioClip([voice, bg])
             except: pass
         
-        # Image Animation
         try: img = ImageClip(image_path)
         except: 
             generate_backup_image(image_path, w, h)
@@ -346,7 +336,7 @@ def create_segment(text_line, image_path, audio_path, is_short):
         else: anim = img.resize(lambda t: 1.04 - 0.035 * t)
         anim = anim.set_position('center').set_duration(voice.duration)
 
-        # TEXT FIX: Use Custom PIL Renderer (Perfect Hindi)
+        # Use Perfect Hindi Renderer
         font_size = 85 if is_short else 100
         txt_clip = generate_text_clip_pil(text_line, w, h, font_size, voice.duration)
 
@@ -384,7 +374,7 @@ def make_video(content, is_short=True):
     
     if thumb: create_thumbnail(content['title'], os.path.join(ASSETS_DIR, f"i_{suffix}_0.jpg"), thumb)
     
-    # Clean Temp Files
+    # Cleanup Temp Files
     for f in os.listdir(ASSETS_DIR):
         if f.endswith(('.mp3', '.jpg')) and f != "bg_music.mp3" and f != "HindiFont.ttf":
             try: os.remove(os.path.join(ASSETS_DIR, f))
@@ -453,7 +443,7 @@ def upload_video(vid, content, lyrics, thumb, is_short):
 # MAIN EXECUTION
 # ────────────────────────────────────────────────
 if __name__ == "__main__":
-    print("===== HINDI RHYMES PRO (GRAMMAR + RENDER FIX) =====")
+    print("===== HINDI RHYMES PRO (FUN MODE + 1080p) =====")
     summary = []
 
     # Short
