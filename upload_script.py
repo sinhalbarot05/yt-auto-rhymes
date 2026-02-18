@@ -6,9 +6,10 @@ import asyncio
 import requests
 import time
 import re
-import numpy as np  # <--- FIXED: Added this missing import
+import numpy as np
 from pathlib import Path
 import pickle
+import concurrent.futures
 
 # ────────────────────────────────────────────────
 # 1. ADVANCED IMAGE & TEXT ENGINE
@@ -170,7 +171,7 @@ def generate_content(mode="short"):
             data['generated_topic'] = topic
             return data
         print(f"⚠️ Retrying Script Generation ({attempt+1})...")
-        time.sleep(2)
+        time.sleep(1) # Reduced delay
         
     return None
 
@@ -224,7 +225,7 @@ def get_image(action_desc, filename, keyword, is_short=False):
             if download_file(url_flux, filename, headers):
                 success = True
                 break
-            time.sleep(3)
+            time.sleep(1) # Reduced delay
     
     if not success:
         print("Using Stock Fallback...")
@@ -302,6 +303,16 @@ async def generate_voice_async(text, filename):
     proc = await asyncio.create_subprocess_exec(*cmd)
     await proc.wait()
 
+async def generate_batch_voices(tasks):
+    """Generates multiple voices in parallel with a semaphore."""
+    semaphore = asyncio.Semaphore(5)
+    async def limited_gen(text, filename):
+        async with semaphore:
+            if not os.path.exists(filename):
+                await generate_voice_async(text, filename)
+
+    await asyncio.gather(*(limited_gen(t, f) for t, f in tasks))
+
 def get_voice(text, filename):
     asyncio.run(generate_voice_async(text, filename))
 
@@ -353,15 +364,37 @@ def make_video(content, is_short=True):
     
     full_lyrics = ""
     
+    # 1. Prepare Tasks for Parallel Execution
+    voice_tasks = []
+    image_tasks = []
+
     for i, scene in enumerate(content['scenes']):
         line = scene['line']
         full_lyrics += line + "\n"
         
         aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
-        get_voice(line, aud)
+        voice_tasks.append((line, aud))
         
         img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
-        get_image(scene['action'], img, keyword, is_short=is_short)
+        image_tasks.append((scene['action'], img, keyword, is_short))
+
+    # 2. Run Voice Generation (Parallel)
+    print("🎤 Generating Audio...")
+    asyncio.run(generate_batch_voices(voice_tasks))
+
+    # 3. Run Image Generation (Parallel)
+    print("🎨 Generating Images...")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futures = [executor.submit(get_image, action, filename, kw, short)
+                   for action, filename, kw, short in image_tasks]
+        concurrent.futures.wait(futures)
+
+    # 4. Assemble Video
+    print("🎬 Assembling Video...")
+    for i, scene in enumerate(content['scenes']):
+        line = scene['line']
+        aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
+        img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
         
         clip = create_segment(line, img, aud, is_short)
         if clip: clips.append(clip)
@@ -382,7 +415,7 @@ def make_video(content, is_short=True):
 
     final.write_videofile(
         out, fps=24, codec='libx264', audio_codec='aac', threads=4,
-        preset='medium', ffmpeg_params=['-crf', '18', '-pix_fmt', 'yuv420p']
+        preset='fast', ffmpeg_params=['-crf', '18', '-pix_fmt', 'yuv420p']
     )
     return out, full_lyrics, thumb
 
