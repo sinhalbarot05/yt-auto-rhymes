@@ -8,7 +8,7 @@ if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.LANCZOS
 
 from moviepy.editor import (AudioFileClip, ImageClip, CompositeVideoClip,
-                            concatenate_videoclips, CompositeAudioClip, ColorClip, TextClip)
+                            concatenate_videoclips, CompositeAudioClip, ColorClip)
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
@@ -62,6 +62,8 @@ def generate_content(mode="short"):
     topic = groq_request(topic_prompt) or "Dolphin Playing Veena"
 
     lines = 8 if mode == "short" else 16
+    
+    # PROMPT FIX: Requested fewer, high-quality tags to prevent exceeding YouTube limits
     prompt = f"""You are 2026 ChuChu TV level Hindi kids rhyme expert.
 Topic: "{topic}"
 Create HIGHLY singable {lines} lines with REPEATING CHORUS (repeat 3x for retention).
@@ -70,13 +72,13 @@ Output ONLY valid JSON with MAX SEO 2026:
   "seo_title": "Best 2026 title starting with keyword (e.g. Hindi Nursery Rhymes for Kids 2026 | ... 🦁)",
   "title": "Hindi catchy title",
   "keyword": "Main English character",
-  "seo_tags": [array of 40 tags: 10 broad + 20 long-tail like "hindi bal geet for toddlers 2026" + 10 hindi],
+  "seo_tags": [array of exactly 15 high-quality tags, max 3 words each, like "hindi bal geet", "kids rhymes"],
   "seo_description": "Full description template with [TIMESTAMPS] placeholder",
   "scenes": [{{"line": "Hindi line", "action": "Pixar cute 3D visual description"}} , ...]]
 }}"""
     for _ in range(4):
         data = clean_json(groq_request(prompt))
-        if data and len(data.get('seo_tags', [])) > 25:
+        if data and len(data.get('seo_tags', [])) > 5:
             data['generated_topic'] = topic
             save_to_memory("used_topics.json", topic)
             return data
@@ -160,20 +162,21 @@ def create_segment(line, img_path, aud_path, is_short, idx):
     anim = img.resize(lambda t: 1.015 - 0.012 * t).set_position('center').set_duration(voice.duration)
 
     txt = generate_text_clip_pil(line, w, h, 90 if is_short else 118, voice.duration)
-    wm = TextClip("Hindi Masti Rhymes", fontsize=26, color='white', font='Arial').set_position((25,25)).set_duration(voice.duration).set_opacity(0.75)
+    
+    # Using PIL for the Watermark as well to prevent any accidental ImageMagick dependencies
+    wm = generate_text_clip_pil("Hindi Masti Rhymes", w, h, 35, voice.duration, color='white', pos_y=30, stroke_width=2)
+    wm = wm.set_position((25,25)).set_opacity(0.75)
 
     clip = CompositeVideoClip([anim, txt, wm], size=(w, h)).set_audio(audio).set_duration(voice.duration)
     if idx > 0: clip = clip.crossfadein(0.45)
     return clip
 
-# === THIS IS THE FIXED SECTION ===
 async def generate_voice_async(text, fn):
     proc = await asyncio.create_subprocess_exec("edge-tts", "--voice", "hi-IN-SwaraNeural", "--text", text, "--write-media", fn)
     await proc.wait()
 
 def get_voice(text, fn): 
     asyncio.run(generate_voice_async(text, fn))
-# =================================
 
 def make_video(content, is_short=True):
     print(f"🎥 Premium Render {'SHORT' if is_short else 'LONG'}...")
@@ -240,7 +243,20 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
         with open(TOKEN_FILE, 'rb') as f: creds = pickle.load(f)
         service = build('youtube', 'v3', credentials=creds)
         title = content.get('seo_title', content['title'] + " | Hindi Nursery Rhymes for Kids 2026 🦁")
-        tags = content.get('seo_tags', [])[:40]
+        
+        # FIX: TAG SANITIZER & LIMITER
+        raw_tags = content.get('seo_tags', ['hindi rhymes', 'bal geet', 'kids songs', 'nursery rhymes'])
+        valid_tags = []
+        total_chars = 0
+        for tag in raw_tags:
+            # Clean weird characters
+            clean_tag = str(tag).replace('<', '').replace('>', '').replace('"', '').replace(',', '').strip()
+            # Ensure tag isn't ridiculously long and prevents exceeding YouTube's total 500-char limit
+            if clean_tag and len(clean_tag) < 50:
+                if total_chars + len(clean_tag) < 450: # safe padding below 500
+                    valid_tags.append(clean_tag)
+                    total_chars += len(clean_tag) + 1 # +1 for the comma YouTube adds
+        
         desc = f"""{title}
 
 {desc_template.replace('[TIMESTAMPS]', chr(10).join(times))}
@@ -249,7 +265,12 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
 #HindiRhymes #BalGeet #NurseryRhymesForKids"""
 
         body = {
-            'snippet': {'title': title[:100], 'description': desc, 'tags': tags, 'categoryId': '24'},
+            'snippet': {
+                'title': title[:100], 
+                'description': desc, 
+                'tags': valid_tags, # Using our newly sanitized tags
+                'categoryId': '24'
+            },
             'status': {'privacyStatus': 'public', 'selfDeclaredMadeForKids': True}
         }
         media = MediaFileUpload(vid, chunksize=-1, resumable=True)
@@ -294,3 +315,4 @@ if __name__ == "__main__":
                 if not success:
                     print(f"⚠️ {name} Video created but FAILED to upload to YouTube.")
     print("\n🎉 Daily broadcast workflow completed.")
+
