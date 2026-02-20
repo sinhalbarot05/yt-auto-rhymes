@@ -1,68 +1,36 @@
-name: Infinite Broadcaster - 2x Daily
+name: Hindi Masti – Premium Daily Broadcast
 
 on:
   schedule:
-    # 1. Morning Slot: 7:00 AM IST (01:30 UTC)
-    - cron: '30 1 * * *'
-    
-    # 2. Evening Slot: 7:00 PM IST (13:30 UTC)
-    - cron: '30 13 * * *'
-
+    - cron: '30 1 * * *'   # 7:00 AM IST
+    - cron: '30 13 * * *'  # 7:00 PM IST
   workflow_dispatch:
-
-permissions:
-  contents: write
 
 jobs:
   broadcast:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout Studio
-        uses: actions/checkout@v4
-
-      - name: Install System Tools
+      - uses: actions/checkout@v4
+      - name: Install deps
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg imagemagick ghostscript fonts-noto
-
-      - name: Fix ImageMagick Policy
-        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg imagemagick ghostscript fonts-noto
           sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Python Libraries
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install --upgrade pip && pip install requests google-api-python-client google-auth-oauthlib google-auth-httplib2 edge-tts moviepy==1.0.3 numpy Pillow
+      - name: Secrets
         run: |
-          python -m pip install --upgrade pip
-          pip install --upgrade \
-            requests \
-            google-api-python-client \
-            google-auth-oauthlib \
-            google-auth-httplib2 \
-            edge-tts \
-            moviepy==1.0.3 \
-            numpy==1.26.4 \
-            "Pillow==9.5.0"
-
-      - name: Login to YouTube
-        run: |
-          echo "${{ secrets.YOUTUBE_CLIENT_SECRET_JSON }}" | base64 --decode > client_secret.json
-          echo "${{ secrets.YOUTUBE_TOKEN_JSON_B64 }}" | base64 --decode > youtube_token.pickle
-
-      - name: Start Broadcast
+          echo "${{ secrets.YOUTUBE_CLIENT_SECRET_JSON }}" | base64 -d > client_secret.json
+          echo "${{ secrets.YOUTUBE_TOKEN_JSON_B64 }}" | base64 -d > youtube_token.pickle
+      - name: Run
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
         run: python upload_script.py
-
-      - name: Save Memory
+      - name: Save memory
         if: success()
         run: |
-          git config --global user.name "Auto-Broadcaster"
-          git config --global user.email "bot@noreply.github.com"
+          git config user.name "AutoBot"
+          git config user.email "bot@github.com"
           git add memory/*.json
-          git diff --quiet && git diff --staged --quiet || (git commit -m "🧠 Update Channel Memory [skip ci]" && git push)
+          git diff --quiet --staged || (git commit -m "Update memory [skip ci]" && git push)
