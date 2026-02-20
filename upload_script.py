@@ -166,6 +166,15 @@ def create_segment(line, img_path, aud_path, is_short, idx):
     if idx > 0: clip = clip.crossfadein(0.45)
     return clip
 
+# === THIS IS THE FIXED SECTION ===
+async def generate_voice_async(text, fn):
+    proc = await asyncio.create_subprocess_exec("edge-tts", "--voice", "hi-IN-SwaraNeural", "--text", text, "--write-media", fn)
+    await proc.wait()
+
+def get_voice(text, fn): 
+    asyncio.run(generate_voice_async(text, fn))
+# =================================
+
 def make_video(content, is_short=True):
     print(f"🎥 Premium Render {'SHORT' if is_short else 'LONG'}...")
     clips = [create_intro(is_short)]
@@ -207,10 +216,6 @@ def make_video(content, is_short=True):
             except: pass
             
     return out, full_lyrics, times, content.get('seo_description', '')
-
-async def generate_voice_async(text, fn):
-    await asyncio.create_subprocess_exec("edge-tts", "--voice", "hi-IN-SwaraNeural", "--text", text, "--write-media", fn).wait()
-def get_voice(text, fn): asyncio.run(generate_voice_async(text, fn))
 
 def create_thumbnail(title, bg_path, out_path, is_short):
     try:
@@ -275,7 +280,7 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
         return False
 
 # ────────────────────────────────────────────────
-# MAIN EXECUTION (FIXED: NOW IT ACTUALLY UPLOADS)
+# MAIN EXECUTION
 # ────────────────────────────────────────────────
 if __name__ == "__main__":
     print("===== HINDI MASTI RHYMES – 2026 ULTIMATE MAX SEO + OPTIMIZED =====")
@@ -285,7 +290,6 @@ if __name__ == "__main__":
         if data:
             vid, lyrics, times, desc = make_video(data, is_short)
             if vid: 
-                # THIS WAS MISSING BEFORE!
                 success = upload_video(vid, data, lyrics, times, desc, is_short)
                 if not success:
                     print(f"⚠️ {name} Video created but FAILED to upload to YouTube.")
