@@ -62,19 +62,22 @@ def generate_content(mode="short"):
     topic = groq_request(topic_prompt) or "Dolphin Playing Veena"
 
     lines = 8 if mode == "short" else 16
-    
-    # PROMPT FIX: Requested fewer, high-quality tags to prevent exceeding YouTube limits
-    prompt = f"""You are 2026 ChuChu TV level Hindi kids rhyme expert.
+    prompt = f"""You are a ChuChu TV level Hindi kids rhyme expert.
 Topic: "{topic}"
-Create HIGHLY singable {lines} lines with REPEATING CHORUS (repeat 3x for retention).
-Output ONLY valid JSON with MAX SEO 2026:
+Create HIGHLY singable {lines} lines with REPEATING CHORUS (repeat 3x).
+
+STRICT RULES:
+1. The 'title' and 'line' MUST be in pure Hindi (Devanagari script, e.g., 'नमस्ते'). NO ENGLISH LETTERS in the lyrics!
+2. Rhyme scheme AABB.
+
+Output ONLY valid JSON:
 {{
   "seo_title": "Best 2026 title starting with keyword (e.g. Hindi Nursery Rhymes for Kids 2026 | ... 🦁)",
-  "title": "Hindi catchy title",
+  "title": "Hindi catchy title (Devanagari)",
   "keyword": "Main English character",
-  "seo_tags": [array of exactly 15 high-quality tags, max 3 words each, like "hindi bal geet", "kids rhymes"],
+  "seo_tags": [array of exactly 15 high-quality tags, max 3 words each],
   "seo_description": "Full description template with [TIMESTAMPS] placeholder",
-  "scenes": [{{"line": "Hindi line", "action": "Pixar cute 3D visual description"}} , ...]]
+  "scenes": [{{"line": "Hindi text in Devanagari", "action": "Pixar cute 3D visual description"}}]
 }}"""
     for _ in range(4):
         data = clean_json(groq_request(prompt))
@@ -162,8 +165,6 @@ def create_segment(line, img_path, aud_path, is_short, idx):
     anim = img.resize(lambda t: 1.015 - 0.012 * t).set_position('center').set_duration(voice.duration)
 
     txt = generate_text_clip_pil(line, w, h, 90 if is_short else 118, voice.duration)
-    
-    # Using PIL for the Watermark as well to prevent any accidental ImageMagick dependencies
     wm = generate_text_clip_pil("Hindi Masti Rhymes", w, h, 35, voice.duration, color='white', pos_y=30, stroke_width=2)
     wm = wm.set_position((25,25)).set_opacity(0.75)
 
@@ -244,18 +245,15 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
         service = build('youtube', 'v3', credentials=creds)
         title = content.get('seo_title', content['title'] + " | Hindi Nursery Rhymes for Kids 2026 🦁")
         
-        # FIX: TAG SANITIZER & LIMITER
         raw_tags = content.get('seo_tags', ['hindi rhymes', 'bal geet', 'kids songs', 'nursery rhymes'])
         valid_tags = []
         total_chars = 0
         for tag in raw_tags:
-            # Clean weird characters
             clean_tag = str(tag).replace('<', '').replace('>', '').replace('"', '').replace(',', '').strip()
-            # Ensure tag isn't ridiculously long and prevents exceeding YouTube's total 500-char limit
             if clean_tag and len(clean_tag) < 50:
-                if total_chars + len(clean_tag) < 450: # safe padding below 500
+                if total_chars + len(clean_tag) < 450: 
                     valid_tags.append(clean_tag)
-                    total_chars += len(clean_tag) + 1 # +1 for the comma YouTube adds
+                    total_chars += len(clean_tag) + 1 
         
         desc = f"""{title}
 
@@ -268,8 +266,10 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
             'snippet': {
                 'title': title[:100], 
                 'description': desc, 
-                'tags': valid_tags, # Using our newly sanitized tags
-                'categoryId': '24'
+                'tags': valid_tags, 
+                'categoryId': '24',
+                'defaultLanguage': 'hi',
+                'defaultAudioLanguage': 'hi'
             },
             'status': {'privacyStatus': 'public', 'selfDeclaredMadeForKids': True}
         }
