@@ -47,7 +47,6 @@ def save_to_memory(f, item):
 def clean_text_for_font(text):
     return re.sub(r'[^\w\s\u0900-\u097F\,\.\!\?\-]', '', text).strip()
 
-# FIX: LOUD LOGS & ERROR RECOVERY FOR GROQ
 def groq_request(prompt):
     try:
         r = requests.post("https://api.groq.com/openai/v1/chat/completions",
@@ -219,13 +218,14 @@ def create_segment(line, img_path, aud_path, is_short, idx):
     if idx > 0: clip = clip.crossfadein(0.45)
     return clip
 
+# FIX: Added '=' to arguments so the system doesn't misinterpret the minus/plus signs
 async def generate_voice_async(text, fn):
     clean_speech = clean_text_for_font(text)
     proc = await asyncio.create_subprocess_exec(
         "edge-tts", 
         "--voice", "hi-IN-SwaraNeural", 
-        "--rate", "-10%",   
-        "--pitch", "+10Hz", 
+        "--rate=-10%",   
+        "--pitch=+10Hz", 
         "--text", clean_speech, 
         "--write-media", fn
     )
