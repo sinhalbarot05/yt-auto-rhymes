@@ -10,6 +10,7 @@ import numpy as np
 from pathlib import Path
 import pickle
 import concurrent.futures
+import traceback
 
 # ────────────────────────────────────────────────
 # 1. ADVANCED IMAGE & TEXT ENGINE
@@ -300,8 +301,14 @@ def create_thumbnail(title, bg_path, output_path):
 # ────────────────────────────────────────────────
 async def generate_voice_async(text, filename):
     cmd = ["edge-tts", "--voice", "hi-IN-SwaraNeural", "--text", text, "--write-media", filename]
-    proc = await asyncio.create_subprocess_exec(*cmd)
-    await proc.wait()
+    try:
+        proc = await asyncio.create_subprocess_exec(*cmd)
+        await proc.wait()
+    except Exception as e:
+        print(f"Failed to generate voice for '{text}': {e}")
+        # Fallback empty file to prevent crash later
+        open(filename, 'wb').close()
+
 
 async def generate_batch_voices(tasks):
     """Generates multiple voices in parallel with a semaphore."""
@@ -311,13 +318,19 @@ async def generate_batch_voices(tasks):
             if not os.path.exists(filename):
                 await generate_voice_async(text, filename)
 
-    await asyncio.gather(*(limited_gen(t, f) for t, f in tasks))
+    try:
+        await asyncio.gather(*(limited_gen(t, f) for t, f in tasks))
+    except Exception as e:
+        print(f"Batch voice generation failed: {e}")
+        traceback.print_exc()
 
 def get_voice(text, filename):
     asyncio.run(generate_voice_async(text, filename))
 
 def create_segment(text_line, image_path, audio_path, is_short):
-    if not os.path.exists(audio_path): return None
+    if not os.path.exists(audio_path):
+        print(f"Missing audio: {audio_path}")
+        return None
     w, h = (1080, 1920) if is_short else (1920, 1080)
     
     if not os.path.exists(image_path): generate_backup_image(image_path, w, h)
@@ -354,6 +367,7 @@ def create_segment(text_line, image_path, audio_path, is_short):
         return CompositeVideoClip([anim, txt_clip], size=(w,h)).set_audio(voice)
     except Exception as e:
         print(f"Segment Error: {e}") 
+        traceback.print_exc()
         return None
 
 def make_video(content, is_short=True):
@@ -380,14 +394,27 @@ def make_video(content, is_short=True):
 
     # 2. Run Voice Generation (Parallel)
     print("🎤 Generating Audio...")
-    asyncio.run(generate_batch_voices(voice_tasks))
+    try:
+        asyncio.run(generate_batch_voices(voice_tasks))
+    except Exception as e:
+        print(f"Async Voice Generation Failed: {e}")
+        traceback.print_exc()
 
     # 3. Run Image Generation (Parallel)
     print("🎨 Generating Images...")
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-        futures = [executor.submit(get_image, action, filename, kw, short)
-                   for action, filename, kw, short in image_tasks]
-        concurrent.futures.wait(futures)
+        futures = {executor.submit(get_image, action, filename, kw, short): (action, filename)
+                   for action, filename, kw, short in image_tasks}
+
+        for future in concurrent.futures.as_completed(futures):
+            action, filename = futures[future]
+            try:
+                success = future.result()
+                if not success:
+                    print(f"❌ Failed to generate image for: {action}")
+            except Exception as e:
+                print(f"❌ Exception generating image for {action}: {e}")
+                traceback.print_exc()
 
     # 4. Assemble Video
     print("🎬 Assembling Video...")
@@ -395,11 +422,23 @@ def make_video(content, is_short=True):
         line = scene['line']
         aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
         img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
-        
+
+        # Robustness Check: Ensure files exist before creating segment
+        if not os.path.exists(aud):
+            print(f"⚠️ Missing audio for scene {i}: {aud}")
+            continue
+        if not os.path.exists(img):
+            print(f"⚠️ Missing image for scene {i}: {img}, generating backup...")
+            generate_backup_image(img, 1080 if is_short else 1920, 1920 if is_short else 1080)
+
         clip = create_segment(line, img, aud, is_short)
         if clip: clips.append(clip)
 
-    if not clips: return None, None, None
+    print(f"Created {len(clips)} clips out of {len(content['scenes'])} scenes.")
+
+    if not clips:
+        print("No clips were generated. Aborting video creation.")
+        return None, None, None
     
     final = concatenate_videoclips(clips, method="compose")
     out = os.path.join(OUTPUT_DIR, f"final_{suffix}.mp4")
@@ -424,7 +463,9 @@ def make_video(content, is_short=True):
 # ────────────────────────────────────────────────
 def upload_video(vid, content, lyrics, thumb, is_short):
     try:
-        if not os.path.exists(TOKEN_FILE): return False
+        if not os.path.exists(TOKEN_FILE):
+            print("Token file not found for upload.")
+            return False
         with open(TOKEN_FILE, 'rb') as f: creds = pickle.load(f)
         service = build('youtube', 'v3', credentials=creds)
         
@@ -470,13 +511,16 @@ def upload_video(vid, content, lyrics, thumb, is_short):
         if "uploadLimitExceeded" in str(e): print("⚠️ Quota Reached.")
         else: print(f"Upload Error: {e}")
         return False
-    except: return False
+    except Exception as e:
+        print(f"General Upload Error: {e}")
+        traceback.print_exc()
+        return False
 
 # ────────────────────────────────────────────────
 # MAIN EXECUTION
 # ────────────────────────────────────────────────
 if __name__ == "__main__":
-    print("===== HINDI RHYMES PRO (FUN MODE + 1080p) =====")
+    print("===== HINDI MASTI RHYMES – 2026 ULTIMATE MAX SEO + OPTIMIZED =====")
     summary = []
 
     # Short
@@ -488,7 +532,14 @@ if __name__ == "__main__":
             if v: 
                 res = upload_video(v, d, l, t, True)
                 summary.append(f"Short: {'✅' if res else '❌'} {d['title']}")
-    except Exception as e: summary.append(f"Short Error: {e}")
+            else:
+                summary.append(f"Short: ❌ Video Generation Failed")
+        else:
+            summary.append(f"Short: ❌ Content Generation Failed")
+    except Exception as e:
+        print(f"Short Loop Error: {e}")
+        traceback.print_exc()
+        summary.append(f"Short Error: {e}")
 
     # Long
     try:
@@ -499,7 +550,14 @@ if __name__ == "__main__":
             if v: 
                 res = upload_video(v, d, l, t, False)
                 summary.append(f"Long: {'✅' if res else '❌'} {d['title']}")
-    except Exception as e: summary.append(f"Long Error: {e}")
+            else:
+                summary.append(f"Long: ❌ Video Generation Failed")
+        else:
+            summary.append(f"Long: ❌ Content Generation Failed")
+    except Exception as e:
+        print(f"Long Loop Error: {e}")
+        traceback.print_exc()
+        summary.append(f"Long Error: {e}")
 
     print("\n" + "="*40)
     print("📢 BROADCAST SUMMARY")
