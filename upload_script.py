@@ -1,4 +1,4 @@
-import os, random, json, asyncio, requests, time, numpy as np
+import os, random, json, asyncio, requests, time, numpy as np, re
 from pathlib import Path
 import pickle
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -44,11 +44,17 @@ def save_to_memory(f, item):
         data.append(item)
         json.dump(data[-1000:], open(os.path.join(MEMORY_DIR, f), 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
 
+# FIX: STRIP EMOJIS TO PREVENT BOXY FONTS
+def clean_text_for_font(text):
+    """Removes emojis and unsupported characters that cause boxy text"""
+    # Keeps Devanagari, English letters, numbers, and basic punctuation
+    return re.sub(r'[^\w\s\u0900-\u097F\,\.\!\?\-]', '', text).strip()
+
 def groq_request(prompt):
     try:
         r = requests.post("https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}"},
-            json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.75, "max_tokens": 3000}, timeout=45)
+            json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.8, "max_tokens": 3000}, timeout=45)
         return r.json()["choices"][0]["message"]["content"].strip()
     except: return None
 
@@ -59,29 +65,34 @@ def clean_json(text):
 def generate_content(mode="short"):
     used = load_memory("used_topics.json")
     topic_prompt = f"Super cute funny topic for Hindi kids rhyme 2026. Avoid: {', '.join(used[-20:])}. Output ONLY English topic."
-    topic = groq_request(topic_prompt) or "Dolphin Playing Veena"
+    topic = groq_request(topic_prompt) or "Cute Elephant Dancing"
 
     lines = 8 if mode == "short" else 16
-    prompt = f"""You are a ChuChu TV level Hindi kids rhyme expert.
+    
+    # FIX: IMPROVED RHYME PROMPT FOR BETTER SINGING & SHORT LINES
+    prompt = f"""You are a top-tier Hindi children's poet.
 Topic: "{topic}"
-Create HIGHLY singable {lines} lines with REPEATING CHORUS (repeat 3x).
+Write a highly melodic, catchy, and rhythmic nursery rhyme.
 
-STRICT RULES:
-1. The 'title' and 'line' MUST be in pure Hindi (Devanagari script, e.g., 'नमस्ते'). NO ENGLISH LETTERS in the lyrics!
-2. Rhyme scheme AABB.
+CRITICAL RHYME RULES:
+1. Pure Devanagari Hindi (no English words in the rhyme).
+2. Simple words kids love (like भालू, हाथी, पानी, राजा).
+3. VERY SHORT LINES: Maximum 4 to 5 words per line! (So they fit on screen).
+4. Perfect AABB rhyme scheme.
+5. NO EMOJIS in the 'line' or 'title' fields.
 
 Output ONLY valid JSON:
 {{
   "seo_title": "Best 2026 title starting with keyword (e.g. Hindi Nursery Rhymes for Kids 2026 | ... 🦁)",
-  "title": "Hindi catchy title (Devanagari)",
+  "title": "Hindi catchy title (Devanagari only, no emojis)",
   "keyword": "Main English character",
-  "seo_tags": [array of exactly 15 high-quality tags, max 3 words each],
-  "seo_description": "Full description template with [TIMESTAMPS] placeholder",
-  "scenes": [{{"line": "Hindi text in Devanagari", "action": "Pixar cute 3D visual description"}}]
+  "seo_tags": ["hindi bal geet", "kids rhymes"],
+  "seo_description": "Description template with [TIMESTAMPS]",
+  "scenes": [{{"line": "Very short Hindi text", "action": "Pixar cute 3D visual description"}}]
 }}"""
     for _ in range(4):
         data = clean_json(groq_request(prompt))
-        if data and len(data.get('seo_tags', [])) > 5:
+        if data and len(data.get('seo_tags', [])) > 2:
             data['generated_topic'] = topic
             save_to_memory("used_topics.json", topic)
             return data
@@ -120,32 +131,51 @@ def get_image(action, fn, kw, is_short):
     if download_file(stock, fn): apply_pro_enhancement(fn, w, h)
     else: Image.new('RGB', (w, h), (random.randint(70, 230),)*3).save(fn)
 
+# FIX: AUTO-WORD-WRAP TO KEEP TEXT ON SCREEN
 def generate_text_clip_pil(text, w, h, size, dur, color='#FFFF00', pos_y=None, stroke_width=8):
-    """Generates perfect Hindi text bypassing ImageMagick crashes"""
+    text = clean_text_for_font(text) # Strip boxy emojis
     img = Image.new('RGBA', (w, h), (0,0,0,0))
     draw = ImageDraw.Draw(img)
-    font = ImageFont.truetype(FONT_FILE, size) if os.path.exists(FONT_FILE) else ImageFont.load_default()
-    bbox = draw.textbbox((0,0), text, font=font)
+    try: font = ImageFont.truetype(FONT_FILE, size)
+    except: font = ImageFont.load_default()
+    
+    # Word wrap logic
+    max_w = w - 100
+    words = text.split()
+    lines = []
+    curr = ""
+    for word in words:
+        test = curr + " " + word if curr else word
+        if draw.textbbox((0,0), test, font=font)[2] <= max_w:
+            curr = test
+        else:
+            if curr: lines.append(curr)
+            curr = word
+    if curr: lines.append(curr)
+    wrapped_text = "\n".join(lines)
+    
+    bbox = draw.multiline_textbbox((0,0), wrapped_text, font=font, align="center")
     tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
     x = (w - tw) // 2
     y = pos_y if pos_y is not None else (h - th - 340)
     
     for dx in range(-stroke_width, stroke_width+1, 2):
         for dy in range(-stroke_width, stroke_width+1, 2):
-            draw.text((x+dx, y+dy), text, font=font, fill='black')
-    draw.text((x,y), text, font=font, fill=color)
+            draw.multiline_text((x+dx, y+dy), wrapped_text, font=font, fill='black', align="center")
+    draw.multiline_text((x,y), wrapped_text, font=font, fill=color, align="center")
+    
     return ImageClip(np.array(img)).set_duration(dur)
 
 def create_intro(is_short):
     w, h = (1080, 1920) if is_short else (1920, 1080)
     clip = ColorClip((w, h), (255, 215, 0)).set_duration(2.2)
-    txt = generate_text_clip_pil("हिंदी मस्ती राइम्स 🦁 2026", w, h, 95, 2.2, color='white', pos_y=h//2 - 100)
+    txt = generate_text_clip_pil("हिंदी मस्ती राइम्स 2026", w, h, 95, 2.2, color='white', pos_y=h//2 - 100)
     return CompositeVideoClip([clip, txt], size=(w, h)).crossfadeout(0.5)
 
 def create_outro(is_short):
     w, h = (1080, 1920) if is_short else (1920, 1080)
     clip = ColorClip((w, h), (20, 20, 40)).set_duration(4.5)
-    txt1 = generate_text_clip_pil("LIKE 👍 SUBSCRIBE 🦁", w, h, 92, 4.5, pos_y=h//3)
+    txt1 = generate_text_clip_pil("LIKE  SUBSCRIBE", w, h, 92, 4.5, pos_y=h//3)
     txt2 = generate_text_clip_pil("@HindiMastiRhymes", w, h, 78, 4.5, color='white', pos_y=int(h*0.6))
     return CompositeVideoClip([clip, txt1, txt2], size=(w, h))
 
@@ -172,8 +202,18 @@ def create_segment(line, img_path, aud_path, is_short, idx):
     if idx > 0: clip = clip.crossfadein(0.45)
     return clip
 
+# FIX: AUDIO QUALITY TUNING (Slower + Higher Pitch = Cutie Cartoon Voice)
 async def generate_voice_async(text, fn):
-    proc = await asyncio.create_subprocess_exec("edge-tts", "--voice", "hi-IN-SwaraNeural", "--text", text, "--write-media", fn)
+    # Removed emojis from speech string so AI doesn't stumble
+    clean_speech = clean_text_for_font(text)
+    proc = await asyncio.create_subprocess_exec(
+        "edge-tts", 
+        "--voice", "hi-IN-SwaraNeural", 
+        "--rate", "-10%",   # Slower for better rhyme pacing
+        "--pitch", "+10Hz", # Higher pitch for kids vibe
+        "--text", clean_speech, 
+        "--write-media", fn
+    )
     await proc.wait()
 
 def get_voice(text, fn): 
@@ -223,18 +263,40 @@ def make_video(content, is_short=True):
 
 def create_thumbnail(title, bg_path, out_path, is_short):
     try:
+        clean_title = clean_text_for_font(title)
         with Image.open(bg_path) as im:
             im = im.convert("RGB").resize((1280,720), Image.LANCZOS)
             im = ImageEnhance.Contrast(im).enhance(1.28)
             overlay = Image.new("RGBA", (1280,720), (0,0,0,92))
             im = Image.alpha_composite(im.convert("RGBA"), overlay).convert("RGB")
             draw = ImageDraw.Draw(im)
-            font_big = ImageFont.truetype(FONT_FILE, 138) if os.path.exists(FONT_FILE) else ImageFont.load_default()
+            
+            # FIX: DYNAMIC THUMBNAIL FONT WRAPPER
+            font_size = 140
+            font_big = ImageFont.truetype(FONT_FILE, font_size) if os.path.exists(FONT_FILE) else ImageFont.load_default()
+            
+            # Wrap Title
+            max_w = 1150
+            words = clean_title.split()
+            lines, curr = [], ""
+            for word in words:
+                test = curr + " " + word if curr else word
+                if draw.textbbox((0,0), test, font=font_big)[2] <= max_w: curr = test
+                else:
+                    if curr: lines.append(curr)
+                    curr = word
+            if curr: lines.append(curr)
+            wrapped_title = "\n".join(lines)
+            
+            bbox = draw.multiline_textbbox((0,0), wrapped_title, font=font_big, align="center")
+            x = (1280 - (bbox[2]-bbox[0])) // 2
+            
+            for off in [(8,8),(10,10)]: 
+                draw.multiline_text((x+off[0], 120+off[1]), wrapped_title, font=font_big, fill=(0,0,0), align="center")
+            draw.multiline_text((x, 120), wrapped_title, font=font_big, fill="#FFEA00", align="center")
+            
             font_small = ImageFont.truetype(FONT_FILE, 72) if os.path.exists(FONT_FILE) else ImageFont.load_default()
-            x = (1280 - draw.textbbox((0,0), title, font=font_big)[2]) // 2
-            for off in [(10,10),(12,12)]: draw.text((x+off[0], 155+off[1]), title, font=font_big, fill=(0,0,0))
-            draw.text((x, 155), title, font=font_big, fill="#FFEA00")
-            draw.text((380, 480), "2026 🦁 FOR KIDS", font=font_small, fill="#FFFF00")
+            draw.text((420, 520), "2026 FOR KIDS", font=font_small, fill="#FFFF00")
             im.save(out_path, quality=98, optimize=True)
     except: pass
 
@@ -243,7 +305,7 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
         print(f"🚀 Initializing YouTube Upload for: {content['title']}")
         with open(TOKEN_FILE, 'rb') as f: creds = pickle.load(f)
         service = build('youtube', 'v3', credentials=creds)
-        title = content.get('seo_title', content['title'] + " | Hindi Nursery Rhymes for Kids 2026 🦁")
+        title = content.get('seo_title', content['title'] + " | Hindi Nursery Rhymes for Kids 2026")
         
         raw_tags = content.get('seo_tags', ['hindi rhymes', 'bal geet', 'kids songs', 'nursery rhymes'])
         valid_tags = []
@@ -259,7 +321,7 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
 
 {desc_template.replace('[TIMESTAMPS]', chr(10).join(times))}
 
-🦁 LIKE + SUBSCRIBE + SHARE for daily new rhymes!
+LIKE + SUBSCRIBE + SHARE for daily new rhymes!
 #HindiRhymes #BalGeet #NurseryRhymesForKids"""
 
         body = {
