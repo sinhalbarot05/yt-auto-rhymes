@@ -47,20 +47,51 @@ def save_to_memory(f, item):
 def clean_text_for_font(text):
     return re.sub(r'[^\w\s\u0900-\u097F\,\.\!\?\-]', '', text).strip()
 
+# ────────────────────────────────────────────────
+# 🧠 DUAL-BRAIN AI SYSTEM (OPENAI -> GROQ FALLBACK)
+# ────────────────────────────────────────────────
+def openai_request(prompt):
+    api_key = os.getenv('OPENAI_API_KEY')
+    if not api_key: return None
+    try:
+        r = requests.post("https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "temperature": 0.8, "max_tokens": 1500}, timeout=45)
+        if r.status_code == 200:
+            return r.json()["choices"][0]["message"]["content"].strip()
+        print(f"   ⚠️ OpenAI Error ({r.status_code}): {r.text[:100]}...")
+    except Exception as e: print(f"   ⚠️ OpenAI Exception: {e}")
+    return None
+
 def groq_request(prompt):
+    api_key = os.getenv('GROQ_API_KEY')
+    if not api_key: return None
     try:
         r = requests.post("https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}"},
+            headers={"Authorization": f"Bearer {api_key}"},
             json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.8, "max_tokens": 3000}, timeout=45)
+        if r.status_code == 200:
+            return r.json()["choices"][0]["message"]["content"].strip()
+        print(f"   ⚠️ Groq Error ({r.status_code}): {r.text[:100]}...")
+    except Exception as e: print(f"   ⚠️ Groq Exception: {e}")
+    return None
+
+def smart_llm_request(prompt):
+    """Tries OpenAI first. If it fails or is missing, falls back to Groq."""
+    print("   -> Attempting OpenAI (gpt-4o-mini)...")
+    res = openai_request(prompt)
+    if res: 
+        print("   -> Success via OpenAI!")
+        return res
         
-        if r.status_code != 200:
-            print(f"❌ Groq API Error ({r.status_code}): {r.text[:150]}")
-            return None
-            
-        return r.json()["choices"][0]["message"]["content"].strip()
-    except Exception as e: 
-        print(f"❌ Groq Connection Error: {e}")
-        return None
+    print("   -> OpenAI failed or missing. Falling back to Groq (llama-3.3)...")
+    res = groq_request(prompt)
+    if res:
+        print("   -> Success via Groq!")
+        return res
+        
+    print("❌ BOTH AI ENGINES FAILED!")
+    return None
 
 def clean_json(text):
     if not text: return None
@@ -73,29 +104,30 @@ def clean_json(text):
         return None
 
 def generate_content(mode="short"):
-    print("🧠 Contacting Groq AI for script...")
+    print("\n🧠 Contacting AI for script...")
     used = load_memory("used_topics.json")
     topic_prompt = f"Super cute funny topic for Hindi kids rhyme 2026. Avoid: {', '.join(used[-20:])}. Output ONLY English topic."
     
-    topic = groq_request(topic_prompt) or "Cute Elephant Dancing"
+    topic = smart_llm_request(topic_prompt) or "Cute Elephant Dancing"
     print(f"★ Generated Topic: {topic}")
+    
+    time.sleep(3) # Anti-rate-limit pause for free APIs
 
     lines = 8 if mode == "short" else 16
     
-    # 🌟 FIX: NEW PROMPT FOR PERFECT LINE LENGTH & EXACT VISUAL MATCHING 🌟
     prompt = f"""You are a top-tier Hindi children's poet.
 Topic: "{topic}"
 Write a highly melodic, catchy, and rhythmic nursery rhyme.
 
 CRITICAL RHYME RULES:
 1. Pure Devanagari Hindi (no English words in the rhyme).
-2. PERFECT RHYTHM: Every line must have exactly 5 to 7 words! Do not write 2-word lines. Make it a complete, singable sentence.
+2. PERFECT RHYTHM: Every line must have exactly 5 to 7 words! Make it a complete, singable sentence.
 3. Perfect AABB rhyme scheme.
 4. NO EMOJIS in the 'line' or 'title' fields.
 
 CRITICAL VISUAL RULES:
 5. The 'action' field MUST be a highly detailed English prompt that exactly matches the Hindi 'line'. 
-6. Every single 'action' MUST include the main character's description so the scene matches the lyrics perfectly!
+6. Every single 'action' MUST include the main character's description.
 
 Output ONLY valid JSON:
 {{
@@ -107,7 +139,7 @@ Output ONLY valid JSON:
   "scenes": [{{"line": "5 to 7 word Hindi sentence", "action": "Highly detailed English description of EXACTLY what is happening in the line, including the main character"}}]
 }}"""
     for attempt in range(4):
-        raw = groq_request(prompt)
+        raw = smart_llm_request(prompt)
         data = clean_json(raw)
         if data and "scenes" in data:
             print("✅ Valid Rhyme Script Generated!")
@@ -115,11 +147,14 @@ Output ONLY valid JSON:
             save_to_memory("used_topics.json", topic)
             return data
             
-        print(f"⚠️ Groq formatting failed (Attempt {attempt+1}/4). Waiting 5 seconds...")
+        print(f"⚠️ Formatting failed (Attempt {attempt+1}/4). Retrying in 5s...")
         time.sleep(5)
         
     return None
 
+# ────────────────────────────────────────────────
+# VIDEO & IMAGE LOGIC
+# ────────────────────────────────────────────────
 def download_file(url, fn, headers=None):
     try:
         r = requests.get(url, headers=headers or {"User-Agent": "Mozilla/5.0"}, timeout=60)
@@ -143,8 +178,9 @@ def apply_pro_enhancement(fn, w, h):
 def get_image(action, fn, kw, is_short):
     w, h = (1080, 1920) if is_short else (1920, 1080)
     seed = random.randint(0, 999999)
-    # We add the keyword (kw) into the prompt to ensure the character is always present
-    clean = f"{kw}, {action}, cute pixar 3d kids cartoon vibrant colors masterpiece 8k sharp".replace(" ", "%20")
+    # Always append our core colors to the prompt
+    core_colors = "Mango Yellow, Royal Blue, Deep Turquoise"
+    clean = f"{kw}, {action}, {core_colors}, cute pixar 3d kids cartoon vibrant masterpiece 8k".replace(" ", "%20")
     
     api = os.getenv('POLLINATIONS_API_KEY')
     if api:
@@ -165,12 +201,10 @@ def generate_text_clip_pil(text, w, h, size, dur, color='#FFFF00', pos_y=None, s
     
     max_w = w - 100
     words = text.split()
-    lines = []
-    curr = ""
+    lines, curr = [], ""
     for word in words:
         test = curr + " " + word if curr else word
-        if draw.textbbox((0,0), test, font=font)[2] <= max_w:
-            curr = test
+        if draw.textbbox((0,0), test, font=font)[2] <= max_w: curr = test
         else:
             if curr: lines.append(curr)
             curr = word
@@ -186,7 +220,6 @@ def generate_text_clip_pil(text, w, h, size, dur, color='#FFFF00', pos_y=None, s
         for dy in range(-stroke_width, stroke_width+1, 2):
             draw.multiline_text((x+dx, y+dy), wrapped_text, font=font, fill='black', align="center")
     draw.multiline_text((x,y), wrapped_text, font=font, fill=color, align="center")
-    
     return ImageClip(np.array(img)).set_duration(dur)
 
 def create_intro(is_short):
@@ -211,8 +244,7 @@ def create_segment(line, img_path, aud_path, is_short, idx):
         if bg.duration < voice.duration: bg = bg.loop(duration=voice.duration)
         else: bg = bg.subclip(random.uniform(0, max(0, bg.duration - voice.duration)), voice.duration)
         audio = CompositeAudioClip([voice, bg])
-    except:
-        audio = voice
+    except: audio = voice
 
     img = ImageClip(img_path)
     anim = img.resize(lambda t: 1.015 - 0.012 * t).set_position('center').set_duration(voice.duration)
@@ -228,12 +260,7 @@ def create_segment(line, img_path, aud_path, is_short, idx):
 async def generate_voice_async(text, fn):
     clean_speech = clean_text_for_font(text)
     proc = await asyncio.create_subprocess_exec(
-        "edge-tts", 
-        "--voice", "hi-IN-SwaraNeural", 
-        "--rate=-10%",   
-        "--pitch=+10Hz", 
-        "--text", clean_speech, 
-        "--write-media", fn
+        "edge-tts", "--voice", "hi-IN-SwaraNeural", "--rate=-10%", "--pitch=+10Hz", "--text", clean_speech, "--write-media", fn
     )
     await proc.wait()
 
@@ -245,8 +272,7 @@ def make_video(content, is_short=True):
     clips = [create_intro(is_short)]
     suffix = "s" if is_short else "l"
     keyword = content.get('keyword', 'kids')
-    full_lyrics = ""
-    times = []
+    full_lyrics, times = "", []
     current_time = 2.2
 
     with ThreadPoolExecutor(max_workers=8) as ex:
@@ -271,15 +297,12 @@ def make_video(content, is_short=True):
     clips.append(create_outro(is_short))
     final = concatenate_videoclips(clips, method="compose")
     out = os.path.join(OUTPUT_DIR, f"final_{suffix}.mp4")
-    final.write_videofile(out, fps=24, codec='libx264', audio_codec='aac',
-                          threads=8, preset='veryfast',
-                          ffmpeg_params=['-crf', '20', '-pix_fmt', 'yuv420p'])
+    final.write_videofile(out, fps=24, codec='libx264', audio_codec='aac', threads=8, preset='veryfast', ffmpeg_params=['-crf', '20', '-pix_fmt', 'yuv420p'])
 
     for f in os.listdir(ASSETS_DIR):
         if f.startswith(('a_s_','a_l_','i_s_','i_l_')) and f.endswith(('.mp3','.jpg')):
             try: os.remove(os.path.join(ASSETS_DIR, f))
             except: pass
-            
     return out, full_lyrics, times, content.get('seo_description', '')
 
 def create_thumbnail(title, bg_path, out_path, is_short):
@@ -294,7 +317,6 @@ def create_thumbnail(title, bg_path, out_path, is_short):
             
             font_size = 140
             font_big = ImageFont.truetype(FONT_FILE, font_size) if os.path.exists(FONT_FILE) else ImageFont.load_default()
-            
             max_w = 1150
             words = clean_title.split()
             lines, curr = [], ""
@@ -327,31 +349,16 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
         title = content.get('seo_title', content['title'] + " | Hindi Nursery Rhymes for Kids 2026")
         
         raw_tags = content.get('seo_tags', ['hindi rhymes', 'bal geet', 'kids songs', 'nursery rhymes'])
-        valid_tags = []
-        total_chars = 0
+        valid_tags, total_chars = [], 0
         for tag in raw_tags:
             clean_tag = str(tag).replace('<', '').replace('>', '').replace('"', '').replace(',', '').strip()
-            if clean_tag and len(clean_tag) < 50:
-                if total_chars + len(clean_tag) < 450: 
-                    valid_tags.append(clean_tag)
-                    total_chars += len(clean_tag) + 1 
+            if clean_tag and len(clean_tag) < 50 and total_chars + len(clean_tag) < 450: 
+                valid_tags.append(clean_tag)
+                total_chars += len(clean_tag) + 1 
         
-        desc = f"""{title}
-
-{desc_template.replace('[TIMESTAMPS]', chr(10).join(times))}
-
-LIKE + SUBSCRIBE + SHARE for daily new rhymes!
-#HindiRhymes #BalGeet #NurseryRhymesForKids"""
-
+        desc = f"""{title}\n\n{desc_template.replace('[TIMESTAMPS]', chr(10).join(times))}\n\nLIKE + SUBSCRIBE + SHARE for daily new rhymes!\n#HindiRhymes #BalGeet #NurseryRhymesForKids"""
         body = {
-            'snippet': {
-                'title': title[:100], 
-                'description': desc, 
-                'tags': valid_tags, 
-                'categoryId': '24',
-                'defaultLanguage': 'hi',
-                'defaultAudioLanguage': 'hi'
-            },
+            'snippet': {'title': title[:100], 'description': desc, 'tags': valid_tags, 'categoryId': '24', 'defaultLanguage': 'hi', 'defaultAudioLanguage': 'hi'},
             'status': {'privacyStatus': 'public', 'selfDeclaredMadeForKids': True}
         }
         media = MediaFileUpload(vid, chunksize=-1, resumable=True)
@@ -374,12 +381,8 @@ LIKE + SUBSCRIBE + SHARE for daily new rhymes!
 
         save_to_memory("used_rhymes.json", content['title'])
         return True
-    except HttpError as e:
-        print(f"❌ YouTube API Error (Quota/Auth): {e.reason}")
-        return False
-    except Exception as e:
-        print(f"❌ Upload crash: {e}")
-        return False
+    except HttpError as e: print(f"❌ YouTube API Error (Quota/Auth): {e.reason}"); return False
+    except Exception as e: print(f"❌ Upload crash: {e}"); return False
 
 if __name__ == "__main__":
     print("===== HINDI MASTI RHYMES – 2026 ULTIMATE MAX SEO + OPTIMIZED =====")
@@ -388,10 +391,6 @@ if __name__ == "__main__":
         data = generate_content("short" if is_short else "long")
         if data:
             vid, lyrics, times, desc = make_video(data, is_short)
-            if vid: 
-                success = upload_video(vid, data, lyrics, times, desc, is_short)
-                if not success:
-                    print(f"⚠️ {name} Video created but FAILED to upload to YouTube.")
-        else:
-            print(f"❌ Critical Failure: Could not generate content for {name}.")
+            if vid: upload_video(vid, data, lyrics, times, desc, is_short)
+        else: print(f"❌ Critical Failure: Could not generate content for {name}.")
     print("\n🎉 Daily broadcast workflow completed.")
