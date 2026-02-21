@@ -44,32 +44,45 @@ def save_to_memory(f, item):
         data.append(item)
         json.dump(data[-1000:], open(os.path.join(MEMORY_DIR, f), 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
 
-# FIX: STRIP EMOJIS TO PREVENT BOXY FONTS
 def clean_text_for_font(text):
-    """Removes emojis and unsupported characters that cause boxy text"""
-    # Keeps Devanagari, English letters, numbers, and basic punctuation
     return re.sub(r'[^\w\s\u0900-\u097F\,\.\!\?\-]', '', text).strip()
 
+# FIX: LOUD LOGS & ERROR RECOVERY FOR GROQ
 def groq_request(prompt):
     try:
         r = requests.post("https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {os.getenv('GROQ_API_KEY')}"},
             json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.8, "max_tokens": 3000}, timeout=45)
+        
+        if r.status_code != 200:
+            print(f"❌ Groq API Error ({r.status_code}): {r.text[:150]}")
+            return None
+            
         return r.json()["choices"][0]["message"]["content"].strip()
-    except: return None
+    except Exception as e: 
+        print(f"❌ Groq Connection Error: {e}")
+        return None
 
 def clean_json(text):
-    try: return json.loads(text[text.find('{'):text.rfind('}')+1])
-    except: return None
+    if not text: return None
+    try:
+        if "```json" in text: text = text.split("```json")[1].split("```")[0]
+        elif "```" in text: text = text.split("```")[1].split("```")[0]
+        return json.loads(text[text.find('{'):text.rfind('}')+1])
+    except Exception as e:
+        print(f"❌ JSON Parse Error: {e}\nRaw Text: {text[:100]}...")
+        return None
 
 def generate_content(mode="short"):
+    print("🧠 Contacting Groq AI for script...")
     used = load_memory("used_topics.json")
     topic_prompt = f"Super cute funny topic for Hindi kids rhyme 2026. Avoid: {', '.join(used[-20:])}. Output ONLY English topic."
+    
     topic = groq_request(topic_prompt) or "Cute Elephant Dancing"
+    print(f"★ Generated Topic: {topic}")
 
     lines = 8 if mode == "short" else 16
     
-    # FIX: IMPROVED RHYME PROMPT FOR BETTER SINGING & SHORT LINES
     prompt = f"""You are a top-tier Hindi children's poet.
 Topic: "{topic}"
 Write a highly melodic, catchy, and rhythmic nursery rhyme.
@@ -90,12 +103,18 @@ Output ONLY valid JSON:
   "seo_description": "Description template with [TIMESTAMPS]",
   "scenes": [{{"line": "Very short Hindi text", "action": "Pixar cute 3D visual description"}}]
 }}"""
-    for _ in range(4):
-        data = clean_json(groq_request(prompt))
-        if data and len(data.get('seo_tags', [])) > 2:
+    for attempt in range(4):
+        raw = groq_request(prompt)
+        data = clean_json(raw)
+        if data and "scenes" in data:
+            print("✅ Valid Rhyme Script Generated!")
             data['generated_topic'] = topic
             save_to_memory("used_topics.json", topic)
             return data
+            
+        print(f"⚠️ Groq formatting failed (Attempt {attempt+1}/4). Waiting 5 seconds...")
+        time.sleep(5)
+        
     return None
 
 def download_file(url, fn, headers=None):
@@ -131,15 +150,13 @@ def get_image(action, fn, kw, is_short):
     if download_file(stock, fn): apply_pro_enhancement(fn, w, h)
     else: Image.new('RGB', (w, h), (random.randint(70, 230),)*3).save(fn)
 
-# FIX: AUTO-WORD-WRAP TO KEEP TEXT ON SCREEN
 def generate_text_clip_pil(text, w, h, size, dur, color='#FFFF00', pos_y=None, stroke_width=8):
-    text = clean_text_for_font(text) # Strip boxy emojis
+    text = clean_text_for_font(text)
     img = Image.new('RGBA', (w, h), (0,0,0,0))
     draw = ImageDraw.Draw(img)
     try: font = ImageFont.truetype(FONT_FILE, size)
     except: font = ImageFont.load_default()
     
-    # Word wrap logic
     max_w = w - 100
     words = text.split()
     lines = []
@@ -202,15 +219,13 @@ def create_segment(line, img_path, aud_path, is_short, idx):
     if idx > 0: clip = clip.crossfadein(0.45)
     return clip
 
-# FIX: AUDIO QUALITY TUNING (Slower + Higher Pitch = Cutie Cartoon Voice)
 async def generate_voice_async(text, fn):
-    # Removed emojis from speech string so AI doesn't stumble
     clean_speech = clean_text_for_font(text)
     proc = await asyncio.create_subprocess_exec(
         "edge-tts", 
         "--voice", "hi-IN-SwaraNeural", 
-        "--rate", "-10%",   # Slower for better rhyme pacing
-        "--pitch", "+10Hz", # Higher pitch for kids vibe
+        "--rate", "-10%",   
+        "--pitch", "+10Hz", 
         "--text", clean_speech, 
         "--write-media", fn
     )
@@ -271,11 +286,9 @@ def create_thumbnail(title, bg_path, out_path, is_short):
             im = Image.alpha_composite(im.convert("RGBA"), overlay).convert("RGB")
             draw = ImageDraw.Draw(im)
             
-            # FIX: DYNAMIC THUMBNAIL FONT WRAPPER
             font_size = 140
             font_big = ImageFont.truetype(FONT_FILE, font_size) if os.path.exists(FONT_FILE) else ImageFont.load_default()
             
-            # Wrap Title
             max_w = 1150
             words = clean_title.split()
             lines, curr = [], ""
@@ -362,9 +375,6 @@ LIKE + SUBSCRIBE + SHARE for daily new rhymes!
         print(f"❌ Upload crash: {e}")
         return False
 
-# ────────────────────────────────────────────────
-# MAIN EXECUTION
-# ────────────────────────────────────────────────
 if __name__ == "__main__":
     print("===== HINDI MASTI RHYMES – 2026 ULTIMATE MAX SEO + OPTIMIZED =====")
     for is_short, name in [(True, "SHORT"), (False, "LONG")]:
@@ -376,5 +386,6 @@ if __name__ == "__main__":
                 success = upload_video(vid, data, lyrics, times, desc, is_short)
                 if not success:
                     print(f"⚠️ {name} Video created but FAILED to upload to YouTube.")
+        else:
+            print(f"❌ Critical Failure: Could not generate content for {name}.")
     print("\n🎉 Daily broadcast workflow completed.")
-
