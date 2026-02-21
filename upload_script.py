@@ -82,16 +82,20 @@ def generate_content(mode="short"):
 
     lines = 8 if mode == "short" else 16
     
+    # 🌟 FIX: NEW PROMPT FOR PERFECT LINE LENGTH & EXACT VISUAL MATCHING 🌟
     prompt = f"""You are a top-tier Hindi children's poet.
 Topic: "{topic}"
 Write a highly melodic, catchy, and rhythmic nursery rhyme.
 
 CRITICAL RHYME RULES:
 1. Pure Devanagari Hindi (no English words in the rhyme).
-2. Simple words kids love (like भालू, हाथी, पानी, राजा).
-3. VERY SHORT LINES: Maximum 4 to 5 words per line! (So they fit on screen).
-4. Perfect AABB rhyme scheme.
-5. NO EMOJIS in the 'line' or 'title' fields.
+2. PERFECT RHYTHM: Every line must have exactly 5 to 7 words! Do not write 2-word lines. Make it a complete, singable sentence.
+3. Perfect AABB rhyme scheme.
+4. NO EMOJIS in the 'line' or 'title' fields.
+
+CRITICAL VISUAL RULES:
+5. The 'action' field MUST be a highly detailed English prompt that exactly matches the Hindi 'line'. 
+6. Every single 'action' MUST include the main character's description so the scene matches the lyrics perfectly!
 
 Output ONLY valid JSON:
 {{
@@ -100,7 +104,7 @@ Output ONLY valid JSON:
   "keyword": "Main English character",
   "seo_tags": ["hindi bal geet", "kids rhymes"],
   "seo_description": "Description template with [TIMESTAMPS]",
-  "scenes": [{{"line": "Very short Hindi text", "action": "Pixar cute 3D visual description"}}]
+  "scenes": [{{"line": "5 to 7 word Hindi sentence", "action": "Highly detailed English description of EXACTLY what is happening in the line, including the main character"}}]
 }}"""
     for attempt in range(4):
         raw = groq_request(prompt)
@@ -139,12 +143,15 @@ def apply_pro_enhancement(fn, w, h):
 def get_image(action, fn, kw, is_short):
     w, h = (1080, 1920) if is_short else (1920, 1080)
     seed = random.randint(0, 999999)
-    clean = f"{action}, cute pixar 3d kids cartoon vibrant colors masterpiece 8k sharp".replace(" ", "%20")
+    # We add the keyword (kw) into the prompt to ensure the character is always present
+    clean = f"{kw}, {action}, cute pixar 3d kids cartoon vibrant colors masterpiece 8k sharp".replace(" ", "%20")
+    
     api = os.getenv('POLLINATIONS_API_KEY')
     if api:
         url = f"https://gen.pollinations.ai/image/{clean}?model=flux&width={w}&height={h}&seed={seed}&enhance=true"
         if download_file(url, fn, {"Authorization": f"Bearer {api}"}):
             apply_pro_enhancement(fn, w, h); return
+            
     stock = f"https://loremflickr.com/{w}/{h}/{kw.lower()}/?lock={seed}"
     if download_file(stock, fn): apply_pro_enhancement(fn, w, h)
     else: Image.new('RGB', (w, h), (random.randint(70, 230),)*3).save(fn)
@@ -218,7 +225,6 @@ def create_segment(line, img_path, aud_path, is_short, idx):
     if idx > 0: clip = clip.crossfadein(0.45)
     return clip
 
-# FIX: Added '=' to arguments so the system doesn't misinterpret the minus/plus signs
 async def generate_voice_async(text, fn):
     clean_speech = clean_text_for_font(text)
     proc = await asyncio.create_subprocess_exec(
