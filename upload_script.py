@@ -45,7 +45,8 @@ def save_to_memory(f, item):
         json.dump(data[-1000:], open(os.path.join(MEMORY_DIR, f), 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
 
 def clean_text_for_font(text):
-    return re.sub(r'[^\w\s\u0900-\u097F\,\.\!\?\-]', '', text).strip()
+    # Added @ so the watermark works cleanly
+    return re.sub(r'[^\w\s\u0900-\u097F\,\.\!\?\-\@]', '', text).strip()
 
 # ────────────────────────────────────────────────
 # 🧠 DUAL-BRAIN AI SYSTEM (OPENAI -> GROQ FALLBACK)
@@ -77,19 +78,16 @@ def groq_request(prompt):
     return None
 
 def smart_llm_request(prompt):
-    """Tries OpenAI first. If it fails or is missing, falls back to Groq."""
     print("   -> Attempting OpenAI (gpt-4o-mini)...")
     res = openai_request(prompt)
     if res: 
         print("   -> Success via OpenAI!")
         return res
-        
     print("   -> OpenAI failed or missing. Falling back to Groq (llama-3.3)...")
     res = groq_request(prompt)
     if res:
         print("   -> Success via Groq!")
         return res
-        
     print("❌ BOTH AI ENGINES FAILED!")
     return None
 
@@ -110,24 +108,22 @@ def generate_content(mode="short"):
     
     topic = smart_llm_request(topic_prompt) or "Cute Elephant Dancing"
     print(f"★ Generated Topic: {topic}")
-    
-    time.sleep(3) # Anti-rate-limit pause for free APIs
+    time.sleep(3)
 
     lines = 8 if mode == "short" else 16
-    
     prompt = f"""You are a top-tier Hindi children's poet.
 Topic: "{topic}"
 Write a highly melodic, catchy, and rhythmic nursery rhyme.
 
 CRITICAL RHYME RULES:
 1. Pure Devanagari Hindi (no English words in the rhyme).
-2. PERFECT RHYTHM: Every line must have exactly 5 to 7 words! Make it a complete, singable sentence.
+2. PERFECT RHYTHM: Every line must have exactly 5 to 7 words! Do not write 2-word lines. Make it a complete, singable sentence.
 3. Perfect AABB rhyme scheme.
 4. NO EMOJIS in the 'line' or 'title' fields.
 
 CRITICAL VISUAL RULES:
 5. The 'action' field MUST be a highly detailed English prompt that exactly matches the Hindi 'line'. 
-6. Every single 'action' MUST include the main character's description.
+6. Every single 'action' MUST include the main character's description so the scene matches the lyrics perfectly!
 
 Output ONLY valid JSON:
 {{
@@ -146,10 +142,8 @@ Output ONLY valid JSON:
             data['generated_topic'] = topic
             save_to_memory("used_topics.json", topic)
             return data
-            
         print(f"⚠️ Formatting failed (Attempt {attempt+1}/4). Retrying in 5s...")
         time.sleep(5)
-        
     return None
 
 # ────────────────────────────────────────────────
@@ -178,13 +172,12 @@ def apply_pro_enhancement(fn, w, h):
 def get_image(action, fn, kw, is_short):
     w, h = (1080, 1920) if is_short else (1920, 1080)
     seed = random.randint(0, 999999)
-    # Always append our core colors to the prompt
-    core_colors = "Mango Yellow, Royal Blue, Deep Turquoise"
-    clean = f"{kw}, {action}, {core_colors}, cute pixar 3d kids cartoon vibrant masterpiece 8k".replace(" ", "%20")
+    # FIX: Added &nologo=true to permanently kill the center watermark
+    clean = f"{kw}, {action}, Mango Yellow, Royal Blue, Deep Turquoise, cute pixar 3d kids cartoon vibrant masterpiece 8k".replace(" ", "%20")
     
     api = os.getenv('POLLINATIONS_API_KEY')
     if api:
-        url = f"https://gen.pollinations.ai/image/{clean}?model=flux&width={w}&height={h}&seed={seed}&enhance=true"
+        url = f"https://gen.pollinations.ai/image/{clean}?model=flux&width={w}&height={h}&nologo=true&seed={seed}&enhance=true"
         if download_file(url, fn, {"Authorization": f"Bearer {api}"}):
             apply_pro_enhancement(fn, w, h); return
             
@@ -192,14 +185,15 @@ def get_image(action, fn, kw, is_short):
     if download_file(stock, fn): apply_pro_enhancement(fn, w, h)
     else: Image.new('RGB', (w, h), (random.randint(70, 230),)*3).save(fn)
 
-def generate_text_clip_pil(text, w, h, size, dur, color='#FFFF00', pos_y=None, stroke_width=8):
+def generate_text_clip_pil(text, w, h, size, dur, color='#FFFF00', pos_y=None, pos_x=None, stroke_width=8):
     text = clean_text_for_font(text)
     img = Image.new('RGBA', (w, h), (0,0,0,0))
     draw = ImageDraw.Draw(img)
     try: font = ImageFont.truetype(FONT_FILE, size)
     except: font = ImageFont.load_default()
     
-    max_w = w - 100
+    # FIX: Tightened word-wrap margin so subtitles never touch the edges
+    max_w = w - 160 
     words = text.split()
     lines, curr = [], ""
     for word in words:
@@ -213,27 +207,23 @@ def generate_text_clip_pil(text, w, h, size, dur, color='#FFFF00', pos_y=None, s
     
     bbox = draw.multiline_textbbox((0,0), wrapped_text, font=font, align="center")
     tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
-    x = (w - tw) // 2
+    
+    # Allows setting exact X position (used for watermark), otherwise centers
+    x = pos_x if pos_x is not None else (w - tw) // 2
     y = pos_y if pos_y is not None else (h - th - 340)
     
     for dx in range(-stroke_width, stroke_width+1, 2):
         for dy in range(-stroke_width, stroke_width+1, 2):
-            draw.multiline_text((x+dx, y+dy), wrapped_text, font=font, fill='black', align="center")
-    draw.multiline_text((x,y), wrapped_text, font=font, fill=color, align="center")
+            draw.multiline_text((x+dx, y+dy), wrapped_text, font=font, fill='black', align="center" if pos_x is None else "left")
+    draw.multiline_text((x,y), wrapped_text, font=font, fill=color, align="center" if pos_x is None else "left")
     return ImageClip(np.array(img)).set_duration(dur)
-
-def create_intro(is_short):
-    w, h = (1080, 1920) if is_short else (1920, 1080)
-    clip = ColorClip((w, h), (255, 215, 0)).set_duration(2.2)
-    txt = generate_text_clip_pil("हिंदी मस्ती राइम्स 2026", w, h, 95, 2.2, color='white', pos_y=h//2 - 100)
-    return CompositeVideoClip([clip, txt], size=(w, h)).crossfadeout(0.5)
 
 def create_outro(is_short):
     w, h = (1080, 1920) if is_short else (1920, 1080)
-    clip = ColorClip((w, h), (20, 20, 40)).set_duration(4.5)
-    txt1 = generate_text_clip_pil("LIKE  SUBSCRIBE", w, h, 92, 4.5, pos_y=h//3)
-    txt2 = generate_text_clip_pil("@HindiMastiRhymes", w, h, 78, 4.5, color='white', pos_y=int(h*0.6))
-    return CompositeVideoClip([clip, txt1, txt2], size=(w, h))
+    clip = ColorClip((w, h), (15, 15, 20)).set_duration(4.0)
+    txt1 = generate_text_clip_pil("LIKE 👍 SUBSCRIBE", w, h, 85, 4.0, pos_y=h//3)
+    txt2 = generate_text_clip_pil("@HindiMastiRhymes", w, h, 65, 4.0, color='#AAAAAA', pos_y=int(h*0.55))
+    return CompositeVideoClip([clip, txt1, txt2], size=(w, h)).crossfadein(0.5)
 
 def create_segment(line, img_path, aud_path, is_short, idx):
     w, h = (1080, 1920) if is_short else (1920, 1080)
@@ -250,10 +240,11 @@ def create_segment(line, img_path, aud_path, is_short, idx):
     anim = img.resize(lambda t: 1.015 - 0.012 * t).set_position('center').set_duration(voice.duration)
 
     txt = generate_text_clip_pil(line, w, h, 90 if is_short else 118, voice.duration)
-    wm = generate_text_clip_pil("Hindi Masti Rhymes", w, h, 35, voice.duration, color='white', pos_y=30, stroke_width=2)
-    wm = wm.set_position((25,25)).set_opacity(0.75)
+    
+    # FIX: Moved Watermark to Top-Left corner, lowered opacity, removed from Center
+    wm = generate_text_clip_pil("@HindiMastiRhymes", w, h, 38, voice.duration, color='white', pos_y=40, pos_x=40, stroke_width=2)
 
-    clip = CompositeVideoClip([anim, txt, wm], size=(w, h)).set_audio(audio).set_duration(voice.duration)
+    clip = CompositeVideoClip([anim, txt, wm.set_opacity(0.60)], size=(w, h)).set_audio(audio).set_duration(voice.duration)
     if idx > 0: clip = clip.crossfadein(0.45)
     return clip
 
@@ -269,11 +260,12 @@ def get_voice(text, fn):
 
 def make_video(content, is_short=True):
     print(f"🎥 Premium Render {'SHORT' if is_short else 'LONG'}...")
-    clips = [create_intro(is_short)]
+    # FIX: Deleted the ugly solid-color intro. Video starts instantly on scene 1.
+    clips = []
     suffix = "s" if is_short else "l"
     keyword = content.get('keyword', 'kids')
     full_lyrics, times = "", []
-    current_time = 2.2
+    current_time = 0.0 # Starts at 0 now since there is no intro
 
     with ThreadPoolExecutor(max_workers=8) as ex:
         futures = []
@@ -303,6 +295,7 @@ def make_video(content, is_short=True):
         if f.startswith(('a_s_','a_l_','i_s_','i_l_')) and f.endswith(('.mp3','.jpg')):
             try: os.remove(os.path.join(ASSETS_DIR, f))
             except: pass
+            
     return out, full_lyrics, times, content.get('seo_description', '')
 
 def create_thumbnail(title, bg_path, out_path, is_short):
@@ -315,9 +308,10 @@ def create_thumbnail(title, bg_path, out_path, is_short):
             im = Image.alpha_composite(im.convert("RGBA"), overlay).convert("RGB")
             draw = ImageDraw.Draw(im)
             
-            font_size = 140
+            # FIX: Smaller font and tighter boundary so text never clips
+            font_size = 110 
             font_big = ImageFont.truetype(FONT_FILE, font_size) if os.path.exists(FONT_FILE) else ImageFont.load_default()
-            max_w = 1150
+            max_w = 1100
             words = clean_title.split()
             lines, curr = [], ""
             for word in words:
@@ -332,7 +326,7 @@ def create_thumbnail(title, bg_path, out_path, is_short):
             bbox = draw.multiline_textbbox((0,0), wrapped_title, font=font_big, align="center")
             x = (1280 - (bbox[2]-bbox[0])) // 2
             
-            for off in [(8,8),(10,10)]: 
+            for off in [(6,6),(8,8)]: 
                 draw.multiline_text((x+off[0], 120+off[1]), wrapped_title, font=font_big, fill=(0,0,0), align="center")
             draw.multiline_text((x, 120), wrapped_title, font=font_big, fill="#FFEA00", align="center")
             
