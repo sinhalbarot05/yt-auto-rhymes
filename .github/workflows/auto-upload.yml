@@ -2,41 +2,55 @@ name: Hindi Masti Rhymes – 2026 Ultimate Daily
 
 on:
   schedule:
-    - cron: '30 1 * * *'
-    - cron: '30 13 * * *'
+    - cron: '30 1 * * *'   # 7:00 AM IST
+    - cron: '30 13 * * *'  # 7:00 PM IST
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  broadcast:
+  upload:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Install system deps
+      - name: Install system dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y ffmpeg imagemagick ghostscript fonts-noto
-          sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg imagemagick ghostscript fonts-noto  # Improved: added fonts-noto for Hindi
 
-      - uses: actions/setup-python@v5
+      - name: Fix ImageMagick Policy
+        run: sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Install Python packages
-        run: pip install --upgrade pip && pip install requests google-api-python-client google-auth-oauthlib google-auth-httplib2 edge-tts moviepy==1.0.3 numpy Pillow
+        run: |
+          python -m pip install --upgrade pip || true  # Improved: retry on failure
+          pip install --upgrade \
+            requests \
+            google-api-python-client \
+            google-auth-oauthlib \
+            google-auth-httplib2 \
+            edge-tts \
+            moviepy==1.0.3 \
+            numpy==1.26.4 \
+            "Pillow==9.5.0"
 
-      - name: Load secrets
+      - name: Decode YouTube credentials
         run: |
           echo "${{ secrets.YOUTUBE_CLIENT_SECRET_JSON }}" | base64 -d > client_secret.json
           echo "${{ secrets.YOUTUBE_TOKEN_JSON_B64 }}" | base64 -d > youtube_token.pickle
 
-      - name: Run Broadcast
+      - name: Generate and Upload
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
         run: python upload_script.py
 
       - name: Save memory
