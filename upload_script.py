@@ -50,6 +50,9 @@ def save_to_memory(f, item):
 def clean_text_for_font(text):
     return re.sub(r'[^\w\s\u0900-\u097F\,\.\!\?\-\@]', '', text).strip()
 
+# ────────────────────────────────────────────────
+# 🧠 DUAL-BRAIN AI SYSTEM
+# ────────────────────────────────────────────────
 def openai_request(prompt):
     api_key = os.getenv('OPENAI_API_KEY')
     if not api_key: return None
@@ -110,33 +113,33 @@ def generate_content(mode="short"):
     time.sleep(3)
 
     lines = 8 if mode == "short" else 16
-    prompt = f"""You are a top-tier Hindi children's poet.
+    prompt = f"""You are a top-tier Hindi children's poet and Pixar Art Director.
 Topic: "{topic}"
-Write a highly melodic, catchy, and rhythmic nursery rhyme.
 
 CRITICAL RHYME RULES:
 1. Pure Devanagari Hindi (no English words in the rhyme).
-2. PERFECT RHYTHM: Every line must have exactly 5 to 7 words! Do not write 2-word lines. Make it a complete, singable sentence.
+2. PERFECT RHYTHM: Every line must have exactly 5 to 7 words! Make it a complete, singable sentence.
 3. Perfect AABB rhyme scheme.
 4. NO EMOJIS in the 'line' or 'title' fields.
 
 CRITICAL VISUAL RULES:
-5. The 'action' field MUST be a highly detailed English prompt that exactly matches the Hindi 'line'. 
-6. Every single 'action' MUST include the main character's description so the scene matches the lyrics perfectly!
+5. Create a 'character_design'. This is a highly detailed physical description of the main character (e.g., "A chubby baby tiger wearing a green backpack and blue sneakers"). 
+6. The 'action' field MUST describe ONLY what the character is doing in that specific line (e.g., "jumping over a log").
 
 Output ONLY valid JSON:
 {{
-  "seo_title": "Best 2026 title starting with keyword (e.g. Hindi Nursery Rhymes for Kids 2026 | ... 🦁)",
-  "title": "Hindi catchy title (Devanagari only, no emojis)",
+  "seo_title": "Best 2026 title starting with keyword",
+  "title": "Hindi catchy title (Devanagari only)",
   "keyword": "Main English character",
+  "character_design": "Highly detailed physical description of the main character's clothes and look",
   "seo_tags": ["hindi bal geet", "kids rhymes"],
   "seo_description": "Description template with [TIMESTAMPS]",
-  "scenes": [{{"line": "5 to 7 word Hindi sentence", "action": "Highly detailed English description of EXACTLY what is happening in the line, including the main character"}}]
+  "scenes": [{{"line": "5 to 7 word Hindi sentence", "action": "What the character is doing in this exact scene"}}]
 }}"""
     for attempt in range(4):
         raw = smart_llm_request(prompt)
         data = clean_json(raw)
-        if data and "scenes" in data:
+        if data and "scenes" in data and "character_design" in data:
             print("✅ Valid Rhyme Script Generated!")
             data['generated_topic'] = topic
             save_to_memory("used_topics.json", topic)
@@ -145,6 +148,9 @@ Output ONLY valid JSON:
         time.sleep(5)
     return None
 
+# ────────────────────────────────────────────────
+# VIDEO & IMAGE LOGIC
+# ────────────────────────────────────────────────
 def download_file(url, fn, headers=None):
     try:
         r = requests.get(url, headers=headers or {"User-Agent": "Mozilla/5.0"}, timeout=60)
@@ -165,18 +171,19 @@ def apply_pro_enhancement(fn, w, h):
             im.save(fn, "JPEG", quality=98, optimize=True)
     except: pass
 
-def get_image(action, fn, kw, is_short):
+def get_image(character_design, action, fn, kw, is_short, master_seed):
     w, h = (1080, 1920) if is_short else (1920, 1080)
-    seed = random.randint(0, 999999)
-    clean = f"{kw}, {action}, Mango Yellow, Royal Blue, Deep Turquoise, cute pixar 3d kids cartoon vibrant masterpiece 8k".replace(" ", "%20")
+    
+    # Passing the locked character design + action + brand colors
+    clean = f"{character_design}, {action}, Mango Yellow, Royal Blue, Deep Turquoise, cute pixar 3d kids cartoon vibrant masterpiece 8k".replace(" ", "%20")
     
     api = os.getenv('POLLINATIONS_API_KEY')
     if api:
-        url = f"https://gen.pollinations.ai/image/{clean}?model=flux&width={w}&height={h}&nologo=true&seed={seed}&enhance=true"
+        url = f"https://gen.pollinations.ai/image/{clean}?model=flux&width={w}&height={h}&nologo=true&seed={master_seed}&enhance=true"
         if download_file(url, fn, {"Authorization": f"Bearer {api}"}):
             apply_pro_enhancement(fn, w, h); return
             
-    stock = f"https://loremflickr.com/{w}/{h}/{kw.lower()}/?lock={seed}"
+    stock = f"https://loremflickr.com/{w}/{h}/{kw.lower()}/?lock={master_seed}"
     if download_file(stock, fn): apply_pro_enhancement(fn, w, h)
     else: Image.new('RGB', (w, h), (random.randint(70, 230),)*3).save(fn)
 
@@ -256,6 +263,12 @@ def make_video(content, is_short=True):
     clips = []
     suffix = "s" if is_short else "l"
     keyword = content.get('keyword', 'kids')
+    
+    # Extract the locked character design
+    character_design = content.get('character_design', 'A cute 3D cartoon character')
+    # Generate the locked master seed for this video
+    master_seed = random.randint(0, 999999)
+    
     full_lyrics, times = "", []
     current_time = 0.0 
 
@@ -267,7 +280,8 @@ def make_video(content, is_short=True):
             aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
             img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
             futures.append(ex.submit(get_voice, line, aud))
-            futures.append(ex.submit(get_image, scene['action'], img, keyword, is_short))
+            # Pass the design and seed to the image generator
+            futures.append(ex.submit(get_image, character_design, scene['action'], img, keyword, is_short, master_seed))
         for f in as_completed(futures): f.result()
 
     for i, scene in enumerate(content['scenes']):
