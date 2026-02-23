@@ -47,12 +47,15 @@ def save_to_memory(f, item):
         data.append(item)
         json.dump(data[-1000:], open(os.path.join(MEMORY_DIR, f), 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
 
-def clean_text_for_font(text):
-    return re.sub(r'[^\w\s\u0900-\u097F\,\.\!\?\-\@]', '', text).strip()
+# 🌟 FIX 1: AGGRESSIVE TEXT CLEANER (NO MORE BOXY FONTS)
+def clean_text_for_font(text, is_english=False):
+    if is_english:
+        # Keeps English, Numbers, and basic punctuation
+        return re.sub(r'[^\w\s\,\.\!\?\-\@]', '', text).strip()
+    else:
+        # STRICT HINDI ONLY. Deletes English letters, numbers, and emojis to prevent boxes.
+        return re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
 
-# ────────────────────────────────────────────────
-# 🧠 DUAL-BRAIN AI SYSTEM
-# ────────────────────────────────────────────────
 def openai_request(prompt):
     api_key = os.getenv('OPENAI_API_KEY')
     if not api_key: return None
@@ -62,8 +65,7 @@ def openai_request(prompt):
             json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "temperature": 0.8, "max_tokens": 1500}, timeout=45)
         if r.status_code == 200:
             return r.json()["choices"][0]["message"]["content"].strip()
-        print(f"   ⚠️ OpenAI Error ({r.status_code}): {r.text[:100]}...")
-    except Exception as e: print(f"   ⚠️ OpenAI Exception: {e}")
+    except Exception: pass
     return None
 
 def groq_request(prompt):
@@ -75,22 +77,14 @@ def groq_request(prompt):
             json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.8, "max_tokens": 3000}, timeout=45)
         if r.status_code == 200:
             return r.json()["choices"][0]["message"]["content"].strip()
-        print(f"   ⚠️ Groq Error ({r.status_code}): {r.text[:100]}...")
-    except Exception as e: print(f"   ⚠️ Groq Exception: {e}")
+    except Exception: pass
     return None
 
 def smart_llm_request(prompt):
-    print("   -> Attempting OpenAI (gpt-4o-mini)...")
     res = openai_request(prompt)
-    if res: 
-        print("   -> Success via OpenAI!")
-        return res
-    print("   -> OpenAI failed or missing. Falling back to Groq (llama-3.3)...")
+    if res: return res
     res = groq_request(prompt)
-    if res:
-        print("   -> Success via Groq!")
-        return res
-    print("❌ BOTH AI ENGINES FAILED!")
+    if res: return res
     return None
 
 def clean_json(text):
@@ -99,17 +93,13 @@ def clean_json(text):
         if "```json" in text: text = text.split("```json")[1].split("```")[0]
         elif "```" in text: text = text.split("```")[1].split("```")[0]
         return json.loads(text[text.find('{'):text.rfind('}')+1])
-    except Exception as e:
-        print(f"❌ JSON Parse Error: {e}\nRaw Text: {text[:100]}...")
-        return None
+    except Exception: return None
 
 def generate_content(mode="short"):
     print("\n🧠 Contacting AI for script...")
     used = load_memory("used_topics.json")
     topic_prompt = f"Super cute funny topic for Hindi kids rhyme 2026. Avoid: {', '.join(used[-20:])}. Output ONLY English topic."
-    
     topic = smart_llm_request(topic_prompt) or "Cute Elephant Dancing"
-    print(f"★ Generated Topic: {topic}")
     time.sleep(3)
 
     lines = 8 if mode == "short" else 16
@@ -117,40 +107,35 @@ def generate_content(mode="short"):
 Topic: "{topic}"
 
 CRITICAL RHYME RULES:
-1. Pure Devanagari Hindi (no English words in the rhyme).
+1. Pure Devanagari Hindi ONLY (no English words, no numbers in the rhyme).
 2. PERFECT RHYTHM: Every line must have exactly 5 to 7 words! Make it a complete, singable sentence.
 3. Perfect AABB rhyme scheme.
 4. NO EMOJIS in the 'line' or 'title' fields.
 
 CRITICAL VISUAL RULES:
-5. Create a 'character_design'. This is a highly detailed physical description of the main character (e.g., "A chubby baby tiger wearing a green backpack and blue sneakers"). 
-6. The 'action' field MUST describe ONLY what the character is doing in that specific line (e.g., "jumping over a log").
+5. Create a 'character_design'. This is a highly detailed physical description of the main character.
+6. The 'action' field MUST describe ONLY what the character is doing in that specific line.
 
 Output ONLY valid JSON:
 {{
   "seo_title": "Best 2026 title starting with keyword",
   "title": "Hindi catchy title (Devanagari only)",
   "keyword": "Main English character",
-  "character_design": "Highly detailed physical description of the main character's clothes and look",
+  "character_design": "Detailed physical description",
   "seo_tags": ["hindi bal geet", "kids rhymes"],
   "seo_description": "Description template with [TIMESTAMPS]",
-  "scenes": [{{"line": "5 to 7 word Hindi sentence", "action": "What the character is doing in this exact scene"}}]
+  "scenes": [{{"line": "5 to 7 word Hindi sentence", "action": "What the character is doing"}}]
 }}"""
     for attempt in range(4):
         raw = smart_llm_request(prompt)
         data = clean_json(raw)
         if data and "scenes" in data and "character_design" in data:
-            print("✅ Valid Rhyme Script Generated!")
             data['generated_topic'] = topic
             save_to_memory("used_topics.json", topic)
             return data
-        print(f"⚠️ Formatting failed (Attempt {attempt+1}/4). Retrying in 5s...")
         time.sleep(5)
     return None
 
-# ────────────────────────────────────────────────
-# VIDEO & IMAGE LOGIC
-# ────────────────────────────────────────────────
 def download_file(url, fn, headers=None):
     try:
         r = requests.get(url, headers=headers or {"User-Agent": "Mozilla/5.0"}, timeout=60)
@@ -173,10 +158,7 @@ def apply_pro_enhancement(fn, w, h):
 
 def get_image(character_design, action, fn, kw, is_short, master_seed):
     w, h = (1080, 1920) if is_short else (1920, 1080)
-    
-    # Passing the locked character design + action + brand colors
     clean = f"{character_design}, {action}, Mango Yellow, Royal Blue, Deep Turquoise, cute pixar 3d kids cartoon vibrant masterpiece 8k".replace(" ", "%20")
-    
     api = os.getenv('POLLINATIONS_API_KEY')
     if api:
         url = f"https://gen.pollinations.ai/image/{clean}?model=flux&width={w}&height={h}&nologo=true&seed={master_seed}&enhance=true"
@@ -187,30 +169,40 @@ def get_image(character_design, action, fn, kw, is_short, master_seed):
     if download_file(stock, fn): apply_pro_enhancement(fn, w, h)
     else: Image.new('RGB', (w, h), (random.randint(70, 230),)*3).save(fn)
 
-def generate_text_clip_pil(text, w, h, size, dur, color='#FFFF00', pos_y=None, pos_x=None, stroke_width=8, is_english=False):
-    text = clean_text_for_font(text)
+# 🌟 FIX 2: AUTO-SCALING TEXT ENGINE (PREVENTS TEXT OFF-SCREEN)
+def generate_text_clip_pil(text, w, h, base_size, dur, color='#FFFF00', pos_y=None, pos_x=None, stroke_width=8, is_english=False):
+    text = clean_text_for_font(text, is_english)
     img = Image.new('RGBA', (w, h), (0,0,0,0))
     draw = ImageDraw.Draw(img)
-    
     target_font = ENG_FONT_FILE if is_english else FONT_FILE
-    try: font = ImageFont.truetype(target_font, size)
-    except: font = ImageFont.load_default()
     
-    max_w = w - 160 
-    words = text.split()
-    lines, curr = [], ""
-    for word in words:
-        test = curr + " " + word if curr else word
-        if draw.textbbox((0,0), test, font=font)[2] <= max_w: curr = test
-        else:
-            if curr: lines.append(curr)
-            curr = word
-    if curr: lines.append(curr)
-    wrapped_text = "\n".join(lines)
+    max_w = w - 120 # Safe margin
+    size = base_size
     
+    def get_wrapped_text(t, f):
+        words = t.split()
+        lines, curr = [], ""
+        for word in words:
+            test = curr + " " + word if curr else word
+            if draw.textbbox((0,0), test, font=f)[2] <= max_w: curr = test
+            else:
+                if curr: lines.append(curr)
+                curr = word
+        if curr: lines.append(curr)
+        return "\n".join(lines)
+
+    # Dynamic Size Shrinker: Loops until the text fits perfectly inside the screen
+    font = ImageFont.truetype(target_font, size) if os.path.exists(target_font) else ImageFont.load_default()
+    wrapped_text = get_wrapped_text(text, font)
     bbox = draw.multiline_textbbox((0,0), wrapped_text, font=font, align="center")
-    tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
     
+    while (bbox[2] - bbox[0] > max_w) and size > 40:
+        size -= 4
+        font = ImageFont.truetype(target_font, size)
+        wrapped_text = get_wrapped_text(text, font)
+        bbox = draw.multiline_textbbox((0,0), wrapped_text, font=font, align="center")
+        
+    tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
     x = pos_x if pos_x is not None else (w - tw) // 2
     y = pos_y if pos_y is not None else (h - th - 340)
     
@@ -241,7 +233,7 @@ def create_segment(line, img_path, aud_path, is_short, idx):
     img = ImageClip(img_path)
     anim = img.resize(lambda t: 1.015 - 0.012 * t).set_position('center').set_duration(voice.duration)
 
-    txt = generate_text_clip_pil(line, w, h, 90 if is_short else 118, voice.duration)
+    txt = generate_text_clip_pil(line, w, h, 118, voice.duration)
     wm = generate_text_clip_pil("@HindiMastiRhymes", w, h, 38, voice.duration, color='white', pos_y=40, pos_x=40, stroke_width=2, is_english=True)
 
     clip = CompositeVideoClip([anim, txt, wm.set_opacity(0.60)], size=(w, h)).set_audio(audio).set_duration(voice.duration)
@@ -249,7 +241,7 @@ def create_segment(line, img_path, aud_path, is_short, idx):
     return clip
 
 async def generate_voice_async(text, fn):
-    clean_speech = clean_text_for_font(text)
+    clean_speech = clean_text_for_font(text, is_english=False)
     proc = await asyncio.create_subprocess_exec(
         "edge-tts", "--voice", "hi-IN-SwaraNeural", "--rate=-10%", "--pitch=+10Hz", "--text", clean_speech, "--write-media", fn
     )
@@ -263,12 +255,8 @@ def make_video(content, is_short=True):
     clips = []
     suffix = "s" if is_short else "l"
     keyword = content.get('keyword', 'kids')
-    
-    # Extract the locked character design
     character_design = content.get('character_design', 'A cute 3D cartoon character')
-    # Generate the locked master seed for this video
     master_seed = random.randint(0, 999999)
-    
     full_lyrics, times = "", []
     current_time = 0.0 
 
@@ -280,7 +268,6 @@ def make_video(content, is_short=True):
             aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
             img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
             futures.append(ex.submit(get_voice, line, aud))
-            # Pass the design and seed to the image generator
             futures.append(ex.submit(get_image, character_design, scene['action'], img, keyword, is_short, master_seed))
         for f in as_completed(futures): f.result()
 
@@ -306,7 +293,8 @@ def make_video(content, is_short=True):
 
 def create_thumbnail(title, bg_path, out_path, is_short):
     try:
-        clean_title = clean_text_for_font(title)
+        # Pass to text cleaner, then auto-scale title
+        clean_title = clean_text_for_font(title, is_english=False)
         with Image.open(bg_path) as im:
             im = im.convert("RGB").resize((1280,720), Image.LANCZOS)
             im = ImageEnhance.Contrast(im).enhance(1.28)
@@ -314,21 +302,32 @@ def create_thumbnail(title, bg_path, out_path, is_short):
             im = Image.alpha_composite(im.convert("RGBA"), overlay).convert("RGB")
             draw = ImageDraw.Draw(im)
             
-            font_size = 110 
-            font_big = ImageFont.truetype(FONT_FILE, font_size) if os.path.exists(FONT_FILE) else ImageFont.load_default()
-            max_w = 1100
-            words = clean_title.split()
-            lines, curr = [], ""
-            for word in words:
-                test = curr + " " + word if curr else word
-                if draw.textbbox((0,0), test, font=font_big)[2] <= max_w: curr = test
-                else:
-                    if curr: lines.append(curr)
-                    curr = word
-            if curr: lines.append(curr)
-            wrapped_title = "\n".join(lines)
+            # 🌟 THUMBNAIL AUTO-SCALER (Fixes title clipping)
+            font_size = 130 
+            max_w = 1180
             
+            def get_wrapped_thumb(t, f):
+                words = t.split()
+                lines, curr = [], ""
+                for word in words:
+                    test = curr + " " + word if curr else word
+                    if draw.textbbox((0,0), test, font=f)[2] <= max_w: curr = test
+                    else:
+                        if curr: lines.append(curr)
+                        curr = word
+                if curr: lines.append(curr)
+                return "\n".join(lines)
+            
+            font_big = ImageFont.truetype(FONT_FILE, font_size) if os.path.exists(FONT_FILE) else ImageFont.load_default()
+            wrapped_title = get_wrapped_thumb(clean_title, font_big)
             bbox = draw.multiline_textbbox((0,0), wrapped_title, font=font_big, align="center")
+            
+            while (bbox[2] - bbox[0] > max_w) and font_size > 50:
+                font_size -= 5
+                font_big = ImageFont.truetype(FONT_FILE, font_size)
+                wrapped_title = get_wrapped_thumb(clean_title, font_big)
+                bbox = draw.multiline_textbbox((0,0), wrapped_title, font=font_big, align="center")
+
             x = (1280 - (bbox[2]-bbox[0])) // 2
             
             for off in [(6,6),(8,8)]: 
