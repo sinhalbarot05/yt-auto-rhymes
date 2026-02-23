@@ -18,7 +18,10 @@ MEMORY_DIR = "memory/"
 OUTPUT_DIR = "videos/"
 ASSETS_DIR = "assets/"
 TOKEN_FILE = "youtube_token.pickle"
+
+# FIX: Added dedicated English font alongside the Hindi font
 FONT_FILE = os.path.join(ASSETS_DIR, "HindiFont.ttf")
+ENG_FONT_FILE = os.path.join(ASSETS_DIR, "EngFont.ttf")
 
 for d in [MEMORY_DIR, OUTPUT_DIR, ASSETS_DIR]:
     Path(d).mkdir(exist_ok=True)
@@ -27,8 +30,13 @@ for f in ["used_topics.json", "used_rhymes.json"]:
         json.dump([], open(os.path.join(MEMORY_DIR, f), "w"))
 
 def download_assets():
+    # Download Hindi Font
     if not os.path.exists(FONT_FILE):
         open(FONT_FILE, 'wb').write(requests.get("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf", timeout=15).content)
+    # Download English Font (Prevents Boxy Text on Watermarks)
+    if not os.path.exists(ENG_FONT_FILE):
+        open(ENG_FONT_FILE, 'wb').write(requests.get("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf", timeout=15).content)
+    # Download BG Music
     bg = os.path.join(ASSETS_DIR, "bg_music.mp3")
     if not os.path.exists(bg):
         open(bg, 'wb').write(requests.get("https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3", timeout=15).content)
@@ -45,11 +53,10 @@ def save_to_memory(f, item):
         json.dump(data[-1000:], open(os.path.join(MEMORY_DIR, f), 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
 
 def clean_text_for_font(text):
-    # Added @ so the watermark works cleanly
     return re.sub(r'[^\w\s\u0900-\u097F\,\.\!\?\-\@]', '', text).strip()
 
 # ────────────────────────────────────────────────
-# 🧠 DUAL-BRAIN AI SYSTEM (OPENAI -> GROQ FALLBACK)
+# 🧠 DUAL-BRAIN AI SYSTEM
 # ────────────────────────────────────────────────
 def openai_request(prompt):
     api_key = os.getenv('OPENAI_API_KEY')
@@ -172,7 +179,6 @@ def apply_pro_enhancement(fn, w, h):
 def get_image(action, fn, kw, is_short):
     w, h = (1080, 1920) if is_short else (1920, 1080)
     seed = random.randint(0, 999999)
-    # FIX: Added &nologo=true to permanently kill the center watermark
     clean = f"{kw}, {action}, Mango Yellow, Royal Blue, Deep Turquoise, cute pixar 3d kids cartoon vibrant masterpiece 8k".replace(" ", "%20")
     
     api = os.getenv('POLLINATIONS_API_KEY')
@@ -185,14 +191,17 @@ def get_image(action, fn, kw, is_short):
     if download_file(stock, fn): apply_pro_enhancement(fn, w, h)
     else: Image.new('RGB', (w, h), (random.randint(70, 230),)*3).save(fn)
 
-def generate_text_clip_pil(text, w, h, size, dur, color='#FFFF00', pos_y=None, pos_x=None, stroke_width=8):
+# FIX: Added `is_english` toggle so we can switch fonts based on text type
+def generate_text_clip_pil(text, w, h, size, dur, color='#FFFF00', pos_y=None, pos_x=None, stroke_width=8, is_english=False):
     text = clean_text_for_font(text)
     img = Image.new('RGBA', (w, h), (0,0,0,0))
     draw = ImageDraw.Draw(img)
-    try: font = ImageFont.truetype(FONT_FILE, size)
+    
+    # Choose font based on language
+    target_font = ENG_FONT_FILE if is_english else FONT_FILE
+    try: font = ImageFont.truetype(target_font, size)
     except: font = ImageFont.load_default()
     
-    # FIX: Tightened word-wrap margin so subtitles never touch the edges
     max_w = w - 160 
     words = text.split()
     lines, curr = [], ""
@@ -208,7 +217,6 @@ def generate_text_clip_pil(text, w, h, size, dur, color='#FFFF00', pos_y=None, p
     bbox = draw.multiline_textbbox((0,0), wrapped_text, font=font, align="center")
     tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
     
-    # Allows setting exact X position (used for watermark), otherwise centers
     x = pos_x if pos_x is not None else (w - tw) // 2
     y = pos_y if pos_y is not None else (h - th - 340)
     
@@ -218,11 +226,18 @@ def generate_text_clip_pil(text, w, h, size, dur, color='#FFFF00', pos_y=None, p
     draw.multiline_text((x,y), wrapped_text, font=font, fill=color, align="center" if pos_x is None else "left")
     return ImageClip(np.array(img)).set_duration(dur)
 
+def create_intro(is_short):
+    w, h = (1080, 1920) if is_short else (1920, 1080)
+    clip = ColorClip((w, h), (255, 215, 0)).set_duration(2.2)
+    txt = generate_text_clip_pil("हिंदी मस्ती राइम्स 2026", w, h, 95, 2.2, color='white', pos_y=h//2 - 100)
+    return CompositeVideoClip([clip, txt], size=(w, h)).crossfadeout(0.5)
+
 def create_outro(is_short):
     w, h = (1080, 1920) if is_short else (1920, 1080)
     clip = ColorClip((w, h), (15, 15, 20)).set_duration(4.0)
-    txt1 = generate_text_clip_pil("LIKE 👍 SUBSCRIBE", w, h, 85, 4.0, pos_y=h//3)
-    txt2 = generate_text_clip_pil("@HindiMastiRhymes", w, h, 65, 4.0, color='#AAAAAA', pos_y=int(h*0.55))
+    # FIX: Outro text is English, so we flag it is_english=True
+    txt1 = generate_text_clip_pil("LIKE SUBSCRIBE", w, h, 85, 4.0, pos_y=h//3, is_english=True)
+    txt2 = generate_text_clip_pil("@HindiMastiRhymes", w, h, 65, 4.0, color='#AAAAAA', pos_y=int(h*0.55), is_english=True)
     return CompositeVideoClip([clip, txt1, txt2], size=(w, h)).crossfadein(0.5)
 
 def create_segment(line, img_path, aud_path, is_short, idx):
@@ -239,10 +254,11 @@ def create_segment(line, img_path, aud_path, is_short, idx):
     img = ImageClip(img_path)
     anim = img.resize(lambda t: 1.015 - 0.012 * t).set_position('center').set_duration(voice.duration)
 
+    # Subtitles in Hindi
     txt = generate_text_clip_pil(line, w, h, 90 if is_short else 118, voice.duration)
     
-    # FIX: Moved Watermark to Top-Left corner, lowered opacity, removed from Center
-    wm = generate_text_clip_pil("@HindiMastiRhymes", w, h, 38, voice.duration, color='white', pos_y=40, pos_x=40, stroke_width=2)
+    # FIX: Watermark in English (is_english=True) to fix the Boxy characters
+    wm = generate_text_clip_pil("@HindiMastiRhymes", w, h, 38, voice.duration, color='white', pos_y=40, pos_x=40, stroke_width=2, is_english=True)
 
     clip = CompositeVideoClip([anim, txt, wm.set_opacity(0.60)], size=(w, h)).set_audio(audio).set_duration(voice.duration)
     if idx > 0: clip = clip.crossfadein(0.45)
@@ -260,12 +276,11 @@ def get_voice(text, fn):
 
 def make_video(content, is_short=True):
     print(f"🎥 Premium Render {'SHORT' if is_short else 'LONG'}...")
-    # FIX: Deleted the ugly solid-color intro. Video starts instantly on scene 1.
     clips = []
     suffix = "s" if is_short else "l"
     keyword = content.get('keyword', 'kids')
     full_lyrics, times = "", []
-    current_time = 0.0 # Starts at 0 now since there is no intro
+    current_time = 0.0 
 
     with ThreadPoolExecutor(max_workers=8) as ex:
         futures = []
@@ -308,7 +323,6 @@ def create_thumbnail(title, bg_path, out_path, is_short):
             im = Image.alpha_composite(im.convert("RGBA"), overlay).convert("RGB")
             draw = ImageDraw.Draw(im)
             
-            # FIX: Smaller font and tighter boundary so text never clips
             font_size = 110 
             font_big = ImageFont.truetype(FONT_FILE, font_size) if os.path.exists(FONT_FILE) else ImageFont.load_default()
             max_w = 1100
@@ -330,7 +344,8 @@ def create_thumbnail(title, bg_path, out_path, is_short):
                 draw.multiline_text((x+off[0], 120+off[1]), wrapped_title, font=font_big, fill=(0,0,0), align="center")
             draw.multiline_text((x, 120), wrapped_title, font=font_big, fill="#FFEA00", align="center")
             
-            font_small = ImageFont.truetype(FONT_FILE, 72) if os.path.exists(FONT_FILE) else ImageFont.load_default()
+            # FIX: Use English Font for the English Thumbnail Tag
+            font_small = ImageFont.truetype(ENG_FONT_FILE, 72) if os.path.exists(ENG_FONT_FILE) else ImageFont.load_default()
             draw.text((420, 520), "2026 FOR KIDS", font=font_small, fill="#FFFF00")
             im.save(out_path, quality=98, optimize=True)
     except: pass
