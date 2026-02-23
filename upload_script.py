@@ -1,4 +1,4 @@
-import os, random, json, asyncio, requests, time, numpy as np, re
+import os, random, json, asyncio, requests, time, numpy as np, re, math
 from pathlib import Path
 import pickle
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -9,9 +9,7 @@ if not hasattr(Image, 'ANTIALIAS'):
 
 from moviepy.editor import (AudioFileClip, ImageClip, CompositeVideoClip,
                             concatenate_videoclips, CompositeAudioClip, ColorClip)
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
-from googleapiclient.errors import HttpError
+from moviepy.audio.AudioClip import AudioArrayClip
 
 # CONFIG
 MEMORY_DIR = "memory/"
@@ -52,6 +50,26 @@ def clean_text_for_font(text, is_english=False):
         return re.sub(r'[^\w\s\,\.\!\?\-\@]', '', text).strip()
     else:
         return re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
+
+# ────────────────────────────────────────────────
+# 🌟 MATHEMATICAL SFX GENERATOR (CRASH-PROOF)
+# ────────────────────────────────────────────────
+def create_pop_sfx():
+    fps = 44100
+    dur = 0.15
+    t = np.linspace(0, dur, int(fps*dur), False)
+    freq = np.linspace(400, 800, len(t))
+    audio = np.sin(2 * np.pi * freq * t) * np.exp(-25 * t)
+    stereo = np.column_stack((audio, audio))
+    return AudioArrayClip(stereo, fps=fps).volumex(0.5)
+
+def create_swoosh_sfx():
+    fps = 44100
+    dur = 0.4
+    t = np.linspace(0, dur, int(fps*dur), False)
+    audio = np.random.normal(0, 1, len(t)) * (np.sin(np.pi * (t / dur)) ** 2)
+    stereo = np.column_stack((audio, audio))
+    return AudioArrayClip(stereo, fps=fps).volumex(0.12)
 
 # ────────────────────────────────────────────────
 # 🧠 DUAL-BRAIN AI SYSTEM
@@ -220,44 +238,48 @@ def create_outro(is_short):
     txt2 = generate_text_clip_pil("@HindiMastiRhymes", w, h, 65, 4.0, color='#AAAAAA', pos_y=int(h*0.55), is_english=True)
     return CompositeVideoClip([clip, txt1, txt2], size=(w, h)).crossfadein(0.5)
 
-# 🌟 FIX 3: THE DYNAMIC CAMERA ENGINE
+# 🌟 THE NEW CAMERA, TEXT BOUNCE & SFX ENGINE
 def create_segment(line, img_path, aud_path, is_short, idx):
     w, h = (1080, 1920) if is_short else (1920, 1080)
     voice = AudioFileClip(aud_path)
     dur = voice.duration
     
+    # 1. Mix Audio & SFX
+    pop_sfx = create_pop_sfx().set_start(0.05)
+    swoosh_sfx = create_swoosh_sfx().set_start(0.0)
+    
     try:
         bg = AudioFileClip(os.path.join(ASSETS_DIR, "bg_music.mp3")).volumex(0.085)
         if bg.duration < dur: bg = bg.loop(duration=dur)
         else: bg = bg.subclip(random.uniform(0, max(0, bg.duration - dur)), dur)
-        audio = CompositeAudioClip([voice, bg])
-    except: audio = voice
+        audio = CompositeAudioClip([voice, bg, pop_sfx, swoosh_sfx])
+    except: 
+        audio = CompositeAudioClip([voice, pop_sfx, swoosh_sfx])
 
-    img = ImageClip(img_path)
-    
-    # Scale image up by 15% to allow for camera panning
-    img = img.resize(1.15)
-    ex_x = img.w - w
-    ex_y = img.h - h
+    # 2. Dynamic Camera Engine
+    img = ImageClip(img_path).resize(1.15)
+    ex_x, ex_y = img.w - w, img.h - h
     
     camera_move = random.choice(['zoom_in', 'zoom_out', 'pan_left', 'pan_right', 'pan_up', 'pan_down'])
     
-    if camera_move == 'zoom_in':
-        anim = img.resize(lambda t: 1.0 + 0.15 * (t/dur)).set_position('center')
-    elif camera_move == 'zoom_out':
-        anim = img.resize(lambda t: 1.15 - 0.15 * (t/dur)).set_position('center')
-    elif camera_move == 'pan_left':
-        anim = img.set_position(lambda t: (-ex_x * (t/dur), 'center'))
-    elif camera_move == 'pan_right':
-        anim = img.set_position(lambda t: (-ex_x + (ex_x * (t/dur)), 'center'))
-    elif camera_move == 'pan_up':
-        anim = img.set_position(lambda t: ('center', -ex_y * (t/dur)))
-    elif camera_move == 'pan_down':
-        anim = img.set_position(lambda t: ('center', -ex_y + (ex_y * (t/dur))))
+    if camera_move == 'zoom_in': anim = img.resize(lambda t: 1.0 + 0.15 * (t/dur)).set_position('center')
+    elif camera_move == 'zoom_out': anim = img.resize(lambda t: 1.15 - 0.15 * (t/dur)).set_position('center')
+    elif camera_move == 'pan_left': anim = img.set_position(lambda t: (-ex_x * (t/dur), 'center'))
+    elif camera_move == 'pan_right': anim = img.set_position(lambda t: (-ex_x + (ex_x * (t/dur)), 'center'))
+    elif camera_move == 'pan_up': anim = img.set_position(lambda t: ('center', -ex_y * (t/dur)))
+    elif camera_move == 'pan_down': anim = img.set_position(lambda t: ('center', -ex_y + (ex_y * (t/dur))))
 
     anim = anim.set_duration(dur)
 
-    txt = generate_text_clip_pil(line, w, h, 118, dur)
+    # 3. Bouncing Text Animation
+    def text_bounce(t):
+        if t < 0.4:
+            # Mathematical damped sine wave for the perfect "Boing" physics
+            offset = 150 * math.exp(-12*t) * math.cos(30*t)
+            return ('center', int(offset))
+        return ('center', 0)
+
+    txt = generate_text_clip_pil(line, w, h, 118, dur).set_position(text_bounce)
     wm = generate_text_clip_pil("@HindiMastiRhymes", w, h, 38, dur, color='white', pos_y=40, pos_x=40, stroke_width=2, is_english=True)
 
     clip = CompositeVideoClip([anim, txt, wm.set_opacity(0.60)], size=(w, h)).set_audio(audio).set_duration(dur)
