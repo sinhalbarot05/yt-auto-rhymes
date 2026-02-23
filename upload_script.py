@@ -47,15 +47,15 @@ def save_to_memory(f, item):
         data.append(item)
         json.dump(data[-1000:], open(os.path.join(MEMORY_DIR, f), 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
 
-# 🌟 FIX 1: AGGRESSIVE TEXT CLEANER (NO MORE BOXY FONTS)
 def clean_text_for_font(text, is_english=False):
     if is_english:
-        # Keeps English, Numbers, and basic punctuation
         return re.sub(r'[^\w\s\,\.\!\?\-\@]', '', text).strip()
     else:
-        # STRICT HINDI ONLY. Deletes English letters, numbers, and emojis to prevent boxes.
         return re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
 
+# ────────────────────────────────────────────────
+# 🧠 DUAL-BRAIN AI SYSTEM
+# ────────────────────────────────────────────────
 def openai_request(prompt):
     api_key = os.getenv('OPENAI_API_KEY')
     if not api_key: return None
@@ -136,6 +136,9 @@ Output ONLY valid JSON:
         time.sleep(5)
     return None
 
+# ────────────────────────────────────────────────
+# VIDEO & IMAGE LOGIC
+# ────────────────────────────────────────────────
 def download_file(url, fn, headers=None):
     try:
         r = requests.get(url, headers=headers or {"User-Agent": "Mozilla/5.0"}, timeout=60)
@@ -169,14 +172,13 @@ def get_image(character_design, action, fn, kw, is_short, master_seed):
     if download_file(stock, fn): apply_pro_enhancement(fn, w, h)
     else: Image.new('RGB', (w, h), (random.randint(70, 230),)*3).save(fn)
 
-# 🌟 FIX 2: AUTO-SCALING TEXT ENGINE (PREVENTS TEXT OFF-SCREEN)
 def generate_text_clip_pil(text, w, h, base_size, dur, color='#FFFF00', pos_y=None, pos_x=None, stroke_width=8, is_english=False):
     text = clean_text_for_font(text, is_english)
     img = Image.new('RGBA', (w, h), (0,0,0,0))
     draw = ImageDraw.Draw(img)
     target_font = ENG_FONT_FILE if is_english else FONT_FILE
     
-    max_w = w - 120 # Safe margin
+    max_w = w - 120 
     size = base_size
     
     def get_wrapped_text(t, f):
@@ -191,7 +193,6 @@ def generate_text_clip_pil(text, w, h, base_size, dur, color='#FFFF00', pos_y=No
         if curr: lines.append(curr)
         return "\n".join(lines)
 
-    # Dynamic Size Shrinker: Loops until the text fits perfectly inside the screen
     font = ImageFont.truetype(target_font, size) if os.path.exists(target_font) else ImageFont.load_default()
     wrapped_text = get_wrapped_text(text, font)
     bbox = draw.multiline_textbbox((0,0), wrapped_text, font=font, align="center")
@@ -219,24 +220,47 @@ def create_outro(is_short):
     txt2 = generate_text_clip_pil("@HindiMastiRhymes", w, h, 65, 4.0, color='#AAAAAA', pos_y=int(h*0.55), is_english=True)
     return CompositeVideoClip([clip, txt1, txt2], size=(w, h)).crossfadein(0.5)
 
+# 🌟 FIX 3: THE DYNAMIC CAMERA ENGINE
 def create_segment(line, img_path, aud_path, is_short, idx):
     w, h = (1080, 1920) if is_short else (1920, 1080)
     voice = AudioFileClip(aud_path)
+    dur = voice.duration
     
     try:
         bg = AudioFileClip(os.path.join(ASSETS_DIR, "bg_music.mp3")).volumex(0.085)
-        if bg.duration < voice.duration: bg = bg.loop(duration=voice.duration)
-        else: bg = bg.subclip(random.uniform(0, max(0, bg.duration - voice.duration)), voice.duration)
+        if bg.duration < dur: bg = bg.loop(duration=dur)
+        else: bg = bg.subclip(random.uniform(0, max(0, bg.duration - dur)), dur)
         audio = CompositeAudioClip([voice, bg])
     except: audio = voice
 
     img = ImageClip(img_path)
-    anim = img.resize(lambda t: 1.015 - 0.012 * t).set_position('center').set_duration(voice.duration)
+    
+    # Scale image up by 15% to allow for camera panning
+    img = img.resize(1.15)
+    ex_x = img.w - w
+    ex_y = img.h - h
+    
+    camera_move = random.choice(['zoom_in', 'zoom_out', 'pan_left', 'pan_right', 'pan_up', 'pan_down'])
+    
+    if camera_move == 'zoom_in':
+        anim = img.resize(lambda t: 1.0 + 0.15 * (t/dur)).set_position('center')
+    elif camera_move == 'zoom_out':
+        anim = img.resize(lambda t: 1.15 - 0.15 * (t/dur)).set_position('center')
+    elif camera_move == 'pan_left':
+        anim = img.set_position(lambda t: (-ex_x * (t/dur), 'center'))
+    elif camera_move == 'pan_right':
+        anim = img.set_position(lambda t: (-ex_x + (ex_x * (t/dur)), 'center'))
+    elif camera_move == 'pan_up':
+        anim = img.set_position(lambda t: ('center', -ex_y * (t/dur)))
+    elif camera_move == 'pan_down':
+        anim = img.set_position(lambda t: ('center', -ex_y + (ex_y * (t/dur))))
 
-    txt = generate_text_clip_pil(line, w, h, 118, voice.duration)
-    wm = generate_text_clip_pil("@HindiMastiRhymes", w, h, 38, voice.duration, color='white', pos_y=40, pos_x=40, stroke_width=2, is_english=True)
+    anim = anim.set_duration(dur)
 
-    clip = CompositeVideoClip([anim, txt, wm.set_opacity(0.60)], size=(w, h)).set_audio(audio).set_duration(voice.duration)
+    txt = generate_text_clip_pil(line, w, h, 118, dur)
+    wm = generate_text_clip_pil("@HindiMastiRhymes", w, h, 38, dur, color='white', pos_y=40, pos_x=40, stroke_width=2, is_english=True)
+
+    clip = CompositeVideoClip([anim, txt, wm.set_opacity(0.60)], size=(w, h)).set_audio(audio).set_duration(dur)
     if idx > 0: clip = clip.crossfadein(0.45)
     return clip
 
@@ -293,7 +317,6 @@ def make_video(content, is_short=True):
 
 def create_thumbnail(title, bg_path, out_path, is_short):
     try:
-        # Pass to text cleaner, then auto-scale title
         clean_title = clean_text_for_font(title, is_english=False)
         with Image.open(bg_path) as im:
             im = im.convert("RGB").resize((1280,720), Image.LANCZOS)
@@ -302,7 +325,6 @@ def create_thumbnail(title, bg_path, out_path, is_short):
             im = Image.alpha_composite(im.convert("RGBA"), overlay).convert("RGB")
             draw = ImageDraw.Draw(im)
             
-            # 🌟 THUMBNAIL AUTO-SCALER (Fixes title clipping)
             font_size = 130 
             max_w = 1180
             
