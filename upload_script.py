@@ -11,6 +11,11 @@ from moviepy.editor import (AudioFileClip, ImageClip, CompositeVideoClip,
                             concatenate_videoclips, CompositeAudioClip, ColorClip)
 from moviepy.audio.AudioClip import AudioArrayClip
 
+# 🌟 ADDED THESE BACK: The missing YouTube upload tools!
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+from googleapiclient.errors import HttpError
+
 # CONFIG
 MEMORY_DIR = "memory/"
 OUTPUT_DIR = "videos/"
@@ -274,7 +279,6 @@ def create_segment(line, img_path, aud_path, is_short, idx):
     # 3. Bouncing Text Animation
     def text_bounce(t):
         if t < 0.4:
-            # Mathematical damped sine wave for the perfect "Boing" physics
             offset = 150 * math.exp(-12*t) * math.cos(30*t)
             return ('center', int(offset))
         return ('center', 0)
