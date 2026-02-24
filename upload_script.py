@@ -55,9 +55,6 @@ def clean_text_for_font(text, is_english=False):
     else:
         return re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
 
-# ────────────────────────────────────────────────
-# 🌟 MATHEMATICAL SFX GENERATOR
-# ────────────────────────────────────────────────
 def create_pop_sfx():
     fps = 44100
     dur = 0.15
@@ -75,9 +72,6 @@ def create_swoosh_sfx():
     stereo = np.column_stack((audio, audio))
     return AudioArrayClip(stereo, fps=fps).volumex(0.12)
 
-# ────────────────────────────────────────────────
-# 🧠 DUAL-BRAIN AI SYSTEM
-# ────────────────────────────────────────────────
 def openai_request(prompt):
     api_key = os.getenv('OPENAI_API_KEY')
     if not api_key: return None
@@ -130,7 +124,7 @@ def generate_content(mode="short"):
 
     line_count = 14 if mode == "short" else 26
 
-    # 🌟 FIX 1: RESTORE 1-TO-1 VISUAL MATCHING IN THE PROMPT
+    # 🌟 FIX 1: ADDED "SETTING" TO KEEP THE WORLD CONSISTENT & ENFORCED ANIMAL SPECIES
     prompt = f"""You are a top-tier Hindi children's poet and Pixar Art Director.
 Topic: "{topic}"
 
@@ -143,18 +137,20 @@ CRITICAL RHYME RULES:
 6. CRITICAL: NO RABBITS, NO BUNNIES, NO CAKES, NO CUPCAKES.
 
 CRITICAL VISUAL RULES:
-7. Create a 'character_design'. This is a physical description of the main character (e.g., "A chubby dinosaur wearing blue goggles").
-8. The 'action' field MUST PERFECTLY MATCH the Hindi line. It MUST be a complete scene description. If the line mentions a new object or animal (e.g., a crocodile), the 'action' MUST explicitly include that new object/animal interacting with the main character!
+7. Create a 'character_design'. You MUST name a specific animal or human child (e.g., "A chubby baby elephant wearing blue overalls").
+8. Create a 'setting'. This is the world where the video happens (e.g., "Inside a colorful moving train", "A bright green jungle").
+9. The 'action' field MUST describe EXACTLY what is happening in the Hindi line. 
 
 Output ONLY valid JSON:
 {{
   "seo_title": "Best 2026 title starting with keyword",
   "title": "Hindi catchy title (Devanagari only)",
   "keyword": "Main English character",
-  "character_design": "Detailed physical description",
+  "character_design": "Specific animal/child description",
+  "setting": "The overall location of the video",
   "seo_tags": ["hindi bal geet", "kids rhymes"],
   "seo_description": "Description template with [TIMESTAMPS]",
-  "scenes": [{{"line": "5 to 7 word Hindi sentence", "action": "Highly detailed 1-to-1 visual description of EXACTLY what is happening in this specific line"}}]
+  "scenes": [{{"line": "5 to 7 word Hindi sentence", "action": "Highly detailed description of this exact scene"}}]
 }}"""
     
     for attempt in range(4):
@@ -194,19 +190,20 @@ def apply_pro_enhancement(fn, w, h):
             im.save(fn, "JPEG", quality=98, optimize=True)
     except: pass
 
-def get_image(character_design, action, fn, kw, is_short, master_seed):
+# 🌟 FIX 2: REMOVED MASTER SEED, ADDED "SETTING" TO PROMPT FOR DYNAMIC BACKGROUNDS
+def get_image(character_design, setting, action, fn, kw, is_short):
     w, h = (1080, 1920) if is_short else (1920, 1080)
+    scene_seed = random.randint(0, 999999) # New seed per scene!
     
-    # 🌟 FIX 2: PRIORITY FLIP. The "Action" now comes FIRST so the AI doesn't forget the story!
-    clean = f"{action}, featuring {character_design}, Mango Yellow, Royal Blue, Deep Turquoise, cute pixar 3d kids cartoon vibrant masterpiece 8k".replace(" ", "%20")
+    clean = f"{action}. Set in {setting}. Main character: {character_design}. Mango Yellow, Royal Blue, Deep Turquoise, cute pixar 3d kids cartoon vibrant masterpiece 8k".replace(" ", "%20")
     
     api = os.getenv('POLLINATIONS_API_KEY')
     if api:
-        url = f"https://gen.pollinations.ai/image/{clean}?model=flux&width={w}&height={h}&nologo=true&seed={master_seed}&enhance=true"
+        url = f"https://gen.pollinations.ai/image/{clean}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
         if download_file(url, fn, {"Authorization": f"Bearer {api}"}):
             apply_pro_enhancement(fn, w, h); return
             
-    stock = f"https://loremflickr.com/{w}/{h}/{kw.lower()}/?lock={master_seed}"
+    stock = f"https://loremflickr.com/{w}/{h}/{kw.lower()}/?lock={scene_seed}"
     if download_file(stock, fn): apply_pro_enhancement(fn, w, h)
     else: Image.new('RGB', (w, h), (random.randint(70, 230),)*3).save(fn)
 
@@ -326,7 +323,8 @@ def make_video(content, is_short=True):
     suffix = "s" if is_short else "l"
     keyword = content.get('keyword', 'kids')
     character_design = content.get('character_design', 'A cute 3D cartoon character')
-    master_seed = random.randint(0, 999999)
+    setting = content.get('setting', 'A beautiful colorful 3D world')
+    
     full_lyrics, times = "", []
     current_time = 0.0 
 
@@ -338,7 +336,8 @@ def make_video(content, is_short=True):
             aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
             img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
             futures.append(ex.submit(get_voice, line, aud))
-            futures.append(ex.submit(get_image, character_design, scene['action'], img, keyword, is_short, master_seed))
+            # 🌟 FIX 3: PASSED THE "SETTING" TO THE IMAGE GENERATOR INSTEAD OF SEED
+            futures.append(ex.submit(get_image, character_design, setting, scene['action'], img, keyword, is_short))
         for f in as_completed(futures): f.result()
 
     for i, scene in enumerate(content['scenes']):
