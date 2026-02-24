@@ -1,4 +1,4 @@
-import os, random, json, asyncio, requests, time, numpy as np, re, math
+import os, random, json, asyncio, requests, time, numpy as np, re, math, subprocess, shutil
 from pathlib import Path
 import pickle
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -11,7 +11,6 @@ from moviepy.editor import (AudioFileClip, ImageClip, CompositeVideoClip,
                             concatenate_videoclips, CompositeAudioClip, ColorClip)
 from moviepy.audio.AudioClip import AudioArrayClip
 
-# 🌟 ADDED THESE BACK: The missing YouTube upload tools!
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
@@ -243,13 +242,11 @@ def create_outro(is_short):
     txt2 = generate_text_clip_pil("@HindiMastiRhymes", w, h, 65, 4.0, color='#AAAAAA', pos_y=int(h*0.55), is_english=True)
     return CompositeVideoClip([clip, txt1, txt2], size=(w, h)).crossfadein(0.5)
 
-# 🌟 THE NEW CAMERA, TEXT BOUNCE & SFX ENGINE
 def create_segment(line, img_path, aud_path, is_short, idx):
     w, h = (1080, 1920) if is_short else (1920, 1080)
     voice = AudioFileClip(aud_path)
     dur = voice.duration
     
-    # 1. Mix Audio & SFX
     pop_sfx = create_pop_sfx().set_start(0.05)
     swoosh_sfx = create_swoosh_sfx().set_start(0.0)
     
@@ -261,7 +258,6 @@ def create_segment(line, img_path, aud_path, is_short, idx):
     except: 
         audio = CompositeAudioClip([voice, pop_sfx, swoosh_sfx])
 
-    # 2. Dynamic Camera Engine
     img = ImageClip(img_path).resize(1.15)
     ex_x, ex_y = img.w - w, img.h - h
     
@@ -276,7 +272,6 @@ def create_segment(line, img_path, aud_path, is_short, idx):
 
     anim = anim.set_duration(dur)
 
-    # 3. Bouncing Text Animation
     def text_bounce(t):
         if t < 0.4:
             offset = 150 * math.exp(-12*t) * math.cos(30*t)
@@ -290,15 +285,30 @@ def create_segment(line, img_path, aud_path, is_short, idx):
     if idx > 0: clip = clip.crossfadein(0.45)
     return clip
 
-async def generate_voice_async(text, fn):
-    clean_speech = clean_text_for_font(text, is_english=False)
-    proc = await asyncio.create_subprocess_exec(
-        "edge-tts", "--voice", "hi-IN-SwaraNeural", "--rate=-10%", "--pitch=+10Hz", "--text", clean_speech, "--write-media", fn
-    )
-    await proc.wait()
-
+# 🌟 FIX: ROBUST SYNCHRONOUS VOICE ENGINE (ANTI RATE-LIMIT)
 def get_voice(text, fn): 
-    asyncio.run(generate_voice_async(text, fn))
+    clean_speech = clean_text_for_font(text, is_english=False)
+    if len(clean_speech) < 2: clean_speech = "मस्ती" # Safe fallback if AI gives empty text
+    
+    # Try up to 5 times to bypass Microsoft's rate limits
+    for attempt in range(5):
+        try:
+            subprocess.run([
+                "edge-tts", "--voice", "hi-IN-SwaraNeural", 
+                "--rate=-10%", "--pitch=+10Hz", 
+                "--text", clean_speech, "--write-media", fn
+            ], capture_output=True)
+            
+            # 🌟 VERIFY THE FILE IS NOT EMPTY!
+            if os.path.exists(fn) and os.path.getsize(fn) > 1000:
+                return # Success!
+        except:
+            pass
+        time.sleep(random.uniform(1, 3)) # Trick the server into thinking we are human
+        
+    # Ultimate Fallback: If edge-tts is completely down, copy background music so MoviePy doesn't crash!
+    try: shutil.copyfile(os.path.join(ASSETS_DIR, "bg_music.mp3"), fn)
+    except: pass
 
 def make_video(content, is_short=True):
     print(f"🎥 Premium Render {'SHORT' if is_short else 'LONG'}...")
@@ -310,7 +320,7 @@ def make_video(content, is_short=True):
     full_lyrics, times = "", []
     current_time = 0.0 
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
+    with ThreadPoolExecutor(max_workers=4) as ex: # Lowered workers from 8 to 4 to protect the voice API
         futures = []
         for i, scene in enumerate(content['scenes']):
             line = scene['line']
@@ -332,7 +342,7 @@ def make_video(content, is_short=True):
     clips.append(create_outro(is_short))
     final = concatenate_videoclips(clips, method="compose")
     out = os.path.join(OUTPUT_DIR, f"final_{suffix}.mp4")
-    final.write_videofile(out, fps=24, codec='libx264', audio_codec='aac', threads=8, preset='veryfast', ffmpeg_params=['-crf', '20', '-pix_fmt', 'yuv420p'])
+    final.write_videofile(out, fps=24, codec='libx264', audio_codec='aac', threads=4, preset='veryfast', ffmpeg_params=['-crf', '20', '-pix_fmt', 'yuv420p'])
 
     for f in os.listdir(ASSETS_DIR):
         if f.startswith(('a_s_','a_l_','i_s_','i_l_')) and f.endswith(('.mp3','.jpg')):
