@@ -124,7 +124,7 @@ def generate_content(mode="short"):
 
     line_count = 14 if mode == "short" else 26
 
-    # 🌟 FIX 1: ADDED "SETTING" TO KEEP THE WORLD CONSISTENT & ENFORCED ANIMAL SPECIES
+    # 🌟 FIX 1: The "Journey" Prompt. We destroyed the global setting and force the AI to change backgrounds line by line!
     prompt = f"""You are a top-tier Hindi children's poet and Pixar Art Director.
 Topic: "{topic}"
 
@@ -138,8 +138,8 @@ CRITICAL RHYME RULES:
 
 CRITICAL VISUAL RULES:
 7. Create a 'character_design'. You MUST name a specific animal or human child (e.g., "A chubby baby elephant wearing blue overalls").
-8. Create a 'setting'. This is the world where the video happens (e.g., "Inside a colorful moving train", "A bright green jungle").
-9. The 'action' field MUST describe EXACTLY what is happening in the Hindi line. 
+8. The 'action' field MUST perfectly match the Hindi line AND it MUST describe the specific background location for that line! 
+9. If the character goes on a journey, the background location in the 'action' MUST change line-by-line (e.g. Line 1: in a bedroom. Line 2: flying over a city. Line 3: landing in a jungle). 
 
 Output ONLY valid JSON:
 {{
@@ -147,10 +147,9 @@ Output ONLY valid JSON:
   "title": "Hindi catchy title (Devanagari only)",
   "keyword": "Main English character",
   "character_design": "Specific animal/child description",
-  "setting": "The overall location of the video",
   "seo_tags": ["hindi bal geet", "kids rhymes"],
   "seo_description": "Description template with [TIMESTAMPS]",
-  "scenes": [{{"line": "5 to 7 word Hindi sentence", "action": "Highly detailed description of this exact scene"}}]
+  "scenes": [{{"line": "5 to 7 word Hindi sentence", "action": "Highly detailed visual description of the action AND the specific background/location for this line."}}]
 }}"""
     
     for attempt in range(4):
@@ -190,12 +189,12 @@ def apply_pro_enhancement(fn, w, h):
             im.save(fn, "JPEG", quality=98, optimize=True)
     except: pass
 
-# 🌟 FIX 2: REMOVED MASTER SEED, ADDED "SETTING" TO PROMPT FOR DYNAMIC BACKGROUNDS
-def get_image(character_design, setting, action, fn, kw, is_short):
+# 🌟 FIX 2: Removed "setting" variable. Action dictates the entire scene now!
+def get_image(character_design, action, fn, kw, is_short):
     w, h = (1080, 1920) if is_short else (1920, 1080)
-    scene_seed = random.randint(0, 999999) # New seed per scene!
+    scene_seed = random.randint(0, 999999) 
     
-    clean = f"{action}. Set in {setting}. Main character: {character_design}. Mango Yellow, Royal Blue, Deep Turquoise, cute pixar 3d kids cartoon vibrant masterpiece 8k".replace(" ", "%20")
+    clean = f"{action}. Featuring main character: {character_design}. Mango Yellow, Royal Blue, Deep Turquoise, cute pixar 3d kids cartoon vibrant masterpiece 8k".replace(" ", "%20")
     
     api = os.getenv('POLLINATIONS_API_KEY')
     if api:
@@ -323,7 +322,6 @@ def make_video(content, is_short=True):
     suffix = "s" if is_short else "l"
     keyword = content.get('keyword', 'kids')
     character_design = content.get('character_design', 'A cute 3D cartoon character')
-    setting = content.get('setting', 'A beautiful colorful 3D world')
     
     full_lyrics, times = "", []
     current_time = 0.0 
@@ -336,8 +334,8 @@ def make_video(content, is_short=True):
             aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
             img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
             futures.append(ex.submit(get_voice, line, aud))
-            # 🌟 FIX 3: PASSED THE "SETTING" TO THE IMAGE GENERATOR INSTEAD OF SEED
-            futures.append(ex.submit(get_image, character_design, setting, scene['action'], img, keyword, is_short))
+            # 🌟 FIX 2 IMPLEMENTED: Removed the "setting" variable here.
+            futures.append(ex.submit(get_image, character_design, scene['action'], img, keyword, is_short))
         for f in as_completed(futures): f.result()
 
     for i, scene in enumerate(content['scenes']):
