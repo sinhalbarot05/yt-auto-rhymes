@@ -56,7 +56,7 @@ def clean_text_for_font(text, is_english=False):
         return re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
 
 # ────────────────────────────────────────────────
-# 🌟 MATHEMATICAL SFX GENERATOR (CRASH-PROOF)
+# 🌟 MATHEMATICAL SFX GENERATOR
 # ────────────────────────────────────────────────
 def create_pop_sfx():
     fps = 44100
@@ -84,7 +84,7 @@ def openai_request(prompt):
     try:
         r = requests.post("https://api.openai.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}"},
-            json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "temperature": 0.8, "max_tokens": 1500}, timeout=45)
+            json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "temperature": 0.9, "max_tokens": 2000}, timeout=45)
         if r.status_code == 200:
             return r.json()["choices"][0]["message"]["content"].strip()
     except Exception: pass
@@ -96,7 +96,7 @@ def groq_request(prompt):
     try:
         r = requests.post("https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}"},
-            json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.8, "max_tokens": 3000}, timeout=45)
+            json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.9, "max_tokens": 3000}, timeout=45)
         if r.status_code == 200:
             return r.json()["choices"][0]["message"]["content"].strip()
     except Exception: pass
@@ -120,23 +120,31 @@ def clean_json(text):
 def generate_content(mode="short"):
     print("\n🧠 Contacting AI for script...")
     used = load_memory("used_topics.json")
-    topic_prompt = f"Super cute funny topic for Hindi kids rhyme 2026. Avoid: {', '.join(used[-20:])}. Output ONLY English topic."
-    topic = smart_llm_request(topic_prompt) or "Cute Elephant Dancing"
-    time.sleep(3)
+    
+    themes = ["Outer Space Planets", "Jungle Safari Animals", "Underwater Ocean Fish", "Magic Trains and Cars", "Dinosaur Friends", "Talking Fruits", "Superheroes", "Construction Trucks", "Flying Vehicles", "Robot Pets", "Brave Birds", "Snowy Penguins", "Farm Animals"]
+    theme = random.choice(themes)
+    
+    topic_prompt = f"Output ONLY a 3-to-4 word English topic for a Hindi kids rhyme about: {theme}. CRITICAL: Do NOT use rabbits, bunnies, cakes, cupcakes, or sweets. Avoid: {', '.join(used[-20:])}."
+    topic = smart_llm_request(topic_prompt) or f"Cute {theme}"
+    time.sleep(2)
 
-    lines = 8 if mode == "short" else 16
+    line_count = 14 if mode == "short" else 26
+
+    # 🌟 FIX 1: RESTORE 1-TO-1 VISUAL MATCHING IN THE PROMPT
     prompt = f"""You are a top-tier Hindi children's poet and Pixar Art Director.
 Topic: "{topic}"
 
 CRITICAL RHYME RULES:
-1. Pure Devanagari Hindi ONLY (no English words, no numbers in the rhyme).
-2. PERFECT RHYTHM: Every line must have exactly 5 to 7 words! Make it a complete, singable sentence.
-3. Perfect AABB rhyme scheme.
-4. NO EMOJIS in the 'line' or 'title' fields.
+1. Write EXACTLY {line_count} scenes/lines.
+2. Pure Devanagari Hindi ONLY (no English words, no numbers in the rhyme).
+3. PERFECT RHYTHM: Every line must have exactly 5 to 7 words.
+4. Perfect AABB rhyme scheme.
+5. NO EMOJIS in the 'line' or 'title' fields.
+6. CRITICAL: NO RABBITS, NO BUNNIES, NO CAKES, NO CUPCAKES.
 
 CRITICAL VISUAL RULES:
-5. Create a 'character_design'. This is a highly detailed physical description of the main character.
-6. The 'action' field MUST describe ONLY what the character is doing in that specific line.
+7. Create a 'character_design'. This is a physical description of the main character (e.g., "A chubby dinosaur wearing blue goggles").
+8. The 'action' field MUST PERFECTLY MATCH the Hindi line. It MUST be a complete scene description. If the line mentions a new object or animal (e.g., a crocodile), the 'action' MUST explicitly include that new object/animal interacting with the main character!
 
 Output ONLY valid JSON:
 {{
@@ -146,16 +154,21 @@ Output ONLY valid JSON:
   "character_design": "Detailed physical description",
   "seo_tags": ["hindi bal geet", "kids rhymes"],
   "seo_description": "Description template with [TIMESTAMPS]",
-  "scenes": [{{"line": "5 to 7 word Hindi sentence", "action": "What the character is doing"}}]
+  "scenes": [{{"line": "5 to 7 word Hindi sentence", "action": "Highly detailed 1-to-1 visual description of EXACTLY what is happening in this specific line"}}]
 }}"""
+    
     for attempt in range(4):
         raw = smart_llm_request(prompt)
         data = clean_json(raw)
         if data and "scenes" in data and "character_design" in data:
+            if len(data["scenes"]) < (line_count - 2):
+                print(f"⚠️ AI wrote too few lines ({len(data['scenes'])}). Retrying...")
+                continue
+                
             data['generated_topic'] = topic
             save_to_memory("used_topics.json", topic)
             return data
-        time.sleep(5)
+        time.sleep(4)
     return None
 
 # ────────────────────────────────────────────────
@@ -183,7 +196,10 @@ def apply_pro_enhancement(fn, w, h):
 
 def get_image(character_design, action, fn, kw, is_short, master_seed):
     w, h = (1080, 1920) if is_short else (1920, 1080)
-    clean = f"{character_design}, {action}, Mango Yellow, Royal Blue, Deep Turquoise, cute pixar 3d kids cartoon vibrant masterpiece 8k".replace(" ", "%20")
+    
+    # 🌟 FIX 2: PRIORITY FLIP. The "Action" now comes FIRST so the AI doesn't forget the story!
+    clean = f"{action}, featuring {character_design}, Mango Yellow, Royal Blue, Deep Turquoise, cute pixar 3d kids cartoon vibrant masterpiece 8k".replace(" ", "%20")
+    
     api = os.getenv('POLLINATIONS_API_KEY')
     if api:
         url = f"https://gen.pollinations.ai/image/{clean}?model=flux&width={w}&height={h}&nologo=true&seed={master_seed}&enhance=true"
@@ -285,12 +301,10 @@ def create_segment(line, img_path, aud_path, is_short, idx):
     if idx > 0: clip = clip.crossfadein(0.45)
     return clip
 
-# 🌟 FIX: ROBUST SYNCHRONOUS VOICE ENGINE (ANTI RATE-LIMIT)
 def get_voice(text, fn): 
     clean_speech = clean_text_for_font(text, is_english=False)
-    if len(clean_speech) < 2: clean_speech = "मस्ती" # Safe fallback if AI gives empty text
+    if len(clean_speech) < 2: clean_speech = "मस्ती" 
     
-    # Try up to 5 times to bypass Microsoft's rate limits
     for attempt in range(5):
         try:
             subprocess.run([
@@ -298,15 +312,11 @@ def get_voice(text, fn):
                 "--rate=-10%", "--pitch=+10Hz", 
                 "--text", clean_speech, "--write-media", fn
             ], capture_output=True)
-            
-            # 🌟 VERIFY THE FILE IS NOT EMPTY!
             if os.path.exists(fn) and os.path.getsize(fn) > 1000:
-                return # Success!
-        except:
-            pass
-        time.sleep(random.uniform(1, 3)) # Trick the server into thinking we are human
+                return 
+        except: pass
+        time.sleep(random.uniform(1, 3)) 
         
-    # Ultimate Fallback: If edge-tts is completely down, copy background music so MoviePy doesn't crash!
     try: shutil.copyfile(os.path.join(ASSETS_DIR, "bg_music.mp3"), fn)
     except: pass
 
@@ -320,7 +330,7 @@ def make_video(content, is_short=True):
     full_lyrics, times = "", []
     current_time = 0.0 
 
-    with ThreadPoolExecutor(max_workers=4) as ex: # Lowered workers from 8 to 4 to protect the voice API
+    with ThreadPoolExecutor(max_workers=6) as ex:
         futures = []
         for i, scene in enumerate(content['scenes']):
             line = scene['line']
@@ -342,7 +352,8 @@ def make_video(content, is_short=True):
     clips.append(create_outro(is_short))
     final = concatenate_videoclips(clips, method="compose")
     out = os.path.join(OUTPUT_DIR, f"final_{suffix}.mp4")
-    final.write_videofile(out, fps=24, codec='libx264', audio_codec='aac', threads=4, preset='veryfast', ffmpeg_params=['-crf', '20', '-pix_fmt', 'yuv420p'])
+    
+    final.write_videofile(out, fps=24, codec='libx264', audio_codec='aac', threads=8, preset='ultrafast', ffmpeg_params=['-crf', '23', '-pix_fmt', 'yuv420p'])
 
     for f in os.listdir(ASSETS_DIR):
         if f.startswith(('a_s_','a_l_','i_s_','i_l_')) and f.endswith(('.mp3','.jpg')):
