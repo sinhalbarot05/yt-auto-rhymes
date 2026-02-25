@@ -124,7 +124,8 @@ def generate_content(mode="short"):
 
     line_count = 14 if mode == "short" else 26
 
-    # 🌟 FIX 1: The "Journey" Prompt. We destroyed the global setting and force the AI to change backgrounds line by line!
+    # 🌟 FIX 1: THE "ABSOLUTE FREEDOM" PROMPT
+    # We stopped telling the AI to build a global character and force it into every line.
     prompt = f"""You are a top-tier Hindi children's poet and Pixar Art Director.
 Topic: "{topic}"
 
@@ -136,26 +137,27 @@ CRITICAL RHYME RULES:
 5. NO EMOJIS in the 'line' or 'title' fields.
 6. CRITICAL: NO RABBITS, NO BUNNIES, NO CAKES, NO CUPCAKES.
 
-CRITICAL VISUAL RULES:
-7. Create a 'character_design'. You MUST name a specific animal or human child (e.g., "A chubby baby elephant wearing blue overalls").
-8. The 'action' field MUST perfectly match the Hindi line AND it MUST describe the specific background location for that line! 
-9. If the character goes on a journey, the background location in the 'action' MUST change line-by-line (e.g. Line 1: in a bedroom. Line 2: flying over a city. Line 3: landing in a jungle). 
+CRITICAL VISUAL RULES (1-to-1 MATCHING):
+7. The 'image_prompt' field is the DIRECT instruction to the AI image generator.
+8. It MUST PERFECTLY MATCH the Hindi line. 
+9. If the line says a farmer is working, the 'image_prompt' MUST ONLY describe a farmer working in a field.
+10. If the next line says birds are flying, the 'image_prompt' MUST ONLY describe birds flying in the sky.
+11. DO NOT force the main character into the scene if the line doesn't mention them. The camera must show EXACTLY what the lyrics say.
 
 Output ONLY valid JSON:
 {{
   "seo_title": "Best 2026 title starting with keyword",
   "title": "Hindi catchy title (Devanagari only)",
-  "keyword": "Main English character",
-  "character_design": "Specific animal/child description",
+  "keyword": "Main subject",
   "seo_tags": ["hindi bal geet", "kids rhymes"],
   "seo_description": "Description template with [TIMESTAMPS]",
-  "scenes": [{{"line": "5 to 7 word Hindi sentence", "action": "Highly detailed visual description of the action AND the specific background/location for this line."}}]
+  "scenes": [{{"line": "5 to 7 word Hindi sentence", "image_prompt": "Highly detailed standalone English description of EXACTLY what should be visible on screen for this specific line."}}]
 }}"""
     
     for attempt in range(4):
         raw = smart_llm_request(prompt)
         data = clean_json(raw)
-        if data and "scenes" in data and "character_design" in data:
+        if data and "scenes" in data:
             if len(data["scenes"]) < (line_count - 2):
                 print(f"⚠️ AI wrote too few lines ({len(data['scenes'])}). Retrying...")
                 continue
@@ -189,12 +191,13 @@ def apply_pro_enhancement(fn, w, h):
             im.save(fn, "JPEG", quality=98, optimize=True)
     except: pass
 
-# 🌟 FIX 2: Removed "setting" variable. Action dictates the entire scene now!
-def get_image(character_design, action, fn, kw, is_short):
+# 🌟 FIX 2: REMOVED PYTHON STRING INJECTION
+# The AI LLM now has 100% control over the image prompt!
+def get_image(image_prompt, fn, kw, is_short):
     w, h = (1080, 1920) if is_short else (1920, 1080)
     scene_seed = random.randint(0, 999999) 
     
-    clean = f"{action}. Featuring main character: {character_design}. Mango Yellow, Royal Blue, Deep Turquoise, cute pixar 3d kids cartoon vibrant masterpiece 8k".replace(" ", "%20")
+    clean = f"{image_prompt}, Mango Yellow, Royal Blue, Deep Turquoise, cute pixar 3d kids cartoon vibrant masterpiece 8k".replace(" ", "%20")
     
     api = os.getenv('POLLINATIONS_API_KEY')
     if api:
@@ -321,7 +324,6 @@ def make_video(content, is_short=True):
     clips = []
     suffix = "s" if is_short else "l"
     keyword = content.get('keyword', 'kids')
-    character_design = content.get('character_design', 'A cute 3D cartoon character')
     
     full_lyrics, times = "", []
     current_time = 0.0 
@@ -334,8 +336,11 @@ def make_video(content, is_short=True):
             aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
             img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
             futures.append(ex.submit(get_voice, line, aud))
-            # 🌟 FIX 2 IMPLEMENTED: Removed the "setting" variable here.
-            futures.append(ex.submit(get_image, character_design, scene['action'], img, keyword, is_short))
+            
+            # 🌟 FIX 3: Sent ONLY the scene's exact image_prompt. No injected characters!
+            img_prompt = scene.get('image_prompt', scene.get('action', 'cute kids cartoon'))
+            futures.append(ex.submit(get_image, img_prompt, img, keyword, is_short))
+            
         for f in as_completed(futures): f.result()
 
     for i, scene in enumerate(content['scenes']):
