@@ -70,66 +70,58 @@ def create_swoosh_sfx():
     return AudioArrayClip(stereo, fps=fps).volumex(0.12)
 
 # ────────────────────────────────────────────────
-# 🎵 UPGRADED SUNO ENGINE (WITH ANTI-BOT DISGUISE)
+# 🎵 THE NEW "PUBLIC MIRROR" SUNO ENGINE
 # ────────────────────────────────────────────────
 def generate_suno_song(lyrics, out_path):
     cookie = os.getenv("SUNO_COOKIE", "")
-    if "__session=" not in cookie:
-        print("⚠️ Suno Cookie missing or invalid format.")
+    if not cookie or len(cookie) < 50:
+        print("⚠️ Suno Cookie missing.")
         return False
         
     try:
-        token = cookie.split("__session=")[1].split(";")[0]
+        print("🎵 Requesting Studio Song from Suno via Public API Mirror...")
         
-        # 🌟 FIX 1: The Human Disguise. We send real browser headers to bypass Cloudflare 503 errors.
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/plain, */*",
-            "Origin": "https://suno.com",
-            "Referer": "https://suno.com/"
-        }
+        # We route through a public Vercel instance that handles the complex Clerk Auth
+        # Note: If this public URL ever goes down, you can host your own for free on Vercel using gcui-art/suno-api
+        base_url = "https://suno-api-eight-iota.vercel.app" 
         
-        # Upgraded to chirp-v3-5 for better quality
         payload = {
             "prompt": lyrics,
             "tags": "hindi kids nursery rhyme, cute female singer, upbeat pop, bright",
-            "mv": "chirp-v3-5",
             "title": "Hindi Masti Rhyme",
-            "make_instrumental": False
+            "make_instrumental": False,
+            "wait_audio": True # Tells the mirror to wait until the MP3 is fully generated before responding
         }
         
-        print("🎵 Requesting Studio Song from Suno...")
-        r = requests.post("https://studio-api.suno.ai/api/generate/v2/", headers=headers, json=payload, timeout=20)
+        # The mirror requires the raw cookie string in the headers to impersonate your account
+        headers = {
+            "Content-Type": "application/json",
+            "Cookie": cookie
+        }
+        
+        # We give it a long timeout (120s) because song generation takes time
+        r = requests.post(f"{base_url}/api/custom_generate", headers=headers, json=payload, timeout=120)
         
         if r.status_code != 200:
-            print(f"⚠️ Suno API Error: {r.status_code}")
-            print(f"⚠️ Server Response: {r.text[:200]}") # This will print the exact reason if it fails again
+            print(f"⚠️ Suno API Mirror Error: {r.status_code}")
             return False
             
-        clip_id = r.json()['clips'][0]['id']
-        print(f"🎵 Song generated! ID: {clip_id}. Waiting for render...")
+        data = r.json()
+        if type(data) is list and len(data) > 0:
+            audio_url = data[0].get('audio_url')
+            if audio_url:
+                print("✅ Song generated! Downloading MP3...")
+                r_aud = requests.get(audio_url)
+                with open(out_path, 'wb') as f:
+                    f.write(r_aud.content)
+                print("✅ Suno MP3 Downloaded Successfully!")
+                return True
         
-        for _ in range(30):
-            time.sleep(6)
-            poll = requests.get(f"https://studio-api.suno.ai/api/feed/?ids={clip_id}", headers=headers, timeout=15)
-            if poll.status_code == 200:
-                status = poll.json()[0]['status']
-                if status == "complete":
-                    audio_url = poll.json()[0]['audio_url']
-                    if audio_url:
-                        r_aud = requests.get(audio_url)
-                        with open(out_path, 'wb') as f:
-                            f.write(r_aud.content)
-                        print("✅ Suno MP3 Downloaded Successfully!")
-                        return True
-                elif status == "error":
-                    print("⚠️ Suno reported rendering error.")
-                    return False
+        print("⚠️ Suno API returned unexpected format.")
         return False
+
     except Exception as e:
-        print(f"⚠️ Suno Exception: {e}")
+        print(f"⚠️ Suno Exception (Mirror Timeout/Fail): {e}")
         return False
 
 # ────────────────────────────────────────────────
@@ -347,7 +339,7 @@ def make_video(content, is_short=True):
     full_lyrics_lines = [scene['line'] for scene in content['scenes']]
     full_lyrics_text = "\n".join(full_lyrics_lines)
     
-    # 🌟 STEP 1: Attempt Suno API
+    # 🌟 STEP 1: Attempt Suno API via Public Mirror
     suno_path = os.path.join(ASSETS_DIR, f"suno_{suffix}.mp3")
     suno_success = generate_suno_song(full_lyrics_text, suno_path)
 
@@ -359,7 +351,7 @@ def make_video(content, is_short=True):
             img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
             img_prompt = scene.get('image_prompt', scene.get('action', 'cute kids cartoon'))
             futures.append(ex.submit(get_image, img_prompt, img, keyword, is_short))
-            if not suno_success: # Only run Edge-TTS if Suno failed
+            if not suno_success: 
                 aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
                 futures.append(ex.submit(get_voice, scene['line'], aud))
         for f in as_completed(futures): f.result()
@@ -391,7 +383,7 @@ def make_video(content, is_short=True):
             voice = AudioFileClip(aud)
             dur = voice.duration
             
-            # 🌟 FIX 2: Crash-Proof looping math for the Background Music Fallback
+            # The fixed Math-Based Background Audio Looper
             bg_clip = AudioFileClip(os.path.join(ASSETS_DIR, "bg_music.mp3")).volumex(0.085)
             if bg_clip.duration > 0:
                 repeats = int(math.ceil(dur / bg_clip.duration))
