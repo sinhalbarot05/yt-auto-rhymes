@@ -8,7 +8,8 @@ if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.LANCZOS
 
 from moviepy.editor import (AudioFileClip, ImageClip, CompositeVideoClip,
-                            concatenate_videoclips, CompositeAudioClip, ColorClip)
+                            concatenate_videoclips, CompositeAudioClip, ColorClip,
+                            concatenate_audioclips)
 from moviepy.audio.AudioClip import AudioArrayClip
 
 from googleapiclient.discovery import build
@@ -69,7 +70,7 @@ def create_swoosh_sfx():
     return AudioArrayClip(stereo, fps=fps).volumex(0.12)
 
 # ────────────────────────────────────────────────
-# 🎵 NEW: SUNO AI STUDIO GENERATOR
+# 🎵 UPGRADED SUNO ENGINE (WITH ANTI-BOT DISGUISE)
 # ────────────────────────────────────────────────
 def generate_suno_song(lyrics, out_path):
     cookie = os.getenv("SUNO_COOKIE", "")
@@ -79,20 +80,32 @@ def generate_suno_song(lyrics, out_path):
         
     try:
         token = cookie.split("__session=")[1].split(";")[0]
-        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         
+        # 🌟 FIX 1: The Human Disguise. We send real browser headers to bypass Cloudflare 503 errors.
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Origin": "https://suno.com",
+            "Referer": "https://suno.com/"
+        }
+        
+        # Upgraded to chirp-v3-5 for better quality
         payload = {
             "prompt": lyrics,
             "tags": "hindi kids nursery rhyme, cute female singer, upbeat pop, bright",
-            "mv": "chirp-v3-0",
+            "mv": "chirp-v3-5",
             "title": "Hindi Masti Rhyme",
             "make_instrumental": False
         }
         
         print("🎵 Requesting Studio Song from Suno...")
         r = requests.post("https://studio-api.suno.ai/api/generate/v2/", headers=headers, json=payload, timeout=20)
+        
         if r.status_code != 200:
             print(f"⚠️ Suno API Error: {r.status_code}")
+            print(f"⚠️ Server Response: {r.text[:200]}") # This will print the exact reason if it fails again
             return False
             
         clip_id = r.json()['clips'][0]['id']
@@ -377,7 +390,16 @@ def make_video(content, is_short=True):
             
             voice = AudioFileClip(aud)
             dur = voice.duration
-            audio = CompositeAudioClip([voice, AudioFileClip(os.path.join(ASSETS_DIR, "bg_music.mp3")).volumex(0.085).loop(duration=dur)])
+            
+            # 🌟 FIX 2: Crash-Proof looping math for the Background Music Fallback
+            bg_clip = AudioFileClip(os.path.join(ASSETS_DIR, "bg_music.mp3")).volumex(0.085)
+            if bg_clip.duration > 0:
+                repeats = int(math.ceil(dur / bg_clip.duration))
+                bg_looped = concatenate_audioclips([bg_clip] * repeats).subclip(0, dur)
+            else:
+                bg_looped = bg_clip
+                
+            audio = CompositeAudioClip([voice, bg_looped])
             
             clip = create_segment_unified(scene['line'], img, is_short, i, dur).set_audio(audio)
             clips.append(clip)
