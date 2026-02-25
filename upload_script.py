@@ -50,14 +50,11 @@ def save_to_memory(f, item):
         json.dump(data[-1000:], open(os.path.join(MEMORY_DIR, f), 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
 
 def clean_text_for_font(text, is_english=False):
-    if is_english:
-        return re.sub(r'[^\w\s\,\.\!\?\-\@]', '', text).strip()
-    else:
-        return re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
+    if is_english: return re.sub(r'[^\w\s\,\.\!\?\-\@]', '', text).strip()
+    else: return re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
 
 def create_pop_sfx():
-    fps = 44100
-    dur = 0.15
+    fps = 44100; dur = 0.15
     t = np.linspace(0, dur, int(fps*dur), False)
     freq = np.linspace(400, 800, len(t))
     audio = np.sin(2 * np.pi * freq * t) * np.exp(-25 * t)
@@ -65,13 +62,66 @@ def create_pop_sfx():
     return AudioArrayClip(stereo, fps=fps).volumex(0.5)
 
 def create_swoosh_sfx():
-    fps = 44100
-    dur = 0.4
+    fps = 44100; dur = 0.4
     t = np.linspace(0, dur, int(fps*dur), False)
     audio = np.random.normal(0, 1, len(t)) * (np.sin(np.pi * (t / dur)) ** 2)
     stereo = np.column_stack((audio, audio))
     return AudioArrayClip(stereo, fps=fps).volumex(0.12)
 
+# ────────────────────────────────────────────────
+# 🎵 NEW: SUNO AI STUDIO GENERATOR
+# ────────────────────────────────────────────────
+def generate_suno_song(lyrics, out_path):
+    cookie = os.getenv("SUNO_COOKIE", "")
+    if "__session=" not in cookie:
+        print("⚠️ Suno Cookie missing or invalid format.")
+        return False
+        
+    try:
+        token = cookie.split("__session=")[1].split(";")[0]
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        
+        payload = {
+            "prompt": lyrics,
+            "tags": "hindi kids nursery rhyme, cute female singer, upbeat pop, bright",
+            "mv": "chirp-v3-0",
+            "title": "Hindi Masti Rhyme",
+            "make_instrumental": False
+        }
+        
+        print("🎵 Requesting Studio Song from Suno...")
+        r = requests.post("https://studio-api.suno.ai/api/generate/v2/", headers=headers, json=payload, timeout=20)
+        if r.status_code != 200:
+            print(f"⚠️ Suno API Error: {r.status_code}")
+            return False
+            
+        clip_id = r.json()['clips'][0]['id']
+        print(f"🎵 Song generated! ID: {clip_id}. Waiting for render...")
+        
+        for _ in range(30):
+            time.sleep(6)
+            poll = requests.get(f"https://studio-api.suno.ai/api/feed/?ids={clip_id}", headers=headers, timeout=15)
+            if poll.status_code == 200:
+                status = poll.json()[0]['status']
+                if status == "complete":
+                    audio_url = poll.json()[0]['audio_url']
+                    if audio_url:
+                        r_aud = requests.get(audio_url)
+                        with open(out_path, 'wb') as f:
+                            f.write(r_aud.content)
+                        print("✅ Suno MP3 Downloaded Successfully!")
+                        return True
+                elif status == "error":
+                    print("⚠️ Suno reported rendering error.")
+                    return False
+        return False
+    except Exception as e:
+        print(f"⚠️ Suno Exception: {e}")
+        return False
+
+# ────────────────────────────────────────────────
+# 🧠 AI BRAIN
+# ────────────────────────────────────────────────
 def openai_request(prompt):
     api_key = os.getenv('OPENAI_API_KEY')
     if not api_key: return None
@@ -79,8 +129,7 @@ def openai_request(prompt):
         r = requests.post("https://api.openai.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}"},
             json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "temperature": 0.9, "max_tokens": 2000}, timeout=45)
-        if r.status_code == 200:
-            return r.json()["choices"][0]["message"]["content"].strip()
+        if r.status_code == 200: return r.json()["choices"][0]["message"]["content"].strip()
     except Exception: pass
     return None
 
@@ -91,17 +140,14 @@ def groq_request(prompt):
         r = requests.post("https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}"},
             json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.9, "max_tokens": 3000}, timeout=45)
-        if r.status_code == 200:
-            return r.json()["choices"][0]["message"]["content"].strip()
+        if r.status_code == 200: return r.json()["choices"][0]["message"]["content"].strip()
     except Exception: pass
     return None
 
 def smart_llm_request(prompt):
     res = openai_request(prompt)
     if res: return res
-    res = groq_request(prompt)
-    if res: return res
-    return None
+    return groq_request(prompt)
 
 def clean_json(text):
     if not text: return None
@@ -114,7 +160,6 @@ def clean_json(text):
 def generate_content(mode="short"):
     print("\n🧠 Contacting AI for script...")
     used = load_memory("used_topics.json")
-    
     themes = ["Outer Space Planets", "Jungle Safari Animals", "Underwater Ocean Fish", "Magic Trains and Cars", "Dinosaur Friends", "Talking Fruits", "Superheroes", "Construction Trucks", "Flying Vehicles", "Robot Pets", "Brave Birds", "Snowy Penguins", "Farm Animals"]
     theme = random.choice(themes)
     
@@ -123,9 +168,6 @@ def generate_content(mode="short"):
     time.sleep(2)
 
     line_count = 14 if mode == "short" else 26
-
-    # 🌟 FIX 1: THE "ABSOLUTE FREEDOM" PROMPT
-    # We stopped telling the AI to build a global character and force it into every line.
     prompt = f"""You are a top-tier Hindi children's poet and Pixar Art Director.
 Topic: "{topic}"
 
@@ -153,15 +195,11 @@ Output ONLY valid JSON:
   "seo_description": "Description template with [TIMESTAMPS]",
   "scenes": [{{"line": "5 to 7 word Hindi sentence", "image_prompt": "Highly detailed standalone English description of EXACTLY what should be visible on screen for this specific line."}}]
 }}"""
-    
     for attempt in range(4):
         raw = smart_llm_request(prompt)
         data = clean_json(raw)
         if data and "scenes" in data:
-            if len(data["scenes"]) < (line_count - 2):
-                print(f"⚠️ AI wrote too few lines ({len(data['scenes'])}). Retrying...")
-                continue
-                
+            if len(data["scenes"]) < (line_count - 2): continue
             data['generated_topic'] = topic
             save_to_memory("used_topics.json", topic)
             return data
@@ -191,20 +229,15 @@ def apply_pro_enhancement(fn, w, h):
             im.save(fn, "JPEG", quality=98, optimize=True)
     except: pass
 
-# 🌟 FIX 2: REMOVED PYTHON STRING INJECTION
-# The AI LLM now has 100% control over the image prompt!
 def get_image(image_prompt, fn, kw, is_short):
     w, h = (1080, 1920) if is_short else (1920, 1080)
     scene_seed = random.randint(0, 999999) 
-    
     clean = f"{image_prompt}, Mango Yellow, Royal Blue, Deep Turquoise, cute pixar 3d kids cartoon vibrant masterpiece 8k".replace(" ", "%20")
-    
     api = os.getenv('POLLINATIONS_API_KEY')
     if api:
         url = f"https://gen.pollinations.ai/image/{clean}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
         if download_file(url, fn, {"Authorization": f"Bearer {api}"}):
             apply_pro_enhancement(fn, w, h); return
-            
     stock = f"https://loremflickr.com/{w}/{h}/{kw.lower()}/?lock={scene_seed}"
     if download_file(stock, fn): apply_pro_enhancement(fn, w, h)
     else: Image.new('RGB', (w, h), (random.randint(70, 230),)*3).save(fn)
@@ -214,13 +247,11 @@ def generate_text_clip_pil(text, w, h, base_size, dur, color='#FFFF00', pos_y=No
     img = Image.new('RGBA', (w, h), (0,0,0,0))
     draw = ImageDraw.Draw(img)
     target_font = ENG_FONT_FILE if is_english else FONT_FILE
-    
     max_w = w - 120 
     size = base_size
     
     def get_wrapped_text(t, f):
-        words = t.split()
-        lines, curr = [], ""
+        words = t.split(); lines, curr = [], ""
         for word in words:
             test = curr + " " + word if curr else word
             if draw.textbbox((0,0), test, font=f)[2] <= max_w: curr = test
@@ -257,27 +288,16 @@ def create_outro(is_short):
     txt2 = generate_text_clip_pil("@HindiMastiRhymes", w, h, 65, 4.0, color='#AAAAAA', pos_y=int(h*0.55), is_english=True)
     return CompositeVideoClip([clip, txt1, txt2], size=(w, h)).crossfadein(0.5)
 
-def create_segment(line, img_path, aud_path, is_short, idx):
+# ────────────────────────────────────────────────
+# 🎬 THE NEW UNIFIED VIDEO ASSEMBLY 
+# ────────────────────────────────────────────────
+def create_segment_unified(line, img_path, is_short, idx, dur):
     w, h = (1080, 1920) if is_short else (1920, 1080)
-    voice = AudioFileClip(aud_path)
-    dur = voice.duration
     
-    pop_sfx = create_pop_sfx().set_start(0.05)
-    swoosh_sfx = create_swoosh_sfx().set_start(0.0)
-    
-    try:
-        bg = AudioFileClip(os.path.join(ASSETS_DIR, "bg_music.mp3")).volumex(0.085)
-        if bg.duration < dur: bg = bg.loop(duration=dur)
-        else: bg = bg.subclip(random.uniform(0, max(0, bg.duration - dur)), dur)
-        audio = CompositeAudioClip([voice, bg, pop_sfx, swoosh_sfx])
-    except: 
-        audio = CompositeAudioClip([voice, pop_sfx, swoosh_sfx])
-
     img = ImageClip(img_path).resize(1.15)
     ex_x, ex_y = img.w - w, img.h - h
     
     camera_move = random.choice(['zoom_in', 'zoom_out', 'pan_left', 'pan_right', 'pan_up', 'pan_down'])
-    
     if camera_move == 'zoom_in': anim = img.resize(lambda t: 1.0 + 0.15 * (t/dur)).set_position('center')
     elif camera_move == 'zoom_out': anim = img.resize(lambda t: 1.15 - 0.15 * (t/dur)).set_position('center')
     elif camera_move == 'pan_left': anim = img.set_position(lambda t: (-ex_x * (t/dur), 'center'))
@@ -286,36 +306,22 @@ def create_segment(line, img_path, aud_path, is_short, idx):
     elif camera_move == 'pan_down': anim = img.set_position(lambda t: ('center', -ex_y + (ex_y * (t/dur))))
 
     anim = anim.set_duration(dur)
-
-    def text_bounce(t):
-        if t < 0.4:
-            offset = 150 * math.exp(-12*t) * math.cos(30*t)
-            return ('center', int(offset))
-        return ('center', 0)
-
-    txt = generate_text_clip_pil(line, w, h, 118, dur).set_position(text_bounce)
+    txt = generate_text_clip_pil(line, w, h, 118, dur).crossfadein(0.4)
     wm = generate_text_clip_pil("@HindiMastiRhymes", w, h, 38, dur, color='white', pos_y=40, pos_x=40, stroke_width=2, is_english=True)
 
-    clip = CompositeVideoClip([anim, txt, wm.set_opacity(0.60)], size=(w, h)).set_audio(audio).set_duration(dur)
+    clip = CompositeVideoClip([anim, txt, wm.set_opacity(0.60)], size=(w, h)).set_duration(dur)
     if idx > 0: clip = clip.crossfadein(0.45)
     return clip
 
 def get_voice(text, fn): 
     clean_speech = clean_text_for_font(text, is_english=False)
     if len(clean_speech) < 2: clean_speech = "मस्ती" 
-    
     for attempt in range(5):
         try:
-            subprocess.run([
-                "edge-tts", "--voice", "hi-IN-SwaraNeural", 
-                "--rate=-10%", "--pitch=+10Hz", 
-                "--text", clean_speech, "--write-media", fn
-            ], capture_output=True)
-            if os.path.exists(fn) and os.path.getsize(fn) > 1000:
-                return 
+            subprocess.run(["edge-tts", "--voice", "hi-IN-SwaraNeural", "--rate=-10%", "--pitch=+10Hz", "--text", clean_speech, "--write-media", fn], capture_output=True)
+            if os.path.exists(fn) and os.path.getsize(fn) > 1000: return 
         except: pass
         time.sleep(random.uniform(1, 3)) 
-        
     try: shutil.copyfile(os.path.join(ASSETS_DIR, "bg_music.mp3"), fn)
     except: pass
 
@@ -325,44 +331,65 @@ def make_video(content, is_short=True):
     suffix = "s" if is_short else "l"
     keyword = content.get('keyword', 'kids')
     
-    full_lyrics, times = "", []
-    current_time = 0.0 
+    full_lyrics_lines = [scene['line'] for scene in content['scenes']]
+    full_lyrics_text = "\n".join(full_lyrics_lines)
+    
+    # 🌟 STEP 1: Attempt Suno API
+    suno_path = os.path.join(ASSETS_DIR, f"suno_{suffix}.mp3")
+    suno_success = generate_suno_song(full_lyrics_text, suno_path)
 
+    # 🌟 STEP 2: Generate Images in parallel
+    print("🎨 Generating Images...")
     with ThreadPoolExecutor(max_workers=6) as ex:
         futures = []
         for i, scene in enumerate(content['scenes']):
-            line = scene['line']
-            full_lyrics += f"{i+1}. {line}\n"
-            aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
             img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
-            futures.append(ex.submit(get_voice, line, aud))
-            
-            # 🌟 FIX 3: Sent ONLY the scene's exact image_prompt. No injected characters!
             img_prompt = scene.get('image_prompt', scene.get('action', 'cute kids cartoon'))
             futures.append(ex.submit(get_image, img_prompt, img, keyword, is_short))
-            
+            if not suno_success: # Only run Edge-TTS if Suno failed
+                aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
+                futures.append(ex.submit(get_voice, scene['line'], aud))
         for f in as_completed(futures): f.result()
 
-    for i, scene in enumerate(content['scenes']):
-        aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
-        img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
-        clip = create_segment(scene['line'], img, aud, is_short, i)
-        clips.append(clip)
-        times.append(f"{time.strftime('%M:%S', time.gmtime(current_time))} - {scene['line'][:55]}...")
-        current_time += clip.duration
+    times = []
+    current_time = 0.0 
 
-    clips.append(create_outro(is_short))
-    final = concatenate_videoclips(clips, method="compose")
-    out = os.path.join(OUTPUT_DIR, f"final_{suffix}.mp4")
-    
-    final.write_videofile(out, fps=24, codec='libx264', audio_codec='aac', threads=8, preset='ultrafast', ffmpeg_params=['-crf', '23', '-pix_fmt', 'yuv420p'])
-
-    for f in os.listdir(ASSETS_DIR):
-        if f.startswith(('a_s_','a_l_','i_s_','i_l_')) and f.endswith(('.mp3','.jpg')):
-            try: os.remove(os.path.join(ASSETS_DIR, f))
-            except: pass
+    # 🌟 STEP 3: Assemble Video
+    if suno_success:
+        print("🎧 Assembling with Suno Audio...")
+        master_audio = AudioFileClip(suno_path)
+        dur_per_scene = master_audio.duration / len(content['scenes'])
+        
+        for i, scene in enumerate(content['scenes']):
+            img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
+            clip = create_segment_unified(scene['line'], img, is_short, i, dur_per_scene)
+            clips.append(clip)
+            times.append(f"{time.strftime('%M:%S', time.gmtime(current_time))} - {scene['line'][:55]}...")
+            current_time += clip.duration
             
-    return out, full_lyrics, times, content.get('seo_description', '')
+        clips.append(create_outro(is_short))
+        final = concatenate_videoclips(clips, method="compose").set_audio(master_audio)
+    else:
+        print("⚠️ Falling back to TTS Audio Engine...")
+        for i, scene in enumerate(content['scenes']):
+            aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
+            img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
+            
+            voice = AudioFileClip(aud)
+            dur = voice.duration
+            audio = CompositeAudioClip([voice, AudioFileClip(os.path.join(ASSETS_DIR, "bg_music.mp3")).volumex(0.085).loop(duration=dur)])
+            
+            clip = create_segment_unified(scene['line'], img, is_short, i, dur).set_audio(audio)
+            clips.append(clip)
+            times.append(f"{time.strftime('%M:%S', time.gmtime(current_time))} - {scene['line'][:55]}...")
+            current_time += clip.duration
+            
+        clips.append(create_outro(is_short))
+        final = concatenate_videoclips(clips, method="compose")
+
+    out = os.path.join(OUTPUT_DIR, f"final_{suffix}.mp4")
+    final.write_videofile(out, fps=24, codec='libx264', audio_codec='aac', threads=8, preset='ultrafast', ffmpeg_params=['-crf', '23', '-pix_fmt', 'yuv420p'])
+    return out, full_lyrics_text, times, content.get('seo_description', '')
 
 def create_thumbnail(title, bg_path, out_path, is_short):
     try:
@@ -373,13 +400,9 @@ def create_thumbnail(title, bg_path, out_path, is_short):
             overlay = Image.new("RGBA", (1280,720), (0,0,0,92))
             im = Image.alpha_composite(im.convert("RGBA"), overlay).convert("RGB")
             draw = ImageDraw.Draw(im)
-            
-            font_size = 130 
-            max_w = 1180
-            
+            font_size = 130; max_w = 1180
             def get_wrapped_thumb(t, f):
-                words = t.split()
-                lines, curr = [], ""
+                words = t.split(); lines, curr = [], ""
                 for word in words:
                     test = curr + " " + word if curr else word
                     if draw.textbbox((0,0), test, font=f)[2] <= max_w: curr = test
@@ -392,7 +415,6 @@ def create_thumbnail(title, bg_path, out_path, is_short):
             font_big = ImageFont.truetype(FONT_FILE, font_size) if os.path.exists(FONT_FILE) else ImageFont.load_default()
             wrapped_title = get_wrapped_thumb(clean_title, font_big)
             bbox = draw.multiline_textbbox((0,0), wrapped_title, font=font_big, align="center")
-            
             while (bbox[2] - bbox[0] > max_w) and font_size > 50:
                 font_size -= 5
                 font_big = ImageFont.truetype(FONT_FILE, font_size)
@@ -400,11 +422,8 @@ def create_thumbnail(title, bg_path, out_path, is_short):
                 bbox = draw.multiline_textbbox((0,0), wrapped_title, font=font_big, align="center")
 
             x = (1280 - (bbox[2]-bbox[0])) // 2
-            
-            for off in [(6,6),(8,8)]: 
-                draw.multiline_text((x+off[0], 120+off[1]), wrapped_title, font=font_big, fill=(0,0,0), align="center")
+            for off in [(6,6),(8,8)]: draw.multiline_text((x+off[0], 120+off[1]), wrapped_title, font=font_big, fill=(0,0,0), align="center")
             draw.multiline_text((x, 120), wrapped_title, font=font_big, fill="#FFEA00", align="center")
-            
             font_small = ImageFont.truetype(ENG_FONT_FILE, 72) if os.path.exists(ENG_FONT_FILE) else ImageFont.load_default()
             draw.text((420, 520), "2026 FOR KIDS", font=font_small, fill="#FFFF00")
             im.save(out_path, quality=98, optimize=True)
@@ -445,7 +464,6 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
             first_img = os.path.join(ASSETS_DIR, "i_l_0.jpg")
             create_thumbnail(content['title'], first_img, thumb, is_short)
             if os.path.exists(thumb):
-                print("   Uploading custom thumbnail...")
                 service.thumbnails().set(videoId=response['id'], media_body=MediaFileUpload(thumb)).execute()
 
         save_to_memory("used_rhymes.json", content['title'])
@@ -454,9 +472,9 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
     except Exception as e: print(f"❌ Upload crash: {e}"); return False
 
 if __name__ == "__main__":
-    print("===== HINDI MASTI RHYMES – 2026 ULTIMATE MAX SEO + OPTIMIZED =====")
+    print("===== HINDI MASTI RHYMES – 2026 STUDIO MUSIC EDITION =====")
     for is_short, name in [(True, "SHORT"), (False, "LONG")]:
-        print(f"\n>>> GENERATING {name} (Premium 1080p + SEO) <<<")
+        print(f"\n>>> GENERATING {name} <<<")
         data = generate_content("short" if is_short else "long")
         if data:
             vid, lyrics, times, desc = make_video(data, is_short)
