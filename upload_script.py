@@ -70,58 +70,77 @@ def create_swoosh_sfx():
     return AudioArrayClip(stereo, fps=fps).volumex(0.12)
 
 # ────────────────────────────────────────────────
-# 🎵 THE NEW "PUBLIC MIRROR" SUNO ENGINE
+# 🎵 NEW: "TIMEOUT-PROOF" SUNO POLLING ENGINE
 # ────────────────────────────────────────────────
 def generate_suno_song(lyrics, out_path):
     cookie = os.getenv("SUNO_COOKIE", "")
     if not cookie or len(cookie) < 50:
-        print("⚠️ Suno Cookie missing.")
+        print("⚠️ Suno Cookie missing or too short.")
         return False
         
     try:
         print("🎵 Requesting Studio Song from Suno via Public API Mirror...")
-        
-        # We route through a public Vercel instance that handles the complex Clerk Auth
-        # Note: If this public URL ever goes down, you can host your own for free on Vercel using gcui-art/suno-api
         base_url = "https://suno-api-eight-iota.vercel.app" 
         
         payload = {
             "prompt": lyrics,
             "tags": "hindi kids nursery rhyme, cute female singer, upbeat pop, bright",
             "title": "Hindi Masti Rhyme",
-            "make_instrumental": False,
-            "wait_audio": True # Tells the mirror to wait until the MP3 is fully generated before responding
+            "make_instrumental": False
+            # 🌟 FIX: Removed "wait_audio": True. This prevents the Vercel 500 timeout!
         }
         
-        # The mirror requires the raw cookie string in the headers to impersonate your account
         headers = {
             "Content-Type": "application/json",
             "Cookie": cookie
         }
         
-        # We give it a long timeout (120s) because song generation takes time
-        r = requests.post(f"{base_url}/api/custom_generate", headers=headers, json=payload, timeout=120)
+        # Step 1: Tell the server to START generating (fast request)
+        r = requests.post(f"{base_url}/api/custom_generate", headers=headers, json=payload, timeout=20)
         
         if r.status_code != 200:
-            print(f"⚠️ Suno API Mirror Error: {r.status_code}")
+            print(f"⚠️ Suno API Mirror Error: {r.status_code} - {r.text[:100]}")
             return False
             
         data = r.json()
-        if type(data) is list and len(data) > 0:
-            audio_url = data[0].get('audio_url')
-            if audio_url:
-                print("✅ Song generated! Downloading MP3...")
-                r_aud = requests.get(audio_url)
-                with open(out_path, 'wb') as f:
-                    f.write(r_aud.content)
-                print("✅ Suno MP3 Downloaded Successfully!")
-                return True
+        if type(data) is not list or len(data) == 0:
+            print("⚠️ Suno API returned unexpected format.")
+            return False
+            
+        clip_id = data[0].get('id')
+        if not clip_id:
+            print("⚠️ Could not retrieve Clip ID.")
+            return False
+            
+        print(f"✅ Song generation started! ID: {clip_id}. Polling for completion...")
         
-        print("⚠️ Suno API returned unexpected format.")
+        # Step 2: Knock on the server's door every 6 seconds until audio is ready
+        for attempt in range(40): # Will wait up to 4 minutes max
+            time.sleep(6)
+            poll = requests.get(f"{base_url}/api/get?ids={clip_id}", timeout=15)
+            
+            if poll.status_code == 200:
+                poll_data = poll.json()
+                if type(poll_data) is list and len(poll_data) > 0:
+                    status = poll_data[0].get('status')
+                    if status == "complete" or status == "streaming":
+                        audio_url = poll_data[0].get('audio_url')
+                        if audio_url:
+                            print("✅ Song ready! Downloading MP3...")
+                            r_aud = requests.get(audio_url, timeout=30)
+                            with open(out_path, 'wb') as f:
+                                f.write(r_aud.content)
+                            print("✅ Suno MP3 Downloaded Successfully!")
+                            return True
+                    elif status == "error":
+                        print("⚠️ Suno reported a rendering error inside their engine.")
+                        return False
+        
+        print("⚠️ Suno API Polling Timed Out.")
         return False
 
     except Exception as e:
-        print(f"⚠️ Suno Exception (Mirror Timeout/Fail): {e}")
+        print(f"⚠️ Suno Exception: {e}")
         return False
 
 # ────────────────────────────────────────────────
@@ -293,9 +312,6 @@ def create_outro(is_short):
     txt2 = generate_text_clip_pil("@HindiMastiRhymes", w, h, 65, 4.0, color='#AAAAAA', pos_y=int(h*0.55), is_english=True)
     return CompositeVideoClip([clip, txt1, txt2], size=(w, h)).crossfadein(0.5)
 
-# ────────────────────────────────────────────────
-# 🎬 THE NEW UNIFIED VIDEO ASSEMBLY 
-# ────────────────────────────────────────────────
 def create_segment_unified(line, img_path, is_short, idx, dur):
     w, h = (1080, 1920) if is_short else (1920, 1080)
     
@@ -339,11 +355,9 @@ def make_video(content, is_short=True):
     full_lyrics_lines = [scene['line'] for scene in content['scenes']]
     full_lyrics_text = "\n".join(full_lyrics_lines)
     
-    # 🌟 STEP 1: Attempt Suno API via Public Mirror
     suno_path = os.path.join(ASSETS_DIR, f"suno_{suffix}.mp3")
     suno_success = generate_suno_song(full_lyrics_text, suno_path)
 
-    # 🌟 STEP 2: Generate Images in parallel
     print("🎨 Generating Images...")
     with ThreadPoolExecutor(max_workers=6) as ex:
         futures = []
@@ -359,7 +373,6 @@ def make_video(content, is_short=True):
     times = []
     current_time = 0.0 
 
-    # 🌟 STEP 3: Assemble Video
     if suno_success:
         print("🎧 Assembling with Suno Audio...")
         master_audio = AudioFileClip(suno_path)
@@ -383,7 +396,6 @@ def make_video(content, is_short=True):
             voice = AudioFileClip(aud)
             dur = voice.duration
             
-            # The fixed Math-Based Background Audio Looper
             bg_clip = AudioFileClip(os.path.join(ASSETS_DIR, "bg_music.mp3")).volumex(0.085)
             if bg_clip.duration > 0:
                 repeats = int(math.ceil(dur / bg_clip.duration))
