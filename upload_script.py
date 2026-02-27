@@ -69,17 +69,18 @@ def generate_suno_song(lyrics, out_path):
         
     print("🎵 Requesting Studio Song directly from Suno Servers (Bypassing Cloudflare)...")
     
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Cookie": cookie
+    # 🌟 FIX: Removed all manual User-Agent spoofing to prevent TLS/Header mismatches.
+    # We let curl_cffi handle the fingerprint perfectly.
+    clerk_headers = {
+        "Cookie": cookie,
+        "Origin": "https://suno.com",
+        "Referer": "https://suno.com/"
     }
     
-    # Step 1: Exchange Cookie for short-lived JWT Token via Clerk
     try:
         print("🔑 Authenticating directly with Suno's Auth Server...")
         clerk_url = "https://clerk.suno.com/v1/client?_clerk_js_version=4.73.4"
-        # 🌟 Using cffi_requests with Chrome impersonation
-        clerk_req = cffi_requests.get(clerk_url, headers=headers, impersonate="chrome120", timeout=15)
+        clerk_req = cffi_requests.get(clerk_url, headers=clerk_headers, impersonate="chrome120", timeout=15)
         
         clerk_data = clerk_req.json()
         sessions = clerk_data.get('response', {}).get('sessions', [])
@@ -97,22 +98,11 @@ def generate_suno_song(lyrics, out_path):
         print(f"❌ Failed to authenticate with Suno. {e}")
         return False
 
-    # Step 2: Request Generation directly from Suno API
     suno_headers = {
         "Authorization": f"Bearer {jwt_token}",
         "Content-Type": "application/json",
-        "User-Agent": headers["User-Agent"],
         "Origin": "https://suno.com",
-        "Referer": "https://suno.com/",
-        "Sec-Ch-Ua": '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
-        "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"Windows"',
-        "Sec-Fetch-Dest": "empty",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Site": "same-site",
-        "Accept": "application/json",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://suno.com/"
     }
     
     payload = {
@@ -125,11 +115,10 @@ def generate_suno_song(lyrics, out_path):
     
     try:
         gen_url = "https://studio-api.suno.ai/api/generate/v2/"
-        # 🌟 Piercing Cloudflare's WAF with impersonate parameter
         gen_req = cffi_requests.post(gen_url, headers=suno_headers, json=payload, impersonate="chrome120", timeout=20)
         
         if gen_req.status_code == 503:
-            print(f"❌ Blocked by Cloudflare (503). Try updating your SUNO_COOKIE.")
+            print(f"❌ Blocked by Cloudflare (503). GitHub Actions Datacenter IP is severely restricted.")
             return False
             
         gen_data = gen_req.json()
@@ -140,7 +129,6 @@ def generate_suno_song(lyrics, out_path):
         clip_id = gen_data['clips'][0]['id']
         print(f"✅ Song generation started! ID: {clip_id}. Polling for completion...")
         
-        # Step 3: Poll for Completion
         poll_url = f"https://studio-api.suno.ai/api/feed/?ids={clip_id}"
         
         for attempt in range(40):
@@ -156,8 +144,8 @@ def generate_suno_song(lyrics, out_path):
                         audio_url = poll_data[0].get('audio_url')
                         if audio_url:
                             print("✅ Song ready! Downloading MP3...")
-                            # Standard requests is fine here, it's just a raw CDN link
-                            r_aud = requests.get(audio_url, headers={"User-Agent": headers["User-Agent"]}, timeout=30)
+                            # curl_cffi for the download just to be safe
+                            r_aud = cffi_requests.get(audio_url, impersonate="chrome120", timeout=30)
                             with open(out_path, 'wb') as f:
                                 f.write(r_aud.content)
                             print("✅ Suno MP3 Downloaded Successfully!")
