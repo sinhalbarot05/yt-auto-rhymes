@@ -17,7 +17,9 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
 
-# CONFIG
+# ==========================================
+# CONFIGURATION
+# ==========================================
 MEMORY_DIR = "memory/"
 OUTPUT_DIR = "videos/"
 ASSETS_DIR = "assets/"
@@ -55,9 +57,9 @@ def clean_text_for_font(text, is_english=False):
     if is_english: return re.sub(r'[^\w\s\,\.\!\?\-\@]', '', text).strip()
     else: return re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
 
-# ────────────────────────────────────────────────
-# 🎵 NEW: PURE PYTHON DIRECT SUNO API (NO MIRRORS/NODE.JS REQUIRED)
-# ────────────────────────────────────────────────
+# ==========================================
+# 🎵 DIRECT SUNO API (ADVANCED HEADER SPOOFING)
+# ==========================================
 def generate_suno_song(lyrics, out_path):
     cookie = os.getenv("SUNO_COOKIE", "")
     if not cookie or len(cookie) < 50:
@@ -67,7 +69,7 @@ def generate_suno_song(lyrics, out_path):
     print("🎵 Requesting Studio Song directly from Suno Servers (Bypassing Mirrors)...")
     
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Cookie": cookie
     }
     
@@ -94,11 +96,22 @@ def generate_suno_song(lyrics, out_path):
         print(f"❌ Failed to authenticate with Suno. {e}")
         return False
 
-    # Step 2: Request Generation directly from Suno API
+    # Step 2: Request Generation directly from Suno API with WAF Bypass Headers
     suno_headers = {
         "Authorization": f"Bearer {jwt_token}",
         "Content-Type": "application/json",
-        "User-Agent": headers["User-Agent"]
+        "User-Agent": headers["User-Agent"],
+        "Origin": "https://suno.com",
+        "Referer": "https://suno.com/",
+        "Sec-Ch-Ua": '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-site",
+        "Accept": "*/*",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Language": "en-US,en;q=0.9",
     }
     
     payload = {
@@ -106,7 +119,7 @@ def generate_suno_song(lyrics, out_path):
         "tags": "hindi kids nursery rhyme, cute female singer, upbeat pop, bright",
         "title": "Hindi Masti Rhyme",
         "make_instrumental": False,
-        "mv": "chirp-v3-5" # Suno model version
+        "mv": "chirp-v3-5" 
     }
     
     try:
@@ -153,9 +166,9 @@ def generate_suno_song(lyrics, out_path):
     print("⚠️ Direct Suno API Polling Timed Out.")
     return False
 
-# ────────────────────────────────────────────────
+# ==========================================
 # 🧠 AI BRAIN
-# ────────────────────────────────────────────────
+# ==========================================
 def openai_request(prompt):
     api_key = os.getenv('OPENAI_API_KEY')
     if not api_key: return None
@@ -240,9 +253,9 @@ Output ONLY valid JSON:
         time.sleep(4)
     return None
 
-# ────────────────────────────────────────────────
+# ==========================================
 # VIDEO & IMAGE LOGIC
-# ────────────────────────────────────────────────
+# ==========================================
 def download_file(url, fn, headers=None):
     try:
         r = requests.get(url, headers=headers or {"User-Agent": "Mozilla/5.0"}, timeout=60)
@@ -267,7 +280,8 @@ def get_image(image_prompt, fn, kw, is_short):
     w, h = (1080, 1920) if is_short else (1920, 1080)
     scene_seed = random.randint(0, 999999) 
     
-    clean = f"{image_prompt}, Mango Yellow, Royal Blue, Deep Turquoise, cute pixar 3d kids cartoon vibrant masterpiece 8k"
+    # 🌟 URL Encoded strictly with your brand colors
+    clean = f"{image_prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k"
     clean_encoded = urllib.parse.quote(clean)
     
     api = os.getenv('POLLINATIONS_API_KEY')
@@ -353,6 +367,7 @@ def get_voice(text, fn):
     if len(clean_speech) < 2: clean_speech = "मस्ती" 
     for attempt in range(5):
         try:
+            # 🌟 Timeout implemented for subprocess safety
             subprocess.run(["edge-tts", "--voice", "hi-IN-SwaraNeural", "--rate=-10%", "--pitch=+10Hz", "--text", clean_speech, "--write-media", fn], capture_output=True, timeout=15)
             if os.path.exists(fn) and os.path.getsize(fn) > 1000: return 
         except Exception as e: 
