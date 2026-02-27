@@ -4,7 +4,6 @@ from pathlib import Path
 import pickle
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
-from curl_cffi import requests as cffi_requests # 🌟 The Cloudflare Bypass Engine
 
 if not hasattr(Image, 'ANTIALIAS'): 
     Image.ANTIALIAS = Image.LANCZOS
@@ -59,105 +58,73 @@ def clean_text_for_font(text, is_english=False):
     else: return re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
 
 # ==========================================
-# 🎵 DIRECT SUNO API (CURL_CFFI CLOUDFLARE BYPASS)
+# 🎵 OPEN SOURCE AUDIO ENGINE (MUSICGEN -> BARK)
 # ==========================================
-def generate_suno_song(lyrics, out_path):
-    cookie = os.getenv("SUNO_COOKIE", "")
-    if not cookie or len(cookie) < 50:
-        print("⚠️ Suno Cookie missing or too short. Check your .env file.")
+def generate_open_source_audio(out_path):
+    hf_token = os.getenv("HF_TOKEN")
+    if not hf_token:
+        print("⚠️ HF_TOKEN missing. Using default stock background music.")
         return False
         
-    print("🎵 Requesting Studio Song directly from Suno Servers (Bypassing Cloudflare)...")
+    headers = {"Authorization": f"Bearer {hf_token}"}
     
-    # 🌟 FIX: Removed all manual User-Agent spoofing to prevent TLS/Header mismatches.
-    # We let curl_cffi handle the fingerprint perfectly.
-    clerk_headers = {
-        "Cookie": cookie,
-        "Origin": "https://suno.com",
-        "Referer": "https://suno.com/"
-    }
-    
-    try:
-        print("🔑 Authenticating directly with Suno's Auth Server...")
-        clerk_url = "https://clerk.suno.com/v1/client?_clerk_js_version=4.73.4"
-        clerk_req = cffi_requests.get(clerk_url, headers=clerk_headers, impersonate="chrome120", timeout=15)
-        
-        clerk_data = clerk_req.json()
-        sessions = clerk_data.get('response', {}).get('sessions', [])
-        if not sessions:
-            print("❌ No active sessions found. Your Suno cookie might be expired.")
-            return False
-            
-        jwt_token = sessions[0].get('last_active_token', {}).get('jwt')
-        if not jwt_token:
-            print("❌ Could not extract JWT token from Clerk.")
-            return False
-            
-        print("✅ JWT Token acquired! Connecting to render engine...")
-    except Exception as e:
-        print(f"❌ Failed to authenticate with Suno. {e}")
-        return False
+    # Stylistic description for a vibrant, happy kids animation style
+    music_style_prompt = "happy upbeat bouncy kids nursery rhyme instrumental, xylophone, cheerful, fast tempo"
 
-    suno_headers = {
-        "Authorization": f"Bearer {jwt_token}",
-        "Content-Type": "application/json",
-        "Origin": "https://suno.com",
-        "Referer": "https://suno.com/"
-    }
-    
-    payload = {
-        "prompt": lyrics,
-        "tags": "hindi kids nursery rhyme, cute female singer, upbeat pop, bright",
-        "title": "Hindi Masti Rhyme",
-        "make_instrumental": False,
-        "mv": "chirp-v3-5" 
-    }
+    # -----------------------------------------
+    # ATTEMPT 1: META MUSICGEN
+    # -----------------------------------------
+    print("🎵 Requesting Instrumental Track from Meta MusicGen...")
+    musicgen_url = "https://api-inference.huggingface.co/models/facebook/musicgen-small"
+    payload = {"inputs": music_style_prompt}
     
     try:
-        gen_url = "https://studio-api.suno.ai/api/generate/v2/"
-        gen_req = cffi_requests.post(gen_url, headers=suno_headers, json=payload, impersonate="chrome120", timeout=20)
+        r = requests.post(musicgen_url, headers=headers, json=payload, timeout=60)
         
-        if gen_req.status_code == 503:
-            print(f"❌ Blocked by Cloudflare (503). GitHub Actions Datacenter IP is severely restricted.")
-            return False
+        # Hugging Face models "go to sleep". 503 means "Loading model..."
+        if r.status_code == 503:
+            print("⏳ MusicGen is warming up on the server. Waiting 20 seconds...")
+            time.sleep(20)
+            r = requests.post(musicgen_url, headers=headers, json=payload, timeout=60)
             
-        gen_data = gen_req.json()
-        if 'clips' not in gen_data or not gen_data['clips']:
-            print(f"⚠️ Suno API returned unexpected format: {gen_data}")
-            return False
+        if r.status_code == 200:
+            with open(out_path, 'wb') as f:
+                f.write(r.content)
+            print("✅ MusicGen Track Downloaded Successfully!")
+            return True
+        else:
+            print(f"⚠️ MusicGen Failed: {r.status_code} - {r.text[:100]}")
             
-        clip_id = gen_data['clips'][0]['id']
-        print(f"✅ Song generation started! ID: {clip_id}. Polling for completion...")
-        
-        poll_url = f"https://studio-api.suno.ai/api/feed/?ids={clip_id}"
-        
-        for attempt in range(40):
-            time.sleep(6)
-            poll_req = cffi_requests.get(poll_url, headers=suno_headers, impersonate="chrome120", timeout=15)
-            
-            if poll_req.status_code == 200:
-                poll_data = poll_req.json()
-                if isinstance(poll_data, list) and len(poll_data) > 0:
-                    status = poll_data[0].get('status')
-                    
-                    if status in ["complete", "streaming"]:
-                        audio_url = poll_data[0].get('audio_url')
-                        if audio_url:
-                            print("✅ Song ready! Downloading MP3...")
-                            # curl_cffi for the download just to be safe
-                            r_aud = cffi_requests.get(audio_url, impersonate="chrome120", timeout=30)
-                            with open(out_path, 'wb') as f:
-                                f.write(r_aud.content)
-                            print("✅ Suno MP3 Downloaded Successfully!")
-                            return True
-                    elif status == "error":
-                        print("⚠️ Suno reported a rendering error inside their engine.")
-                        return False
-                        
     except Exception as e:
-        print(f"❌ Direct Suno API Error: {e}")
+        print(f"⚠️ MusicGen Connection Error: {e}")
+
+    # -----------------------------------------
+    # ATTEMPT 2: SUNO BARK (FALLBACK)
+    # -----------------------------------------
+    print("⏭️ Falling back to Suno Bark for audio generation...")
+    bark_url = "https://api-inference.huggingface.co/models/suno/bark-small"
+    bark_payload = {"inputs": f"♪ {music_style_prompt} ♪"}
+    
+    try:
+        r_bark = requests.post(bark_url, headers=headers, json=bark_payload, timeout=60)
         
-    print("⚠️ Direct Suno API Polling Timed Out.")
+        if r_bark.status_code == 503:
+            print("⏳ Bark is warming up. Waiting 20 seconds...")
+            time.sleep(20)
+            r_bark = requests.post(bark_url, headers=headers, json=bark_payload, timeout=60)
+            
+        if r_bark.status_code == 200:
+            with open(out_path, 'wb') as f:
+                f.write(r_bark.content)
+            print("✅ Bark Track Downloaded Successfully!")
+            return True
+        else:
+            print(f"❌ Bark Failed: {r_bark.status_code} - {r_bark.text[:100]}")
+            
+    except Exception as e:
+        print(f"❌ Bark Connection Error: {e}")
+
+    print("❌ All Open Source APIs failed. Defaulting to stock music.")
     return False
 
 # ==========================================
@@ -377,10 +344,14 @@ def make_video(content, is_short=True):
     full_lyrics_lines = [scene['line'] for scene in content['scenes']]
     full_lyrics_text = "\n".join(full_lyrics_lines)
     
-    suno_path = os.path.join(ASSETS_DIR, f"suno_{suffix}.mp3")
-    suno_success = generate_suno_song(full_lyrics_text, suno_path)
+    # 🌟 NEW LOGIC: Generate fresh open-source instrumental beat
+    ai_music_path = os.path.join(ASSETS_DIR, "bg_music.mp3") 
+    generate_open_source_audio(ai_music_path)
+    
+    # Force the TTS compiler block to run and weave the new instrumental under the Hindi voice
+    suno_success = False 
 
-    print("🎨 Generating Images...")
+    print("🎨 Generating Images and Hindi Voiceovers...")
     with ThreadPoolExecutor(max_workers=6) as ex:
         futures = []
         for i, scene in enumerate(content['scenes']):
@@ -396,8 +367,8 @@ def make_video(content, is_short=True):
     current_time = 0.0 
 
     if suno_success:
-        print("🎧 Assembling with Suno Audio...")
-        master_audio = AudioFileClip(suno_path)
+        print("🎧 Assembling with Full Audio...")
+        master_audio = AudioFileClip(ai_music_path)
         dur_per_scene = master_audio.duration / len(content['scenes'])
         
         for i, scene in enumerate(content['scenes']):
@@ -410,7 +381,7 @@ def make_video(content, is_short=True):
         clips.append(create_outro(is_short))
         final = concatenate_videoclips(clips, method="compose").set_audio(master_audio)
     else:
-        print("⚠️ Falling back to TTS Audio Engine...")
+        print("🎧 Mixing Edge-TTS Vocals with AI Instrumental...")
         for i, scene in enumerate(content['scenes']):
             aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
             img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
