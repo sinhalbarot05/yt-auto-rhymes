@@ -46,6 +46,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
           SUNO_COOKIE: ${{ secrets.SUNO_COOKIE }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python upload_script.py
 
       - name: Save memory
