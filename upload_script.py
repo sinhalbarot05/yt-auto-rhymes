@@ -56,7 +56,7 @@ def clean_text_for_font(text, is_english=False):
     else: return re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
 
 # ────────────────────────────────────────────────
-# 🎵 PRIVATE SUNO POLLING ENGINE (LOCALHOST ONLY)
+# 🎵 NEW: PURE PYTHON DIRECT SUNO API (NO MIRRORS/NODE.JS REQUIRED)
 # ────────────────────────────────────────────────
 def generate_suno_song(lyrics, out_path):
     cookie = os.getenv("SUNO_COOKIE", "")
@@ -64,73 +64,93 @@ def generate_suno_song(lyrics, out_path):
         print("⚠️ Suno Cookie missing or too short. Check your .env file.")
         return False
         
-    print("🎵 Requesting Studio Song from Local Private Suno API...")
+    print("🎵 Requesting Studio Song directly from Suno Servers (Bypassing Mirrors)...")
     
-    base_url = "http://localhost:3000"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Cookie": cookie
+    }
+    
+    # Step 1: Exchange Cookie for short-lived JWT Token via Clerk
+    try:
+        print("🔑 Authenticating directly with Suno's Auth Server...")
+        clerk_url = "https://clerk.suno.com/v1/client?_clerk_js_version=4.73.4"
+        clerk_req = requests.get(clerk_url, headers=headers, timeout=15)
+        clerk_req.raise_for_status()
+        
+        clerk_data = clerk_req.json()
+        sessions = clerk_data.get('response', {}).get('sessions', [])
+        if not sessions:
+            print("❌ No active sessions found. Your Suno cookie might be expired.")
+            return False
+            
+        jwt_token = sessions[0].get('last_active_token', {}).get('jwt')
+        if not jwt_token:
+            print("❌ Could not extract JWT token from Clerk.")
+            return False
+            
+        print("✅ JWT Token acquired! Connecting to render engine...")
+    except Exception as e:
+        print(f"❌ Failed to authenticate with Suno. {e}")
+        return False
+
+    # Step 2: Request Generation directly from Suno API
+    suno_headers = {
+        "Authorization": f"Bearer {jwt_token}",
+        "Content-Type": "application/json",
+        "User-Agent": headers["User-Agent"]
+    }
     
     payload = {
         "prompt": lyrics,
         "tags": "hindi kids nursery rhyme, cute female singer, upbeat pop, bright",
         "title": "Hindi Masti Rhyme",
-        "make_instrumental": False
-    }
-    
-    headers = {
-        "Content-Type": "application/json",
-        "Cookie": cookie
+        "make_instrumental": False,
+        "mv": "chirp-v3-5" # Suno model version
     }
     
     try:
-        r = requests.post(f"{base_url}/api/custom_generate", headers=headers, json=payload, timeout=20)
+        gen_url = "https://studio-api.suno.ai/api/generate/v2/"
+        gen_req = requests.post(gen_url, headers=suno_headers, json=payload, timeout=20)
+        gen_req.raise_for_status()
         
-        if r.status_code != 200:
-            print(f"⚠️ Local API Error: {r.status_code} - Is your Suno cookie expired?")
+        gen_data = gen_req.json()
+        if 'clips' not in gen_data or not gen_data['clips']:
+            print(f"⚠️ Suno API returned unexpected format: {gen_data}")
             return False
             
-        data = r.json()
-        if type(data) is not list or len(data) == 0:
-            print("⚠️ API returned unexpected format.")
-            return False
-            
-        clip_id = data[0].get('id')
-        if not clip_id:
-            print("⚠️ Could not retrieve Clip ID.")
-            return False
-            
+        clip_id = gen_data['clips'][0]['id']
         print(f"✅ Song generation started! ID: {clip_id}. Polling for completion...")
+        
+        # Step 3: Poll for Completion
+        poll_url = f"https://studio-api.suno.ai/api/feed/?ids={clip_id}"
         
         for attempt in range(40):
             time.sleep(6)
-            try:
-                poll = requests.get(f"{base_url}/api/get?ids={clip_id}", timeout=15)
-                if poll.status_code == 200:
-                    poll_data = poll.json()
-                    if type(poll_data) is list and len(poll_data) > 0:
-                        status = poll_data[0].get('status')
+            poll_req = requests.get(poll_url, headers=suno_headers, timeout=15)
+            
+            if poll_req.status_code == 200:
+                poll_data = poll_req.json()
+                if isinstance(poll_data, list) and len(poll_data) > 0:
+                    status = poll_data[0].get('status')
+                    
+                    if status in ["complete", "streaming"]:
+                        audio_url = poll_data[0].get('audio_url')
+                        if audio_url:
+                            print("✅ Song ready! Downloading MP3...")
+                            r_aud = requests.get(audio_url, headers={"User-Agent": headers["User-Agent"]}, timeout=30)
+                            with open(out_path, 'wb') as f:
+                                f.write(r_aud.content)
+                            print("✅ Suno MP3 Downloaded Successfully!")
+                            return True
+                    elif status == "error":
+                        print("⚠️ Suno reported a rendering error inside their engine.")
+                        return False
                         
-                        if status == "complete" or status == "streaming":
-                            audio_url = poll_data[0].get('audio_url')
-                            if audio_url:
-                                print("✅ Song ready! Downloading MP3...")
-                                r_aud = requests.get(audio_url, timeout=30)
-                                with open(out_path, 'wb') as f:
-                                    f.write(r_aud.content)
-                                print("✅ Suno MP3 Downloaded Successfully!")
-                                return True
-                                
-                        elif status == "error":
-                            print("⚠️ Suno reported a rendering error inside their engine.")
-                            return False
-                            
-            except requests.exceptions.RequestException as e:
-                print(f"⚠️ Polling connection hiccup: {e}")
-                continue
-                
-        print(f"⚠️ Local API Polling Timed Out after 4 minutes.\n")
-             
-    except requests.exceptions.ConnectionError:
-        print(f"❌ Connection Refused: The local Suno API server is NOT running on localhost:3000.")
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Direct Suno API Error: {e}")
         
+    print("⚠️ Direct Suno API Polling Timed Out.")
     return False
 
 # ────────────────────────────────────────────────
