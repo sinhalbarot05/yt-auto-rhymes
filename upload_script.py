@@ -4,7 +4,6 @@ from pathlib import Path
 import pickle
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
-from curl_cffi import requests as cffi_requests # 🌟 The Cloudflare Bypass Engine
 
 if not hasattr(Image, 'ANTIALIAS'): 
     Image.ANTIALIAS = Image.LANCZOS
@@ -59,7 +58,7 @@ def clean_text_for_font(text, is_english=False):
     else: return re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
 
 # ==========================================
-# 🎵 DIRECT SUNO API (CURL_CFFI CLOUDFLARE BYPASS)
+# 🎵 DIRECT SUNO API (ADVANCED HEADER SPOOFING)
 # ==========================================
 def generate_suno_song(lyrics, out_path):
     cookie = os.getenv("SUNO_COOKIE", "")
@@ -67,7 +66,7 @@ def generate_suno_song(lyrics, out_path):
         print("⚠️ Suno Cookie missing or too short. Check your .env file.")
         return False
         
-    print("🎵 Requesting Studio Song directly from Suno Servers (Bypassing Cloudflare)...")
+    print("🎵 Requesting Studio Song directly from Suno Servers (Bypassing Mirrors)...")
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -78,8 +77,8 @@ def generate_suno_song(lyrics, out_path):
     try:
         print("🔑 Authenticating directly with Suno's Auth Server...")
         clerk_url = "https://clerk.suno.com/v1/client?_clerk_js_version=4.73.4"
-        # 🌟 Using cffi_requests with Chrome impersonation
-        clerk_req = cffi_requests.get(clerk_url, headers=headers, impersonate="chrome120", timeout=15)
+        clerk_req = requests.get(clerk_url, headers=headers, timeout=15)
+        clerk_req.raise_for_status()
         
         clerk_data = clerk_req.json()
         sessions = clerk_data.get('response', {}).get('sessions', [])
@@ -97,7 +96,7 @@ def generate_suno_song(lyrics, out_path):
         print(f"❌ Failed to authenticate with Suno. {e}")
         return False
 
-    # Step 2: Request Generation directly from Suno API
+    # Step 2: Request Generation directly from Suno API with WAF Bypass Headers
     suno_headers = {
         "Authorization": f"Bearer {jwt_token}",
         "Content-Type": "application/json",
@@ -110,7 +109,7 @@ def generate_suno_song(lyrics, out_path):
         "Sec-Fetch-Dest": "empty",
         "Sec-Fetch-Mode": "cors",
         "Sec-Fetch-Site": "same-site",
-        "Accept": "application/json",
+        "Accept": "*/*",
         "Accept-Encoding": "gzip, deflate, br",
         "Accept-Language": "en-US,en;q=0.9",
     }
@@ -125,13 +124,9 @@ def generate_suno_song(lyrics, out_path):
     
     try:
         gen_url = "https://studio-api.suno.ai/api/generate/v2/"
-        # 🌟 Piercing Cloudflare's WAF with impersonate parameter
-        gen_req = cffi_requests.post(gen_url, headers=suno_headers, json=payload, impersonate="chrome120", timeout=20)
+        gen_req = requests.post(gen_url, headers=suno_headers, json=payload, timeout=20)
+        gen_req.raise_for_status()
         
-        if gen_req.status_code == 503:
-            print(f"❌ Blocked by Cloudflare (503). Try updating your SUNO_COOKIE.")
-            return False
-            
         gen_data = gen_req.json()
         if 'clips' not in gen_data or not gen_data['clips']:
             print(f"⚠️ Suno API returned unexpected format: {gen_data}")
@@ -145,7 +140,7 @@ def generate_suno_song(lyrics, out_path):
         
         for attempt in range(40):
             time.sleep(6)
-            poll_req = cffi_requests.get(poll_url, headers=suno_headers, impersonate="chrome120", timeout=15)
+            poll_req = requests.get(poll_url, headers=suno_headers, timeout=15)
             
             if poll_req.status_code == 200:
                 poll_data = poll_req.json()
@@ -156,7 +151,6 @@ def generate_suno_song(lyrics, out_path):
                         audio_url = poll_data[0].get('audio_url')
                         if audio_url:
                             print("✅ Song ready! Downloading MP3...")
-                            # Standard requests is fine here, it's just a raw CDN link
                             r_aud = requests.get(audio_url, headers={"User-Agent": headers["User-Agent"]}, timeout=30)
                             with open(out_path, 'wb') as f:
                                 f.write(r_aud.content)
@@ -166,7 +160,7 @@ def generate_suno_song(lyrics, out_path):
                         print("⚠️ Suno reported a rendering error inside their engine.")
                         return False
                         
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
         print(f"❌ Direct Suno API Error: {e}")
         
     print("⚠️ Direct Suno API Polling Timed Out.")
@@ -286,6 +280,7 @@ def get_image(image_prompt, fn, kw, is_short):
     w, h = (1080, 1920) if is_short else (1920, 1080)
     scene_seed = random.randint(0, 999999) 
     
+    # 🌟 URL Encoded strictly with your brand colors
     clean = f"{image_prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k"
     clean_encoded = urllib.parse.quote(clean)
     
@@ -372,6 +367,7 @@ def get_voice(text, fn):
     if len(clean_speech) < 2: clean_speech = "मस्ती" 
     for attempt in range(5):
         try:
+            # 🌟 Timeout implemented for subprocess safety
             subprocess.run(["edge-tts", "--voice", "hi-IN-SwaraNeural", "--rate=-10%", "--pitch=+10Hz", "--text", clean_speech, "--write-media", fn], capture_output=True, timeout=15)
             if os.path.exists(fn) and os.path.getsize(fn) > 1000: return 
         except Exception as e: 
