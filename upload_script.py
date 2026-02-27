@@ -55,37 +55,18 @@ def clean_text_for_font(text, is_english=False):
     if is_english: return re.sub(r'[^\w\s\,\.\!\?\-\@]', '', text).strip()
     else: return re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
 
-def create_pop_sfx():
-    fps = 44100; dur = 0.15
-    t = np.linspace(0, dur, int(fps*dur), False)
-    freq = np.linspace(400, 800, len(t))
-    audio = np.sin(2 * np.pi * freq * t) * np.exp(-25 * t)
-    stereo = np.column_stack((audio, audio))
-    return AudioArrayClip(stereo, fps=fps).volumex(0.5)
-
-def create_swoosh_sfx():
-    fps = 44100; dur = 0.4
-    t = np.linspace(0, dur, int(fps*dur), False)
-    audio = np.random.normal(0, 1, len(t)) * (np.sin(np.pi * (t / dur)) ** 2)
-    stereo = np.column_stack((audio, audio))
-    return AudioArrayClip(stereo, fps=fps).volumex(0.12)
-
 # ────────────────────────────────────────────────
-# 🎵 NEW: "TIMEOUT-PROOF" SUNO POLLING ENGINE (WITH MIRROR FALLBACK)
+# 🎵 PRIVATE SUNO POLLING ENGINE (LOCALHOST ONLY)
 # ────────────────────────────────────────────────
 def generate_suno_song(lyrics, out_path):
     cookie = os.getenv("SUNO_COOKIE", "")
     if not cookie or len(cookie) < 50:
-        print("⚠️ Suno Cookie missing or too short.")
+        print("⚠️ Suno Cookie missing or too short. Check your .env file.")
         return False
         
-    print("🎵 Requesting Studio Song from Suno via Public API Mirrors...")
+    print("🎵 Requesting Studio Song from Local Private Suno API...")
     
-    suno_mirrors = [
-        "https://suno-api-eight-iota.vercel.app", 
-        "https://suno-api-sandy-pi.vercel.app",
-        "http://localhost:3000"
-    ]
+    base_url = "http://localhost:3000"
     
     payload = {
         "prompt": lyrics,
@@ -99,64 +80,57 @@ def generate_suno_song(lyrics, out_path):
         "Cookie": cookie
     }
     
-    for base_url in suno_mirrors:
-        print(f"🔄 Trying Suno mirror: {base_url}")
-        try:
-            r = requests.post(f"{base_url}/api/custom_generate", headers=headers, json=payload, timeout=20)
+    try:
+        r = requests.post(f"{base_url}/api/custom_generate", headers=headers, json=payload, timeout=20)
+        
+        if r.status_code != 200:
+            print(f"⚠️ Local API Error: {r.status_code} - Is your Suno cookie expired?")
+            return False
             
-            if r.status_code != 200:
-                print(f"⚠️ Mirror {base_url} Error: {r.status_code} - {r.text[:100]}")
-                print("⏭️ Moving to next mirror...\n")
-                continue
-                
-            data = r.json()
-            if type(data) is not list or len(data) == 0:
-                print("⚠️ API returned unexpected format. Moving to next mirror...")
-                continue
-                
-            clip_id = data[0].get('id')
-            if not clip_id:
-                print("⚠️ Could not retrieve Clip ID. Moving to next mirror...")
-                continue
-                
-            print(f"✅ Song generation started! ID: {clip_id}. Polling for completion...")
+        data = r.json()
+        if type(data) is not list or len(data) == 0:
+            print("⚠️ API returned unexpected format.")
+            return False
             
-            song_downloaded = False
-            for attempt in range(40):
-                time.sleep(6)
-                try:
-                    poll = requests.get(f"{base_url}/api/get?ids={clip_id}", timeout=15)
-                    if poll.status_code == 200:
-                        poll_data = poll.json()
-                        if type(poll_data) is list and len(poll_data) > 0:
-                            status = poll_data[0].get('status')
-                            
-                            if status == "complete" or status == "streaming":
-                                audio_url = poll_data[0].get('audio_url')
-                                if audio_url:
-                                    print("✅ Song ready! Downloading MP3...")
-                                    r_aud = requests.get(audio_url, timeout=30)
-                                    with open(out_path, 'wb') as f:
-                                        f.write(r_aud.content)
-                                    print("✅ Suno MP3 Downloaded Successfully!")
-                                    return True
-                                    
-                            elif status == "error":
-                                print("⚠️ Suno reported a rendering error inside their engine.")
-                                break
+        clip_id = data[0].get('id')
+        if not clip_id:
+            print("⚠️ Could not retrieve Clip ID.")
+            return False
+            
+        print(f"✅ Song generation started! ID: {clip_id}. Polling for completion...")
+        
+        for attempt in range(40):
+            time.sleep(6)
+            try:
+                poll = requests.get(f"{base_url}/api/get?ids={clip_id}", timeout=15)
+                if poll.status_code == 200:
+                    poll_data = poll.json()
+                    if type(poll_data) is list and len(poll_data) > 0:
+                        status = poll_data[0].get('status')
+                        
+                        if status == "complete" or status == "streaming":
+                            audio_url = poll_data[0].get('audio_url')
+                            if audio_url:
+                                print("✅ Song ready! Downloading MP3...")
+                                r_aud = requests.get(audio_url, timeout=30)
+                                with open(out_path, 'wb') as f:
+                                    f.write(r_aud.content)
+                                print("✅ Suno MP3 Downloaded Successfully!")
+                                return True
                                 
-                except requests.exceptions.RequestException as e:
-                    print(f"⚠️ Polling connection hiccup: {e}")
-                    continue
-            
-            if not song_downloaded:
-                 print(f"⚠️ Mirror {base_url} Polling Timed Out. Trying next mirror...\n")
-                 
-        except requests.exceptions.RequestException as e:
-            print(f"⚠️ Mirror {base_url} Connection Exception: {e}")
-            print("⏭️ Moving to next mirror...\n")
-            
-    print("❌ All Suno API mirrors failed or timed out.")
+                        elif status == "error":
+                            print("⚠️ Suno reported a rendering error inside their engine.")
+                            return False
+                            
+            except requests.exceptions.RequestException as e:
+                print(f"⚠️ Polling connection hiccup: {e}")
+                continue
+                
+        print(f"⚠️ Local API Polling Timed Out after 4 minutes.\n")
+             
+    except requests.exceptions.ConnectionError:
+        print(f"❌ Connection Refused: The local Suno API server is NOT running on localhost:3000.")
+        
     return False
 
 # ────────────────────────────────────────────────
@@ -273,7 +247,6 @@ def get_image(image_prompt, fn, kw, is_short):
     w, h = (1080, 1920) if is_short else (1920, 1080)
     scene_seed = random.randint(0, 999999) 
     
-    # 🌟 FIX: Robust URL Encoding for special characters & strict channel branding
     clean = f"{image_prompt}, Mango Yellow, Royal Blue, Deep Turquoise, cute pixar 3d kids cartoon vibrant masterpiece 8k"
     clean_encoded = urllib.parse.quote(clean)
     
@@ -360,11 +333,10 @@ def get_voice(text, fn):
     if len(clean_speech) < 2: clean_speech = "मस्ती" 
     for attempt in range(5):
         try:
-            # 🌟 FIX: Added timeout=15 to prevent infinite hanging if Microsoft's edge-tts servers lag
             subprocess.run(["edge-tts", "--voice", "hi-IN-SwaraNeural", "--rate=-10%", "--pitch=+10Hz", "--text", clean_speech, "--write-media", fn], capture_output=True, timeout=15)
             if os.path.exists(fn) and os.path.getsize(fn) > 1000: return 
         except Exception as e: 
-            pass # Catch timeout or failure and trigger retry loop
+            pass 
         time.sleep(random.uniform(1, 3)) 
     try: shutil.copyfile(os.path.join(ASSETS_DIR, "bg_music.mp3"), fn)
     except: pass
@@ -451,7 +423,7 @@ def create_thumbnail(title, bg_path, out_path, is_short):
             draw = ImageDraw.Draw(im)
             font_size = 130; max_w = 1180
             def get_wrapped_thumb(t, f):
-                words = t.split(); lines, curr = ""
+                words = t.split(); lines, curr = "", ""
                 for word in words:
                     test = curr + " " + word if curr else word
                     if draw.textbbox((0,0), test, font=f)[2] <= max_w: curr = test
