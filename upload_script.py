@@ -60,7 +60,7 @@ def clean_text_for_font(text, is_english=False):
 # ==========================================
 # 🎵 OPEN SOURCE AUDIO ENGINE (MUSICGEN -> BARK)
 # ==========================================
-def generate_open_source_audio(out_path):
+def generate_open_source_audio(out_path, style_prompt):
     hf_token = os.getenv("HF_TOKEN")
     if not hf_token:
         print("⚠️ HF_TOKEN missing. Using default stock background music.")
@@ -68,15 +68,13 @@ def generate_open_source_audio(out_path):
         
     headers = {"Authorization": f"Bearer {hf_token}"}
     
-    # Stylistic description for a vibrant, happy kids animation style
-    music_style_prompt = "happy upbeat bouncy kids nursery rhyme instrumental, xylophone, cheerful, fast tempo"
+    print(f"🎵 Requesting AI Beat: '{style_prompt}'")
 
     # -----------------------------------------
     # ATTEMPT 1: META MUSICGEN
     # -----------------------------------------
-    print("🎵 Requesting Instrumental Track from Meta MusicGen...")
-    musicgen_url = "https://api-inference.huggingface.co/models/facebook/musicgen-small"
-    payload = {"inputs": music_style_prompt}
+    musicgen_url = "https://router.huggingface.co/hf-inference/models/facebook/musicgen-small"
+    payload = {"inputs": style_prompt}
     
     try:
         r = requests.post(musicgen_url, headers=headers, json=payload, timeout=60)
@@ -102,8 +100,8 @@ def generate_open_source_audio(out_path):
     # ATTEMPT 2: SUNO BARK (FALLBACK)
     # -----------------------------------------
     print("⏭️ Falling back to Suno Bark for audio generation...")
-    bark_url = "https://api-inference.huggingface.co/models/suno/bark-small"
-    bark_payload = {"inputs": f"♪ {music_style_prompt} ♪"}
+    bark_url = "https://router.huggingface.co/hf-inference/models/suno/bark-small"
+    bark_payload = {"inputs": f"♪ {style_prompt} ♪"}
     
     try:
         r_bark = requests.post(bark_url, headers=headers, json=bark_payload, timeout=60)
@@ -176,6 +174,8 @@ def generate_content(mode="short"):
     time.sleep(2)
 
     line_count = 14 if mode == "short" else 26
+    
+    # 🌟 NEW PROMPT RULE: Instruct the AI to generate a 'music_style' specific to the topic
     prompt = f"""You are a top-tier Hindi children's poet and Pixar Art Director.
 Topic: "{topic}"
 
@@ -191,8 +191,7 @@ CRITICAL VISUAL RULES (1-to-1 MATCHING):
 7. The 'image_prompt' field is the DIRECT instruction to the AI image generator.
 8. It MUST PERFECTLY MATCH the Hindi line. 
 9. If the line says a farmer is working, the 'image_prompt' MUST ONLY describe a farmer working in a field.
-10. If the next line says birds are flying, the 'image_prompt' MUST ONLY describe birds flying in the sky.
-11. DO NOT force the main character into the scene if the line doesn't mention them. The camera must show EXACTLY what the lyrics say.
+10. DO NOT force the main character into the scene if the line doesn't mention them. The camera must show EXACTLY what the lyrics say.
 
 Output ONLY valid JSON:
 {{
@@ -201,6 +200,7 @@ Output ONLY valid JSON:
   "keyword": "Main subject",
   "seo_tags": ["hindi bal geet", "kids rhymes"],
   "seo_description": "Description template with [TIMESTAMPS]",
+  "music_style": "A 10-word English prompt for an AI music generator describing the perfect instrumental beat for this topic. Always include 'kids nursery rhyme instrumental, upbeat, cheerful'",
   "scenes": [{{"line": "5 to 7 word Hindi sentence", "image_prompt": "Highly detailed standalone English description of EXACTLY what should be visible on screen for this specific line."}}]
 }}"""
     for attempt in range(4):
@@ -344,11 +344,14 @@ def make_video(content, is_short=True):
     full_lyrics_lines = [scene['line'] for scene in content['scenes']]
     full_lyrics_text = "\n".join(full_lyrics_lines)
     
-    # 🌟 NEW LOGIC: Generate fresh open-source instrumental beat
-    ai_music_path = os.path.join(ASSETS_DIR, "bg_music.mp3") 
-    generate_open_source_audio(ai_music_path)
+    # 🌟 NEW LOGIC: Safely extract dynamic music style, fallback to default if missing
+    default_style = "happy upbeat bouncy kids nursery rhyme instrumental, xylophone, cheerful, fast tempo"
+    dynamic_music_style = content.get('music_style', default_style)
     
-    # Force the TTS compiler block to run and weave the new instrumental under the Hindi voice
+    ai_music_path = os.path.join(ASSETS_DIR, "bg_music.mp3") 
+    generate_open_source_audio(ai_music_path, dynamic_music_style)
+    
+    # Always use our dynamic mix engine
     suno_success = False 
 
     print("🎨 Generating Images and Hindi Voiceovers...")
@@ -366,45 +369,30 @@ def make_video(content, is_short=True):
     times = []
     current_time = 0.0 
 
-    if suno_success:
-        print("🎧 Assembling with Full Audio...")
-        master_audio = AudioFileClip(ai_music_path)
-        dur_per_scene = master_audio.duration / len(content['scenes'])
+    print("🎧 Mixing Edge-TTS Vocals with Dynamic AI Instrumental...")
+    for i, scene in enumerate(content['scenes']):
+        aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
+        img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
         
-        for i, scene in enumerate(content['scenes']):
-            img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
-            clip = create_segment_unified(scene['line'], img, is_short, i, dur_per_scene)
-            clips.append(clip)
-            times.append(f"{time.strftime('%M:%S', time.gmtime(current_time))} - {scene['line'][:55]}...")
-            current_time += clip.duration
+        voice = AudioFileClip(aud)
+        dur = voice.duration
+        
+        bg_clip = AudioFileClip(os.path.join(ASSETS_DIR, "bg_music.mp3")).volumex(0.085)
+        if bg_clip.duration > 0:
+            repeats = int(math.ceil(dur / bg_clip.duration))
+            bg_looped = concatenate_audioclips([bg_clip] * repeats).subclip(0, dur)
+        else:
+            bg_looped = bg_clip
             
-        clips.append(create_outro(is_short))
-        final = concatenate_videoclips(clips, method="compose").set_audio(master_audio)
-    else:
-        print("🎧 Mixing Edge-TTS Vocals with AI Instrumental...")
-        for i, scene in enumerate(content['scenes']):
-            aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
-            img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
-            
-            voice = AudioFileClip(aud)
-            dur = voice.duration
-            
-            bg_clip = AudioFileClip(os.path.join(ASSETS_DIR, "bg_music.mp3")).volumex(0.085)
-            if bg_clip.duration > 0:
-                repeats = int(math.ceil(dur / bg_clip.duration))
-                bg_looped = concatenate_audioclips([bg_clip] * repeats).subclip(0, dur)
-            else:
-                bg_looped = bg_clip
-                
-            audio = CompositeAudioClip([voice, bg_looped])
-            
-            clip = create_segment_unified(scene['line'], img, is_short, i, dur).set_audio(audio)
-            clips.append(clip)
-            times.append(f"{time.strftime('%M:%S', time.gmtime(current_time))} - {scene['line'][:55]}...")
-            current_time += clip.duration
-            
-        clips.append(create_outro(is_short))
-        final = concatenate_videoclips(clips, method="compose")
+        audio = CompositeAudioClip([voice, bg_looped])
+        
+        clip = create_segment_unified(scene['line'], img, is_short, i, dur).set_audio(audio)
+        clips.append(clip)
+        times.append(f"{time.strftime('%M:%S', time.gmtime(current_time))} - {scene['line'][:55]}...")
+        current_time += clip.duration
+        
+    clips.append(create_outro(is_short))
+    final = concatenate_videoclips(clips, method="compose")
 
     out = os.path.join(OUTPUT_DIR, f"final_{suffix}.mp4")
     final.write_videofile(out, fps=24, codec='libx264', audio_codec='aac', threads=8, preset='ultrafast', ffmpeg_params=['-crf', '23', '-pix_fmt', 'yuv420p'])
