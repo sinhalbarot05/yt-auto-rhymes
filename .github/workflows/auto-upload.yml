@@ -38,7 +38,6 @@ jobs:
 
       - name: Decode YouTube credentials
         run: |
-          echo "${{ secrets.YOUTUBE_CLIENT_SECRET_JSON }}" | base64 -d > client_secret.json
           echo "${{ secrets.YOUTUBE_TOKEN_JSON_B64 }}" | base64 -d > youtube_token.pickle
 
       - name: Generate and Upload
