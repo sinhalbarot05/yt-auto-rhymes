@@ -12,7 +12,7 @@ permissions:
 jobs:
   upload:
     runs-on: ubuntu-latest
-    timeout-minutes: 30  # 🌟 FIX: Kills frozen runs before they eat your monthly quota
+    timeout-minutes: 30
 
     steps:
       - name: Checkout code
@@ -30,7 +30,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: 'pip'  # 🌟 FIX: Caches dependencies to boot the runner 2x faster
+          # Removed cache: 'pip' because we don't have a requirements.txt file
 
       - name: Install Python packages
         run: |
@@ -49,7 +49,6 @@ jobs:
           POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: python upload_script.py
-        # 🌟 FIX: If this script hits a hard failure (sys.exit(1)), the workflow will instantly stop here and show a red X in GitHub.
 
       - name: Save memory
         if: success()
