@@ -1,4 +1,4 @@
-import os, random, json, asyncio, requests, time, numpy as np, re, math, subprocess, shutil, sys
+import os, random, json, requests, time, numpy as np, re, math, subprocess, shutil, sys
 import urllib.parse
 from pathlib import Path
 import pickle
@@ -11,7 +11,6 @@ if not hasattr(Image, 'ANTIALIAS'):
 from moviepy.editor import (AudioFileClip, ImageClip, CompositeVideoClip,
                             concatenate_videoclips, CompositeAudioClip, ColorClip,
                             concatenate_audioclips)
-from moviepy.audio.AudioClip import AudioArrayClip
 
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -61,88 +60,7 @@ def clean_text_for_font(text, is_english=False):
     else: return re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
 
 # ==========================================
-# 🌩️ CLOUDFLARE EDGE WORKER SUNO PROXY
-# ==========================================
-def generate_suno_song(lyrics, out_path):
-    proxy_url = os.getenv("CF_WORKER_URL")
-    cookie = os.getenv("SUNO_COOKIE")
-    
-    if not proxy_url or not cookie:
-        print("⚠️ Missing CF_WORKER_URL or SUNO_COOKIE in secrets. Skipping Suno.")
-        return False
-
-    print("⚡ Routing API calls entirely through Cloudflare Edge Worker...")
-    
-    try:
-        # 1. Get Clerk JWT via the Worker Proxy
-        headers = {
-            "X-Target-Url": "https://clerk.suno.com/v1/client?_clerk_js_version=4.73.4",
-            "Cookie": cookie
-        }
-        r = requests.get(proxy_url, headers=headers, timeout=20)
-        r.raise_for_status()
-        
-        sessions = r.json().get('response', {}).get('sessions', [])
-        if not sessions:
-            print("❌ Suno Cookie expired. Cannot fetch JWT.")
-            return False
-            
-        jwt_token = sessions[0]['last_active_token']['jwt']
-
-        # 2. Generate Song via the Worker Proxy
-        gen_headers = {
-            "X-Target-Url": "https://studio-api.suno.ai/api/generate/v2/",
-            "Authorization": f"Bearer {jwt_token}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "prompt": lyrics,
-            "tags": "cute hindi nursery rhyme, playful cartoon style, 100 bpm, female child singer",
-            "title": "Hindi Masti",
-            "make_instrumental": False,
-            "mv": "chirp-v3-5"
-        }
-        
-        r2 = requests.post(proxy_url, json=payload, headers=gen_headers, timeout=30)
-        if r2.status_code == 503:
-            print("❌ Cloudflare hit WAF 503 inside the worker. Suno has escalated their block logic.")
-            return False
-            
-        r2.raise_for_status()
-        clip_id = r2.json().get('clips', [{}])[0].get('id')
-        
-        if not clip_id: 
-            print("❌ Failed to parse Suno generation clip ID.")
-            return False
-
-        # 3. Poll for Completion via the Worker Proxy
-        print("✅ Song Generation Triggered! Polling status via CF Edge...")
-        poll_headers = {
-            "X-Target-Url": f"https://studio-api.suno.ai/api/feed/?ids={clip_id}",
-            "Authorization": f"Bearer {jwt_token}"
-        }
-        for attempt in range(40):
-            time.sleep(5)
-            r3 = requests.get(proxy_url, headers=poll_headers, timeout=20)
-            if r3.status_code == 200:
-                poll_data = r3.json()
-                if poll_data and len(poll_data) > 0:
-                    data = poll_data[0]
-                    if data.get('status') == 'complete':
-                        audio_url = data.get('audio_url')
-                        print("✅ Suno Track Ready! Downloading...")
-                        with open(out_path, 'wb') as f:
-                            f.write(requests.get(audio_url, timeout=60).content)
-                        return True
-        print("⏳ Suno generation timed out after 3+ minutes.")
-        return False
-        
-    except Exception as e:
-        print(f"❌ Suno Proxy Pipeline Error: {e}")
-        return False
-
-# ==========================================
-# 🎵 ZERO-BUDGET FALLBACK AUDIO ENGINE
+# 🎵 IMMORTAL AUDIO ENGINE (DYNAMIC BEATS)
 # ==========================================
 def fetch_dynamic_background_music(out_path):
     print("🎵 Fetching dynamic background track from secure archive...")
@@ -163,6 +81,7 @@ def fetch_dynamic_background_music(out_path):
             f.write(r.content)
         return True
     except Exception:
+        print("⚠️ Failed to fetch dynamic track. Using default background music.")
         shutil.copyfile(os.path.join(ASSETS_DIR, "bg_music_default.mp3"), out_path)
         return False
 
@@ -365,6 +284,7 @@ def get_voice(text, fn):
         except Exception: pass 
         time.sleep(random.uniform(1, 3)) 
         
+    print(f"❌ FATAL TTS ERROR: Could not render voice for '{clean_speech[:20]}...'")
     return False
 
 def make_video(content, is_short=True):
@@ -376,18 +296,12 @@ def make_video(content, is_short=True):
     full_lyrics_lines = [scene['line'] for scene in content['scenes']]
     full_lyrics_text = "\n".join(full_lyrics_lines)
     
-    # 🌩️ Try Cloudflare Proxy first
-    suno_path = os.path.join(ASSETS_DIR, f"suno_song_{suffix}.mp3")
-    suno_success = generate_suno_song(full_lyrics_text, suno_path)
-    
-    # 🎵 Fallback if Cloudflare or Suno fails
-    if not suno_success:
-        ai_music_path = os.path.join(ASSETS_DIR, f"bg_music_dynamic_{suffix}.mp3") 
-        fetch_dynamic_background_music(ai_music_path)
+    ai_music_path = os.path.join(ASSETS_DIR, f"bg_music_dynamic_{suffix}.mp3") 
+    fetch_dynamic_background_music(ai_music_path)
     
     video_master_seed = random.randint(1000, 999999)
 
-    print("🎨 Generating Images (and TTS if needed)...")
+    print("🎨 Generating Images and Edge-TTS Voiceovers...")
     with ThreadPoolExecutor(max_workers=6) as ex:
         futures = []
         for i, scene in enumerate(content['scenes']):
@@ -395,56 +309,41 @@ def make_video(content, is_short=True):
             img_prompt = scene.get('image_prompt', scene.get('action', 'cute kids cartoon'))
             futures.append(ex.submit(get_image, img_prompt, img, keyword, is_short, video_master_seed))
             
-            if not suno_success:
-                aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
-                futures.append(ex.submit(get_voice, scene['line'], aud))
+            aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
+            futures.append(ex.submit(get_voice, scene['line'], aud))
         for f in as_completed(futures): f.result()
 
     times = []
     current_time = 0.0 
 
-    if suno_success:
-        print("🎧 Assembling scenes with beautiful Suno singing...")
-        master_audio = AudioFileClip(suno_path)
-        dur_per_scene = master_audio.duration / len(content['scenes'])
+    print("🎧 Mixing Edge-TTS Vocals with Dynamic Instrumental...")
+    for i, scene in enumerate(content['scenes']):
+        aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
+        img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
         
-        for i, scene in enumerate(content['scenes']):
-            img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
-            clip = create_segment_unified(scene['line'], img, is_short, i, dur_per_scene)
-            clips.append(clip)
-            times.append(f"{time.strftime('%M:%S', time.gmtime(current_time))} - {scene['line'][:55]}...")
-            current_time += clip.duration
-            
-        clips.append(create_outro(is_short))
-        final = concatenate_videoclips(clips, method="compose").set_audio(master_audio)
-    else:
-        print("🎧 Mixing Edge-TTS Vocals with Dynamic Instrumental (Fallback)...")
-        for i, scene in enumerate(content['scenes']):
-            aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
-            img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
-            
-            if not os.path.exists(aud):
-                return None, None, None, None
+        if not os.path.exists(aud):
+            print("❌ Critical Audio missing. Aborting render to prevent silent video upload.")
+            return None, None, None, None
 
-            voice = AudioFileClip(aud)
-            dur = voice.duration
+        voice = AudioFileClip(aud)
+        dur = voice.duration
+        
+        bg_clip = AudioFileClip(ai_music_path).volumex(0.085)
+        if bg_clip.duration > 0:
+            repeats = int(math.ceil(dur / bg_clip.duration))
+            bg_looped = concatenate_audioclips([bg_clip] * repeats).subclip(0, dur)
+        else:
+            bg_looped = bg_clip
             
-            bg_clip = AudioFileClip(ai_music_path).volumex(0.085)
-            if bg_clip.duration > 0:
-                repeats = int(math.ceil(dur / bg_clip.duration))
-                bg_looped = concatenate_audioclips([bg_clip] * repeats).subclip(0, dur)
-            else:
-                bg_looped = bg_clip
-                
-            audio = CompositeAudioClip([voice, bg_looped])
-            
-            clip = create_segment_unified(scene['line'], img, is_short, i, dur).set_audio(audio)
-            clips.append(clip)
-            times.append(f"{time.strftime('%M:%S', time.gmtime(current_time))} - {scene['line'][:55]}...")
-            current_time += clip.duration
-            
-        clips.append(create_outro(is_short))
-        final = concatenate_videoclips(clips, method="compose")
+        audio = CompositeAudioClip([voice, bg_looped])
+        
+        clip = create_segment_unified(scene['line'], img, is_short, i, dur).set_audio(audio)
+        clips.append(clip)
+        times.append(f"{time.strftime('%M:%S', time.gmtime(current_time))} - {scene['line'][:55]}...")
+        current_time += clip.duration
+        
+    clips.append(create_outro(is_short))
+    final = concatenate_videoclips(clips, method="compose")
 
     out = os.path.join(OUTPUT_DIR, f"final_{suffix}.mp4")
     final.write_videofile(out, fps=24, codec='libx264', audio_codec='aac', threads=2, preset='ultrafast', ffmpeg_params=['-crf', '23', '-pix_fmt', 'yuv420p'])
@@ -540,7 +439,7 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
     except Exception as e: print(f"❌ Upload crash: {e}"); return False
 
 if __name__ == "__main__":
-    print("===== HINDI MASTI RHYMES – 2026 STUDIO EDITION =====")
+    print("===== HINDI MASTI RHYMES – 2026 ZERO-BUDGET EDITION =====")
     
     total_successes = 0
     
