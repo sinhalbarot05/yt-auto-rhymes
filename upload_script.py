@@ -61,42 +61,84 @@ def clean_text_for_font(text, is_english=False):
     else: return re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
 
 # ==========================================
-# 🚂 RAILWAY SUNO PROXY INTEGRATION
+# 🌩️ CLOUDFLARE EDGE WORKER SUNO PROXY
 # ==========================================
-def generate_suno_via_railway(lyrics, out_path):
-    railway_base = os.getenv("RAILWAY_URL")
-    if not railway_base:
-        print("⚠️ No RAILWAY_URL found in secrets. Skipping Suno proxy.")
+def generate_suno_song(lyrics, out_path):
+    proxy_url = os.getenv("CF_WORKER_URL")
+    cookie = os.getenv("SUNO_COOKIE")
+    
+    if not proxy_url or not cookie:
+        print("⚠️ Missing CF_WORKER_URL or SUNO_COOKIE in secrets. Skipping Suno.")
         return False
 
-    print("🚂 Sending lyrics to Custom Railway Proxy for Suno Singing...")
-    webhook_url = f"{railway_base}/generate"
-    payload = {"lyrics": lyrics}
+    print("⚡ Routing API calls entirely through Cloudflare Edge Worker...")
     
     try:
-        r = requests.post(webhook_url, json=payload, timeout=240)
+        # 1. Get Clerk JWT via the Worker Proxy
+        headers = {
+            "X-Target-Url": "https://clerk.suno.com/v1/client?_clerk_js_version=4.73.4",
+            "Cookie": cookie
+        }
+        r = requests.get(proxy_url, headers=headers, timeout=20)
+        r.raise_for_status()
         
-        if r.status_code == 503:
-            print("❌ Cloudflare blocked Railway's IP! Hit the ASN wall.")
+        sessions = r.json().get('response', {}).get('sessions', [])
+        if not sessions:
+            print("❌ Suno Cookie expired. Cannot fetch JWT.")
             return False
             
-        if r.status_code == 200:
-            data = r.json()
-            audio_url = data.get("audio_url")
-            if audio_url:
-                print("✅ Railway Proxy Success! Downloading Suno Track...")
-                audio_r = requests.get(audio_url, timeout=60)
-                with open(out_path, "wb") as f:
-                    f.write(audio_r.content)
-                return True
+        jwt_token = sessions[0]['last_active_token']['jwt']
+
+        # 2. Generate Song via the Worker Proxy
+        gen_headers = {
+            "X-Target-Url": "https://studio-api.suno.ai/api/generate/v2/",
+            "Authorization": f"Bearer {jwt_token}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "prompt": lyrics,
+            "tags": "cute hindi nursery rhyme, playful cartoon style, 100 bpm, female child singer",
+            "title": "Hindi Masti",
+            "make_instrumental": False,
+            "mv": "chirp-v3-5"
+        }
         
-        print(f"❌ Railway proxy failed: {r.status_code} - {r.text}")
+        r2 = requests.post(proxy_url, json=payload, headers=gen_headers, timeout=30)
+        if r2.status_code == 503:
+            print("❌ Cloudflare hit WAF 503 inside the worker. Suno has escalated their block logic.")
+            return False
+            
+        r2.raise_for_status()
+        clip_id = r2.json().get('clips', [{}])[0].get('id')
+        
+        if not clip_id: 
+            print("❌ Failed to parse Suno generation clip ID.")
+            return False
+
+        # 3. Poll for Completion via the Worker Proxy
+        print("✅ Song Generation Triggered! Polling status via CF Edge...")
+        poll_headers = {
+            "X-Target-Url": f"https://studio-api.suno.ai/api/feed/?ids={clip_id}",
+            "Authorization": f"Bearer {jwt_token}"
+        }
+        for attempt in range(40):
+            time.sleep(5)
+            r3 = requests.get(proxy_url, headers=poll_headers, timeout=20)
+            if r3.status_code == 200:
+                poll_data = r3.json()
+                if poll_data and len(poll_data) > 0:
+                    data = poll_data[0]
+                    if data.get('status') == 'complete':
+                        audio_url = data.get('audio_url')
+                        print("✅ Suno Track Ready! Downloading...")
+                        with open(out_path, 'wb') as f:
+                            f.write(requests.get(audio_url, timeout=60).content)
+                        return True
+        print("⏳ Suno generation timed out after 3+ minutes.")
         return False
-    except requests.exceptions.Timeout:
-        print("❌ Railway server timed out waiting for Suno.")
-        return False
+        
     except Exception as e:
-        print(f"❌ Railway connection error: {e}")
+        print(f"❌ Suno Proxy Pipeline Error: {e}")
         return False
 
 # ==========================================
@@ -225,7 +267,7 @@ def download_file(url, fn, headers=None):
 def get_image(image_prompt, fn, kw, is_short, video_seed):
     w, h = (1080, 1920) if is_short else (1920, 1080)
     
-    # 🔒 Character Consistency Lock: Fixed base seed + dynamic prompt injection
+    # 🔒 Character Consistency Lock
     scene_seed = video_seed + random.randint(1, 50) 
     
     clean = f"{image_prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k"
@@ -242,7 +284,6 @@ def get_image(image_prompt, fn, kw, is_short, video_seed):
             except: pass
             return
             
-    print(f"⚠️ Image API Failed. Creating branded fallback for {fn}")
     brand_colors = [(255, 204, 0), (65, 105, 225), (0, 139, 139)] 
     Image.new('RGB', (w, h), random.choice(brand_colors)).save(fn)
 
@@ -324,7 +365,6 @@ def get_voice(text, fn):
         except Exception: pass 
         time.sleep(random.uniform(1, 3)) 
         
-    print(f"❌ FATAL TTS ERROR: Could not render voice for '{clean_speech[:20]}...'")
     return False
 
 def make_video(content, is_short=True):
@@ -336,11 +376,11 @@ def make_video(content, is_short=True):
     full_lyrics_lines = [scene['line'] for scene in content['scenes']]
     full_lyrics_text = "\n".join(full_lyrics_lines)
     
-    # 🚂 Try Railway Proxy first
+    # 🌩️ Try Cloudflare Proxy first
     suno_path = os.path.join(ASSETS_DIR, f"suno_song_{suffix}.mp3")
-    suno_success = generate_suno_via_railway(full_lyrics_text, suno_path)
+    suno_success = generate_suno_song(full_lyrics_text, suno_path)
     
-    # 🎵 Fallback if Railway fails
+    # 🎵 Fallback if Cloudflare or Suno fails
     if not suno_success:
         ai_music_path = os.path.join(ASSETS_DIR, f"bg_music_dynamic_{suffix}.mp3") 
         fetch_dynamic_background_music(ai_music_path)
