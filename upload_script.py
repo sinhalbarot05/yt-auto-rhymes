@@ -44,7 +44,6 @@ def download_assets():
             open(bg, 'wb').write(requests.get("https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3", timeout=30).content)
     except Exception as e:
         print(f"⚠️ Boot Asset Warning: {e}")
-
 download_assets()
 
 def load_memory(f):
@@ -62,10 +61,49 @@ def clean_text_for_font(text, is_english=False):
     else: return re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
 
 # ==========================================
-# 🎵 BULLETPROOF AUDIO ENGINE
+# 🚂 RAILWAY SUNO PROXY INTEGRATION
+# ==========================================
+def generate_suno_via_railway(lyrics, out_path):
+    railway_base = os.getenv("RAILWAY_URL")
+    if not railway_base:
+        print("⚠️ No RAILWAY_URL found in secrets. Skipping Suno proxy.")
+        return False
+
+    print("🚂 Sending lyrics to Custom Railway Proxy for Suno Singing...")
+    webhook_url = f"{railway_base}/generate"
+    payload = {"lyrics": lyrics}
+    
+    try:
+        r = requests.post(webhook_url, json=payload, timeout=240)
+        
+        if r.status_code == 503:
+            print("❌ Cloudflare blocked Railway's IP! Hit the ASN wall.")
+            return False
+            
+        if r.status_code == 200:
+            data = r.json()
+            audio_url = data.get("audio_url")
+            if audio_url:
+                print("✅ Railway Proxy Success! Downloading Suno Track...")
+                audio_r = requests.get(audio_url, timeout=60)
+                with open(out_path, "wb") as f:
+                    f.write(audio_r.content)
+                return True
+        
+        print(f"❌ Railway proxy failed: {r.status_code} - {r.text}")
+        return False
+    except requests.exceptions.Timeout:
+        print("❌ Railway server timed out waiting for Suno.")
+        return False
+    except Exception as e:
+        print(f"❌ Railway connection error: {e}")
+        return False
+
+# ==========================================
+# 🎵 ZERO-BUDGET FALLBACK AUDIO ENGINE
 # ==========================================
 def fetch_dynamic_background_music(out_path):
-    print("🎵 Fetching dynamic background track...")
+    print("🎵 Fetching dynamic background track from secure archive...")
     safe_audio_tracks = [
         "https://ia800408.us.archive.org/27/items/UpbeatKidsMusic/Upbeat_Kids_Music.mp3",
         "https://ia801402.us.archive.org/16/items/happy-upbeat-background-music/Happy%20Upbeat.mp3",
@@ -75,24 +113,19 @@ def fetch_dynamic_background_music(out_path):
         "https://ia801509.us.archive.org/13/items/bensound-music/bensound-littleidea.mp3",
         "https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3" 
     ]
-    
     track_url = random.choice(safe_audio_tracks)
-    print(f"🔄 Attempting to fetch: {track_url.split('/')[-1]}")
-    
     try:
         r = requests.get(track_url, timeout=30)
         r.raise_for_status()
         with open(out_path, 'wb') as f:
             f.write(r.content)
-        print("✅ Background Track Downloaded Successfully!")
         return True
-    except Exception as e:
-        print(f"❌ Audio Fetch Error: {e}. Defaulting to safe fallback.")
+    except Exception:
         shutil.copyfile(os.path.join(ASSETS_DIR, "bg_music_default.mp3"), out_path)
         return False
 
 # ==========================================
-# 🧠 AI BRAIN (WITH DYNAMIC CHARACTER CONSISTENCY)
+# 🧠 AI BRAIN & CHARACTER CONSISTENCY
 # ==========================================
 def openai_request(prompt):
     api_key = os.getenv('OPENAI_API_KEY')
@@ -117,9 +150,7 @@ def groq_request(prompt):
     return None
 
 def smart_llm_request(prompt):
-    res = openai_request(prompt)
-    if res: return res
-    return groq_request(prompt)
+    return openai_request(prompt) or groq_request(prompt)
 
 def clean_json(text):
     if not text: return None
@@ -141,7 +172,6 @@ def generate_content(mode="short"):
 
     line_count = 14 if mode == "short" else 26
     
-    # 🌟 NEW: Added strict instructions to design a unique main character and inject them into every scene.
     prompt = f"""You are a top-tier Hindi children's poet and Pixar Art Director.
 Topic: "{topic}"
 
@@ -150,14 +180,12 @@ CRITICAL RHYME RULES:
 2. Pure Devanagari Hindi ONLY (no English words, no numbers in the rhyme).
 3. PERFECT RHYTHM: Every line must have exactly 5 to 7 words.
 4. Perfect AABB rhyme scheme.
-5. NO EMOJIS in the 'line' or 'title' fields.
-6. CRITICAL: NO RABBITS, NO BUNNIES, NO CAKES, NO CUPCAKES.
 
 CRITICAL VISUAL RULES & CHARACTER CONSISTENCY:
-7. First, design a highly specific, unique protagonist for this video. Example: 'a cute 5-year-old Indian boy with curly black hair wearing a red overalls and yellow boots'.
-8. The 'image_prompt' field is the DIRECT instruction to the AI image generator.
-9. EVERY SINGLE 'image_prompt' MUST begin with the exact phrase from the 'main_character' field to ensure visual consistency across the video.
-10. If the line says the character is jumping, the 'image_prompt' MUST describe [main_character] jumping.
+5. First, design a highly specific protagonist for this video. Example: 'a cute 5-year-old Indian boy with curly black hair wearing a red overalls and yellow boots'.
+6. The 'image_prompt' field is the DIRECT instruction to the AI image generator.
+7. EVERY SINGLE 'image_prompt' MUST begin with the exact phrase from the 'main_character' field to ensure visual consistency across the video.
+8. If the line says the character is jumping, the 'image_prompt' MUST describe [main_character] jumping.
 
 Output ONLY valid JSON:
 {{
@@ -194,22 +222,11 @@ def download_file(url, fn, headers=None):
     except: pass
     return False
 
-def apply_pro_enhancement(fn, w, h):
-    try:
-        with Image.open(fn) as im:
-            im = im.convert("RGB").resize((w, h), Image.LANCZOS)
-            im = im.filter(ImageFilter.UnsharpMask(2.2, 320, 4))
-            im = ImageEnhance.Contrast(im).enhance(1.22)
-            im = ImageEnhance.Color(im).enhance(1.18)
-            im.save(fn, "JPEG", quality=98, optimize=True)
-    except: pass
-
 def get_image(image_prompt, fn, kw, is_short, video_seed):
     w, h = (1080, 1920) if is_short else (1920, 1080)
     
-    # 🌟 NEW: Use the SAME seed for every image in the video to lock in character faces,
-    # but add a tiny random offset so the poses change slightly.
-    scene_seed = video_seed + random.randint(1, 50)
+    # 🔒 Character Consistency Lock: Fixed base seed + dynamic prompt injection
+    scene_seed = video_seed + random.randint(1, 50) 
     
     clean = f"{image_prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k"
     clean_encoded = urllib.parse.quote(clean)
@@ -218,12 +235,16 @@ def get_image(image_prompt, fn, kw, is_short, video_seed):
     if api:
         url = f"https://gen.pollinations.ai/image/{clean_encoded}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
         if download_file(url, fn, {"Authorization": f"Bearer {api}"}):
-            apply_pro_enhancement(fn, w, h); return
+            try:
+                with Image.open(fn) as im:
+                    im = im.convert("RGB").resize((w, h), Image.LANCZOS)
+                    im.save(fn, "JPEG", quality=98, optimize=True)
+            except: pass
+            return
             
     print(f"⚠️ Image API Failed. Creating branded fallback for {fn}")
     brand_colors = [(255, 204, 0), (65, 105, 225), (0, 139, 139)] 
-    img = Image.new('RGB', (w, h), random.choice(brand_colors))
-    img.save(fn)
+    Image.new('RGB', (w, h), random.choice(brand_colors)).save(fn)
 
 def generate_text_clip_pil(text, w, h, base_size, dur, color='#FFFF00', pos_y=None, pos_x=None, stroke_width=8, is_english=False):
     text = clean_text_for_font(text, is_english)
@@ -300,8 +321,7 @@ def get_voice(text, fn):
         try:
             subprocess.run(["edge-tts", "--voice", "hi-IN-SwaraNeural", "--rate=-10%", "--pitch=+10Hz", "--text", clean_speech, "--write-media", fn], capture_output=True, timeout=15)
             if os.path.exists(fn) and os.path.getsize(fn) > 1000: return True
-        except Exception as e: 
-            pass 
+        except Exception: pass 
         time.sleep(random.uniform(1, 3)) 
         
     print(f"❌ FATAL TTS ERROR: Could not render voice for '{clean_speech[:20]}...'")
@@ -316,57 +336,75 @@ def make_video(content, is_short=True):
     full_lyrics_lines = [scene['line'] for scene in content['scenes']]
     full_lyrics_text = "\n".join(full_lyrics_lines)
     
-    ai_music_path = os.path.join(ASSETS_DIR, "bg_music_dynamic.mp3") 
-    fetch_dynamic_background_music(ai_music_path)
+    # 🚂 Try Railway Proxy first
+    suno_path = os.path.join(ASSETS_DIR, f"suno_song_{suffix}.mp3")
+    suno_success = generate_suno_via_railway(full_lyrics_text, suno_path)
     
-    # 🌟 NEW: Generate a unique master seed for THIS specific video to lock the character face
+    # 🎵 Fallback if Railway fails
+    if not suno_success:
+        ai_music_path = os.path.join(ASSETS_DIR, f"bg_music_dynamic_{suffix}.mp3") 
+        fetch_dynamic_background_music(ai_music_path)
+    
     video_master_seed = random.randint(1000, 999999)
-    print(f"🔒 Locking character consistency with base seed: {video_master_seed}")
 
-    print("🎨 Generating Images and Hindi Voiceovers...")
+    print("🎨 Generating Images (and TTS if needed)...")
     with ThreadPoolExecutor(max_workers=6) as ex:
         futures = []
         for i, scene in enumerate(content['scenes']):
             img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
             img_prompt = scene.get('image_prompt', scene.get('action', 'cute kids cartoon'))
-            # Pass the video_master_seed into the image generator
             futures.append(ex.submit(get_image, img_prompt, img, keyword, is_short, video_master_seed))
             
-            aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
-            futures.append(ex.submit(get_voice, scene['line'], aud))
+            if not suno_success:
+                aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
+                futures.append(ex.submit(get_voice, scene['line'], aud))
         for f in as_completed(futures): f.result()
 
     times = []
     current_time = 0.0 
 
-    print("🎧 Mixing Edge-TTS Vocals with Dynamic Instrumental...")
-    for i, scene in enumerate(content['scenes']):
-        aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
-        img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
+    if suno_success:
+        print("🎧 Assembling scenes with beautiful Suno singing...")
+        master_audio = AudioFileClip(suno_path)
+        dur_per_scene = master_audio.duration / len(content['scenes'])
         
-        if not os.path.exists(aud):
-            print("❌ Critical Audio missing. Aborting render to prevent silent video upload.")
-            return None, None, None, None
-
-        voice = AudioFileClip(aud)
-        dur = voice.duration
-        
-        bg_clip = AudioFileClip(ai_music_path).volumex(0.085)
-        if bg_clip.duration > 0:
-            repeats = int(math.ceil(dur / bg_clip.duration))
-            bg_looped = concatenate_audioclips([bg_clip] * repeats).subclip(0, dur)
-        else:
-            bg_looped = bg_clip
+        for i, scene in enumerate(content['scenes']):
+            img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
+            clip = create_segment_unified(scene['line'], img, is_short, i, dur_per_scene)
+            clips.append(clip)
+            times.append(f"{time.strftime('%M:%S', time.gmtime(current_time))} - {scene['line'][:55]}...")
+            current_time += clip.duration
             
-        audio = CompositeAudioClip([voice, bg_looped])
-        
-        clip = create_segment_unified(scene['line'], img, is_short, i, dur).set_audio(audio)
-        clips.append(clip)
-        times.append(f"{time.strftime('%M:%S', time.gmtime(current_time))} - {scene['line'][:55]}...")
-        current_time += clip.duration
-        
-    clips.append(create_outro(is_short))
-    final = concatenate_videoclips(clips, method="compose")
+        clips.append(create_outro(is_short))
+        final = concatenate_videoclips(clips, method="compose").set_audio(master_audio)
+    else:
+        print("🎧 Mixing Edge-TTS Vocals with Dynamic Instrumental (Fallback)...")
+        for i, scene in enumerate(content['scenes']):
+            aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
+            img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
+            
+            if not os.path.exists(aud):
+                return None, None, None, None
+
+            voice = AudioFileClip(aud)
+            dur = voice.duration
+            
+            bg_clip = AudioFileClip(ai_music_path).volumex(0.085)
+            if bg_clip.duration > 0:
+                repeats = int(math.ceil(dur / bg_clip.duration))
+                bg_looped = concatenate_audioclips([bg_clip] * repeats).subclip(0, dur)
+            else:
+                bg_looped = bg_clip
+                
+            audio = CompositeAudioClip([voice, bg_looped])
+            
+            clip = create_segment_unified(scene['line'], img, is_short, i, dur).set_audio(audio)
+            clips.append(clip)
+            times.append(f"{time.strftime('%M:%S', time.gmtime(current_time))} - {scene['line'][:55]}...")
+            current_time += clip.duration
+            
+        clips.append(create_outro(is_short))
+        final = concatenate_videoclips(clips, method="compose")
 
     out = os.path.join(OUTPUT_DIR, f"final_{suffix}.mp4")
     final.write_videofile(out, fps=24, codec='libx264', audio_codec='aac', threads=2, preset='ultrafast', ffmpeg_params=['-crf', '23', '-pix_fmt', 'yuv420p'])
@@ -462,7 +500,7 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
     except Exception as e: print(f"❌ Upload crash: {e}"); return False
 
 if __name__ == "__main__":
-    print("===== HINDI MASTI RHYMES – 2026 STUDIO MUSIC EDITION =====")
+    print("===== HINDI MASTI RHYMES – 2026 STUDIO EDITION =====")
     
     total_successes = 0
     
