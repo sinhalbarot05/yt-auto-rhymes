@@ -34,7 +34,6 @@ for f in ["used_topics.json", "used_rhymes.json"]:
         json.dump([], open(os.path.join(MEMORY_DIR, f), "w"))
 
 def download_assets():
-    # 🌟 FIX: Wrapped in try/except so network blips on boot don't crash the script
     try:
         if not os.path.exists(FONT_FILE):
             open(FONT_FILE, 'wb').write(requests.get("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf", timeout=20).content)
@@ -74,7 +73,7 @@ def fetch_dynamic_background_music(out_path):
         "https://ia800504.us.archive.org/33/items/bensound-music/bensound-buddy.mp3",
         "https://ia801509.us.archive.org/13/items/bensound-music/bensound-clearday.mp3",
         "https://ia801509.us.archive.org/13/items/bensound-music/bensound-littleidea.mp3",
-        "https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3" # Rock solid raw CDN
+        "https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3" 
     ]
     
     track_url = random.choice(safe_audio_tracks)
@@ -93,7 +92,7 @@ def fetch_dynamic_background_music(out_path):
         return False
 
 # ==========================================
-# 🧠 AI BRAIN
+# 🧠 AI BRAIN (WITH DYNAMIC CHARACTER CONSISTENCY)
 # ==========================================
 def openai_request(prompt):
     api_key = os.getenv('OPENAI_API_KEY')
@@ -131,7 +130,7 @@ def clean_json(text):
     except Exception: return None
 
 def generate_content(mode="short"):
-    print("\n🧠 Contacting AI for script...")
+    print("\n🧠 Contacting AI for script and character design...")
     used = load_memory("used_topics.json")
     themes = ["Outer Space Planets", "Jungle Safari Animals", "Underwater Ocean Fish", "Magic Trains and Cars", "Dinosaur Friends", "Talking Fruits", "Superheroes", "Construction Trucks", "Flying Vehicles", "Robot Pets", "Brave Birds", "Snowy Penguins", "Farm Animals"]
     theme = random.choice(themes)
@@ -141,6 +140,8 @@ def generate_content(mode="short"):
     time.sleep(2)
 
     line_count = 14 if mode == "short" else 26
+    
+    # 🌟 NEW: Added strict instructions to design a unique main character and inject them into every scene.
     prompt = f"""You are a top-tier Hindi children's poet and Pixar Art Director.
 Topic: "{topic}"
 
@@ -152,11 +153,11 @@ CRITICAL RHYME RULES:
 5. NO EMOJIS in the 'line' or 'title' fields.
 6. CRITICAL: NO RABBITS, NO BUNNIES, NO CAKES, NO CUPCAKES.
 
-CRITICAL VISUAL RULES (1-to-1 MATCHING):
-7. The 'image_prompt' field is the DIRECT instruction to the AI image generator.
-8. It MUST PERFECTLY MATCH the Hindi line. 
-9. If the line says a farmer is working, the 'image_prompt' MUST ONLY describe a farmer working in a field.
-10. DO NOT force the main character into the scene if the line doesn't mention them. The camera must show EXACTLY what the lyrics say.
+CRITICAL VISUAL RULES & CHARACTER CONSISTENCY:
+7. First, design a highly specific, unique protagonist for this video. Example: 'a cute 5-year-old Indian boy with curly black hair wearing a red overalls and yellow boots'.
+8. The 'image_prompt' field is the DIRECT instruction to the AI image generator.
+9. EVERY SINGLE 'image_prompt' MUST begin with the exact phrase from the 'main_character' field to ensure visual consistency across the video.
+10. If the line says the character is jumping, the 'image_prompt' MUST describe [main_character] jumping.
 
 Output ONLY valid JSON:
 {{
@@ -165,15 +166,17 @@ Output ONLY valid JSON:
   "keyword": "Main subject",
   "seo_tags": ["hindi bal geet", "kids rhymes"],
   "seo_description": "Description template with [TIMESTAMPS]",
-  "scenes": [{{"line": "5 to 7 word Hindi sentence", "image_prompt": "Highly detailed standalone English description of EXACTLY what should be visible on screen for this specific line."}}]
+  "main_character": "Highly detailed 15-word English visual description of the unique protagonist for this specific video.",
+  "scenes": [{{"line": "5 to 7 word Hindi sentence", "image_prompt": "Must start with the exact text from main_character, followed by what they are doing in this specific scene."}}]
 }}"""
     for attempt in range(4):
         raw = smart_llm_request(prompt)
         data = clean_json(raw)
-        if data and "scenes" in data:
+        if data and "scenes" in data and "main_character" in data:
             if len(data["scenes"]) < (line_count - 2): continue
             data['generated_topic'] = topic
             save_to_memory("used_topics.json", topic)
+            print(f"🎨 Unique Character Designed: {data['main_character']}")
             return data
         time.sleep(4)
     return None
@@ -201,9 +204,12 @@ def apply_pro_enhancement(fn, w, h):
             im.save(fn, "JPEG", quality=98, optimize=True)
     except: pass
 
-def get_image(image_prompt, fn, kw, is_short):
+def get_image(image_prompt, fn, kw, is_short, video_seed):
     w, h = (1080, 1920) if is_short else (1920, 1080)
-    scene_seed = random.randint(0, 999999) 
+    
+    # 🌟 NEW: Use the SAME seed for every image in the video to lock in character faces,
+    # but add a tiny random offset so the poses change slightly.
+    scene_seed = video_seed + random.randint(1, 50)
     
     clean = f"{image_prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k"
     clean_encoded = urllib.parse.quote(clean)
@@ -214,9 +220,8 @@ def get_image(image_prompt, fn, kw, is_short):
         if download_file(url, fn, {"Authorization": f"Bearer {api}"}):
             apply_pro_enhancement(fn, w, h); return
             
-    # 🌟 FIX: Removed loremflickr (ugly cat photos). Failsafe is now a clean branded color backdrop.
     print(f"⚠️ Image API Failed. Creating branded fallback for {fn}")
-    brand_colors = [(255, 204, 0), (65, 105, 225), (0, 139, 139)] # Mango, Royal, Turquoise
+    brand_colors = [(255, 204, 0), (65, 105, 225), (0, 139, 139)] 
     img = Image.new('RGB', (w, h), random.choice(brand_colors))
     img.save(fn)
 
@@ -299,8 +304,6 @@ def get_voice(text, fn):
             pass 
         time.sleep(random.uniform(1, 3)) 
         
-    # 🌟 FIX: If TTS critically fails 5 times, we do NOT replace it with instrumental music.
-    # We log a fatal error and return False so the script aborts the broken render.
     print(f"❌ FATAL TTS ERROR: Could not render voice for '{clean_speech[:20]}...'")
     return False
 
@@ -316,13 +319,18 @@ def make_video(content, is_short=True):
     ai_music_path = os.path.join(ASSETS_DIR, "bg_music_dynamic.mp3") 
     fetch_dynamic_background_music(ai_music_path)
     
+    # 🌟 NEW: Generate a unique master seed for THIS specific video to lock the character face
+    video_master_seed = random.randint(1000, 999999)
+    print(f"🔒 Locking character consistency with base seed: {video_master_seed}")
+
     print("🎨 Generating Images and Hindi Voiceovers...")
     with ThreadPoolExecutor(max_workers=6) as ex:
         futures = []
         for i, scene in enumerate(content['scenes']):
             img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
             img_prompt = scene.get('image_prompt', scene.get('action', 'cute kids cartoon'))
-            futures.append(ex.submit(get_image, img_prompt, img, keyword, is_short))
+            # Pass the video_master_seed into the image generator
+            futures.append(ex.submit(get_image, img_prompt, img, keyword, is_short, video_master_seed))
             
             aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
             futures.append(ex.submit(get_voice, scene['line'], aud))
@@ -336,7 +344,6 @@ def make_video(content, is_short=True):
         aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
         img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
         
-        # 🌟 FIX: Hard-abort if the asset generation pipeline failed
         if not os.path.exists(aud):
             print("❌ Critical Audio missing. Aborting render to prevent silent video upload.")
             return None, None, None, None
@@ -362,9 +369,6 @@ def make_video(content, is_short=True):
     final = concatenate_videoclips(clips, method="compose")
 
     out = os.path.join(OUTPUT_DIR, f"final_{suffix}.mp4")
-    
-    # 🌟 FIX: Reduced threads=8 to threads=2. GitHub Ubuntu runners only have 2 CPU cores. 
-    # High thread counts cause context-switching deadlock and freeze the pipeline.
     final.write_videofile(out, fps=24, codec='libx264', audio_codec='aac', threads=2, preset='ultrafast', ffmpeg_params=['-crf', '23', '-pix_fmt', 'yuv420p'])
     return out, full_lyrics_text, times, content.get('seo_description', '')
 
@@ -429,7 +433,6 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
         media = MediaFileUpload(vid, chunksize=-1, resumable=True)
         req = service.videos().insert(part="snippet,status", body=body, media_body=media)
         
-        # 🌟 FIX: Chunk upload retry logic in case Google's ingest server drops connection
         response = None
         error_count = 0
         while response is None:
@@ -478,7 +481,6 @@ if __name__ == "__main__":
             
     print("\n🎉 Daily broadcast workflow completed.")
     
-    # 🌟 FIX: Let GitHub Actions know if the script completely failed
     if total_successes == 0:
         print("🚨 ALL PIPELINES FAILED. Throwing exit code 1 to alert GitHub Actions.")
         sys.exit(1)
