@@ -86,7 +86,7 @@ def fetch_dynamic_background_music(out_path):
         return False
 
 # ==========================================
-# 🧠 AI BRAIN & CHARACTER CONSISTENCY
+# 🧠 AI BRAIN & SEO CONSISTENCY
 # ==========================================
 def openai_request(prompt):
     api_key = os.getenv('OPENAI_API_KEY')
@@ -122,7 +122,7 @@ def clean_json(text):
     except Exception: return None
 
 def generate_content(mode="short"):
-    print("\n🧠 Contacting AI for script and character design...")
+    print("\n🧠 Contacting AI for script, SEO, and character design...")
     used = load_memory("used_topics.json")
     themes = ["Outer Space Planets", "Jungle Safari Animals", "Underwater Ocean Fish", "Magic Trains and Cars", "Dinosaur Friends", "Talking Fruits", "Superheroes", "Construction Trucks", "Flying Vehicles", "Robot Pets", "Brave Birds", "Snowy Penguins", "Farm Animals"]
     theme = random.choice(themes)
@@ -133,7 +133,7 @@ def generate_content(mode="short"):
 
     line_count = 14 if mode == "short" else 26
     
-    prompt = f"""You are a top-tier Hindi children's poet and Pixar Art Director.
+    prompt = f"""You are a top-tier Hindi children's poet and YouTube SEO Expert.
 Topic: "{topic}"
 
 CRITICAL RHYME RULES:
@@ -143,20 +143,22 @@ CRITICAL RHYME RULES:
 4. Perfect AABB rhyme scheme.
 
 CRITICAL VISUAL RULES & CHARACTER CONSISTENCY:
-5. First, design a highly specific protagonist for this video. Example: 'a cute 5-year-old Indian boy with curly black hair wearing a red overalls and yellow boots'.
-6. The 'image_prompt' field is the DIRECT instruction to the AI image generator.
-7. EVERY SINGLE 'image_prompt' MUST begin with the exact phrase from the 'main_character' field to ensure visual consistency across the video.
-8. If the line says the character is jumping, the 'image_prompt' MUST describe [main_character] jumping.
+5. First, design a highly specific protagonist for this video. Example: 'a cute 5-year-old Indian boy with curly black hair wearing red overalls'.
+6. EVERY SINGLE 'image_prompt' MUST begin with the exact phrase from the 'main_character' field.
+7. THE 3-SECOND HOOK: Scene 1's image_prompt MUST describe the character doing something highly energetic (jumping, flying, running, cheering) to hook the viewer instantly.
+
+SEO TITLE RULE:
+8. The 'title' MUST be dual-language formatted exactly like this: "English Title (Hindi Title) | 3D Hindi Rhymes | Bal Geet"
 
 Output ONLY valid JSON:
 {{
   "seo_title": "Best 2026 title starting with keyword",
-  "title": "Hindi catchy title (Devanagari only)",
-  "keyword": "Main subject",
+  "title": "English Name (Hindi Name) | 3D Hindi Rhymes | Bal Geet",
+  "keyword": "Main subject one word",
   "seo_tags": ["hindi bal geet", "kids rhymes"],
   "seo_description": "Description template with [TIMESTAMPS]",
-  "main_character": "Highly detailed 15-word English visual description of the unique protagonist for this specific video.",
-  "scenes": [{{"line": "5 to 7 word Hindi sentence", "image_prompt": "Must start with the exact text from main_character, followed by what they are doing in this specific scene."}}]
+  "main_character": "Highly detailed 15-word English visual description of the unique protagonist.",
+  "scenes": [{{"line": "5 to 7 word Hindi sentence", "image_prompt": "Must start with the exact text from main_character, followed by action."}}]
 }}"""
     for attempt in range(4):
         raw = smart_llm_request(prompt)
@@ -166,6 +168,7 @@ Output ONLY valid JSON:
             data['generated_topic'] = topic
             save_to_memory("used_topics.json", topic)
             print(f"🎨 Unique Character Designed: {data['main_character']}")
+            print(f"📈 SEO Title Generated: {data['title']}")
             return data
         time.sleep(4)
     return None
@@ -322,7 +325,7 @@ def make_video(content, is_short=True):
         img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
         
         if not os.path.exists(aud):
-            print("❌ Critical Audio missing. Aborting render to prevent silent video upload.")
+            print("❌ Critical Audio missing. Aborting render.")
             return None, None, None, None
 
         voice = AudioFileClip(aud)
@@ -342,7 +345,10 @@ def make_video(content, is_short=True):
         times.append(f"{time.strftime('%M:%S', time.gmtime(current_time))} - {scene['line'][:55]}...")
         current_time += clip.duration
         
-    clips.append(create_outro(is_short))
+    # 🔁 TODDLER TRANCE LOOP: Only add the Outro to Long Videos!
+    if not is_short:
+        clips.append(create_outro(is_short))
+        
     final = concatenate_videoclips(clips, method="compose")
 
     out = os.path.join(OUTPUT_DIR, f"final_{suffix}.mp4")
@@ -392,7 +398,8 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
         print(f"🚀 Initializing YouTube Upload for: {content['title']}")
         with open(TOKEN_FILE, 'rb') as f: creds = pickle.load(f)
         service = build('youtube', 'v3', credentials=creds)
-        title = content.get('seo_title', content['title'] + " | Hindi Nursery Rhymes for Kids 2026")
+        
+        title = content.get('title', "Hindi Nursery Rhymes for Kids 2026")
         
         raw_tags = content.get('seo_tags', ['hindi rhymes', 'bal geet', 'kids songs', 'nursery rhymes'])
         valid_tags, total_chars = [], 0
@@ -402,7 +409,10 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
                 valid_tags.append(clean_tag)
                 total_chars += len(clean_tag) + 1 
         
-        desc = f"""{title}\n\n{desc_template.replace('[TIMESTAMPS]', chr(10).join(times))}\n\nLIKE + SUBSCRIBE + SHARE for daily new rhymes!\n#HindiRhymes #BalGeet #NurseryRhymesForKids"""
+        # 📈 HASHTAG STACKING LOGIC
+        topic_tag = content.get('keyword', 'KidsVideo').replace(' ', '')
+        desc = f"{title}\n\n{desc_template.replace('[TIMESTAMPS]', chr(10).join(times))}\n\nLIKE + SUBSCRIBE + SHARE for daily new rhymes!\n#Shorts #HindiRhymes #BalGeet #KidsCartoon #{topic_tag}"
+        
         body = {
             'snippet': {'title': title[:100], 'description': desc, 'tags': valid_tags, 'categoryId': '24', 'defaultLanguage': 'hi', 'defaultAudioLanguage': 'hi'},
             'status': {'privacyStatus': 'public', 'selfDeclaredMadeForKids': True}
