@@ -1,4 +1,4 @@
-import os, random, json, asyncio, requests, time, numpy as np, re, math, subprocess, shutil
+import os, random, json, asyncio, requests, time, numpy as np, re, math, subprocess, shutil, sys
 import urllib.parse
 from pathlib import Path
 import pickle
@@ -18,7 +18,7 @@ from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
 
 # ==========================================
-# CONFIGURATION & BRANDING
+# CONFIGURATION
 # ==========================================
 MEMORY_DIR = "memory/"
 OUTPUT_DIR = "videos/"
@@ -34,13 +34,18 @@ for f in ["used_topics.json", "used_rhymes.json"]:
         json.dump([], open(os.path.join(MEMORY_DIR, f), "w"))
 
 def download_assets():
-    if not os.path.exists(FONT_FILE):
-        open(FONT_FILE, 'wb').write(requests.get("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf", timeout=15).content)
-    if not os.path.exists(ENG_FONT_FILE):
-        open(ENG_FONT_FILE, 'wb').write(requests.get("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf", timeout=15).content)
-    bg = os.path.join(ASSETS_DIR, "bg_music_default.mp3")
-    if not os.path.exists(bg):
-        open(bg, 'wb').write(requests.get("https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3", timeout=15).content)
+    # 🌟 FIX: Wrapped in try/except so network blips on boot don't crash the script
+    try:
+        if not os.path.exists(FONT_FILE):
+            open(FONT_FILE, 'wb').write(requests.get("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf", timeout=20).content)
+        if not os.path.exists(ENG_FONT_FILE):
+            open(ENG_FONT_FILE, 'wb').write(requests.get("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf", timeout=20).content)
+        bg = os.path.join(ASSETS_DIR, "bg_music_default.mp3")
+        if not os.path.exists(bg):
+            open(bg, 'wb').write(requests.get("https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3", timeout=30).content)
+    except Exception as e:
+        print(f"⚠️ Boot Asset Warning: {e}")
+
 download_assets()
 
 def load_memory(f):
@@ -58,13 +63,10 @@ def clean_text_for_font(text, is_english=False):
     else: return re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
 
 # ==========================================
-# 🎵 EXPANDED PUBLIC DOMAIN AUDIO FETCHER
+# 🎵 BULLETPROOF AUDIO ENGINE
 # ==========================================
 def fetch_dynamic_background_music(out_path):
-    print("🎵 Fetching dynamic background track from secure public domain archive...")
-    
-    # 🌟 EXPANDED LIBRARY: To add more, simply find any royalty-free track on 
-    # archive.org, right-click the VBR MP3 download button, and copy the link address.
+    print("🎵 Fetching dynamic background track...")
     safe_audio_tracks = [
         "https://ia800408.us.archive.org/27/items/UpbeatKidsMusic/Upbeat_Kids_Music.mp3",
         "https://ia801402.us.archive.org/16/items/happy-upbeat-background-music/Happy%20Upbeat.mp3",
@@ -72,26 +74,21 @@ def fetch_dynamic_background_music(out_path):
         "https://ia800504.us.archive.org/33/items/bensound-music/bensound-buddy.mp3",
         "https://ia801509.us.archive.org/13/items/bensound-music/bensound-clearday.mp3",
         "https://ia801509.us.archive.org/13/items/bensound-music/bensound-littleidea.mp3",
-        "https://ia801509.us.archive.org/13/items/bensound-music/bensound-energy.mp3",
-        "https://ia601509.us.archive.org/13/items/bensound-music/bensound-happiness.mp3",
-        "https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3"
+        "https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3" # Rock solid raw CDN
     ]
     
     track_url = random.choice(safe_audio_tracks)
-    print(f"🔄 Selected Track: {track_url.split('/')[-1].replace('%20', ' ')}")
+    print(f"🔄 Attempting to fetch: {track_url.split('/')[-1]}")
     
     try:
         r = requests.get(track_url, timeout=30)
         r.raise_for_status()
-        
         with open(out_path, 'wb') as f:
             f.write(r.content)
-            
         print("✅ Background Track Downloaded Successfully!")
         return True
     except Exception as e:
-        print(f"❌ Audio Fetch Error: {e}")
-        # Rock-bottom fallback to the default asset
+        print(f"❌ Audio Fetch Error: {e}. Defaulting to safe fallback.")
         shutil.copyfile(os.path.join(ASSETS_DIR, "bg_music_default.mp3"), out_path)
         return False
 
@@ -159,8 +156,7 @@ CRITICAL VISUAL RULES (1-to-1 MATCHING):
 7. The 'image_prompt' field is the DIRECT instruction to the AI image generator.
 8. It MUST PERFECTLY MATCH the Hindi line. 
 9. If the line says a farmer is working, the 'image_prompt' MUST ONLY describe a farmer working in a field.
-10. If the next line says birds are flying, the 'image_prompt' MUST ONLY describe birds flying in the sky.
-11. DO NOT force the main character into the scene if the line doesn't mention them. The camera must show EXACTLY what the lyrics say.
+10. DO NOT force the main character into the scene if the line doesn't mention them. The camera must show EXACTLY what the lyrics say.
 
 Output ONLY valid JSON:
 {{
@@ -187,7 +183,7 @@ Output ONLY valid JSON:
 # ==========================================
 def download_file(url, fn, headers=None):
     try:
-        r = requests.get(url, headers=headers or {"User-Agent": "Mozilla/5.0"}, timeout=60)
+        r = requests.get(url, headers=headers or {"User-Agent": "Mozilla/5.0"}, timeout=45)
         if r.status_code == 200:
             open(fn, 'wb').write(r.content)
             Image.open(fn).verify()
@@ -218,9 +214,11 @@ def get_image(image_prompt, fn, kw, is_short):
         if download_file(url, fn, {"Authorization": f"Bearer {api}"}):
             apply_pro_enhancement(fn, w, h); return
             
-    stock = f"https://loremflickr.com/{w}/{h}/{kw.lower()}/?lock={scene_seed}"
-    if download_file(stock, fn): apply_pro_enhancement(fn, w, h)
-    else: Image.new('RGB', (w, h), (random.randint(70, 230),)*3).save(fn)
+    # 🌟 FIX: Removed loremflickr (ugly cat photos). Failsafe is now a clean branded color backdrop.
+    print(f"⚠️ Image API Failed. Creating branded fallback for {fn}")
+    brand_colors = [(255, 204, 0), (65, 105, 225), (0, 139, 139)] # Mango, Royal, Turquoise
+    img = Image.new('RGB', (w, h), random.choice(brand_colors))
+    img.save(fn)
 
 def generate_text_clip_pil(text, w, h, base_size, dur, color='#FFFF00', pos_y=None, pos_x=None, stroke_width=8, is_english=False):
     text = clean_text_for_font(text, is_english)
@@ -296,12 +294,15 @@ def get_voice(text, fn):
     for attempt in range(5):
         try:
             subprocess.run(["edge-tts", "--voice", "hi-IN-SwaraNeural", "--rate=-10%", "--pitch=+10Hz", "--text", clean_speech, "--write-media", fn], capture_output=True, timeout=15)
-            if os.path.exists(fn) and os.path.getsize(fn) > 1000: return 
+            if os.path.exists(fn) and os.path.getsize(fn) > 1000: return True
         except Exception as e: 
             pass 
         time.sleep(random.uniform(1, 3)) 
-    try: shutil.copyfile(os.path.join(ASSETS_DIR, "bg_music_default.mp3"), fn)
-    except: pass
+        
+    # 🌟 FIX: If TTS critically fails 5 times, we do NOT replace it with instrumental music.
+    # We log a fatal error and return False so the script aborts the broken render.
+    print(f"❌ FATAL TTS ERROR: Could not render voice for '{clean_speech[:20]}...'")
+    return False
 
 def make_video(content, is_short=True):
     print(f"🎥 Premium Render {'SHORT' if is_short else 'LONG'}...")
@@ -312,13 +313,9 @@ def make_video(content, is_short=True):
     full_lyrics_lines = [scene['line'] for scene in content['scenes']]
     full_lyrics_text = "\n".join(full_lyrics_lines)
     
-    # 🌟 NEW LOGIC: Safely fetch a reliable, dynamic royalty-free instrumental
     ai_music_path = os.path.join(ASSETS_DIR, "bg_music_dynamic.mp3") 
     fetch_dynamic_background_music(ai_music_path)
     
-    # Always use our static mix engine to avoid API failures
-    suno_success = False 
-
     print("🎨 Generating Images and Hindi Voiceovers...")
     with ThreadPoolExecutor(max_workers=6) as ex:
         futures = []
@@ -326,9 +323,9 @@ def make_video(content, is_short=True):
             img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
             img_prompt = scene.get('image_prompt', scene.get('action', 'cute kids cartoon'))
             futures.append(ex.submit(get_image, img_prompt, img, keyword, is_short))
-            if not suno_success: 
-                aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
-                futures.append(ex.submit(get_voice, scene['line'], aud))
+            
+            aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
+            futures.append(ex.submit(get_voice, scene['line'], aud))
         for f in as_completed(futures): f.result()
 
     times = []
@@ -339,6 +336,11 @@ def make_video(content, is_short=True):
         aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
         img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
         
+        # 🌟 FIX: Hard-abort if the asset generation pipeline failed
+        if not os.path.exists(aud):
+            print("❌ Critical Audio missing. Aborting render to prevent silent video upload.")
+            return None, None, None, None
+
         voice = AudioFileClip(aud)
         dur = voice.duration
         
@@ -360,7 +362,10 @@ def make_video(content, is_short=True):
     final = concatenate_videoclips(clips, method="compose")
 
     out = os.path.join(OUTPUT_DIR, f"final_{suffix}.mp4")
-    final.write_videofile(out, fps=24, codec='libx264', audio_codec='aac', threads=8, preset='ultrafast', ffmpeg_params=['-crf', '23', '-pix_fmt', 'yuv420p'])
+    
+    # 🌟 FIX: Reduced threads=8 to threads=2. GitHub Ubuntu runners only have 2 CPU cores. 
+    # High thread counts cause context-switching deadlock and freeze the pipeline.
+    final.write_videofile(out, fps=24, codec='libx264', audio_codec='aac', threads=2, preset='ultrafast', ffmpeg_params=['-crf', '23', '-pix_fmt', 'yuv420p'])
     return out, full_lyrics_text, times, content.get('seo_description', '')
 
 def create_thumbnail(title, bg_path, out_path, is_short):
@@ -424,12 +429,22 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
         media = MediaFileUpload(vid, chunksize=-1, resumable=True)
         req = service.videos().insert(part="snippet,status", body=body, media_body=media)
         
-        while True:
-            status, response = req.next_chunk()
-            if status: print(f"   Upload progress: {int(status.progress()*100)}%")
-            if response is not None:
-                print(f"✅ VIDEO UPLOADED SUCCESS! ID: {response['id']}")
-                break
+        # 🌟 FIX: Chunk upload retry logic in case Google's ingest server drops connection
+        response = None
+        error_count = 0
+        while response is None:
+            try:
+                status, response = req.next_chunk()
+                if status: print(f"   Upload progress: {int(status.progress()*100)}%")
+                if response is not None:
+                    print(f"✅ VIDEO UPLOADED SUCCESS! ID: {response['id']}")
+            except (HttpError, ConnectionResetError, BrokenPipeError) as e:
+                error_count += 1
+                if error_count > 5:
+                    print(f"❌ Upload dropped 5 times. Aborting. {e}")
+                    return False
+                print(f"⚠️ Upload connection dropped. Retrying {error_count}/5 in 5 seconds...")
+                time.sleep(5)
 
         if not is_short:
             thumb = os.path.join(OUTPUT_DIR, "thumb.png")
@@ -445,11 +460,25 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
 
 if __name__ == "__main__":
     print("===== HINDI MASTI RHYMES – 2026 STUDIO MUSIC EDITION =====")
+    
+    total_successes = 0
+    
     for is_short, name in [(True, "SHORT"), (False, "LONG")]:
         print(f"\n>>> GENERATING {name} <<<")
         data = generate_content("short" if is_short else "long")
         if data:
             vid, lyrics, times, desc = make_video(data, is_short)
-            if vid: upload_video(vid, data, lyrics, times, desc, is_short)
-        else: print(f"❌ Critical Failure: Could not generate content for {name}.")
+            if vid: 
+                if upload_video(vid, data, lyrics, times, desc, is_short):
+                    total_successes += 1
+            else:
+                print(f"❌ Render failed for {name}. Skipping upload.")
+        else: 
+            print(f"❌ Critical Failure: Could not generate content for {name}.")
+            
     print("\n🎉 Daily broadcast workflow completed.")
+    
+    # 🌟 FIX: Let GitHub Actions know if the script completely failed
+    if total_successes == 0:
+        print("🚨 ALL PIPELINES FAILED. Throwing exit code 1 to alert GitHub Actions.")
+        sys.exit(1)
