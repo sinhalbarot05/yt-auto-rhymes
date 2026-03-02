@@ -124,8 +124,19 @@ def clean_json(text):
 def generate_content(mode="short"):
     print("\n🧠 Contacting AI for script, SEO, and character design...")
     used = load_memory("used_topics.json")
+    
     themes = ["Outer Space Planets", "Jungle Safari Animals", "Underwater Ocean Fish", "Magic Trains and Cars", "Dinosaur Friends", "Talking Fruits", "Superheroes", "Construction Trucks", "Flying Vehicles", "Robot Pets", "Brave Birds", "Snowy Penguins", "Farm Animals"]
     theme = random.choice(themes)
+    
+    # 🌟 NEW: Dynamic Archetype Generator
+    archetypes = [
+        "an adorable little Indian girl", 
+        "a cute chubby baby boy", 
+        "a friendly baby animal (matching the theme)", 
+        "a magical creature or fairy", 
+        "a cute funny robot or living toy"
+    ]
+    archetype = random.choice(archetypes)
     
     topic_prompt = f"Output ONLY a 3-to-4 word English topic for a Hindi kids rhyme about: {theme}. CRITICAL: Do NOT use rabbits, bunnies, cakes, cupcakes, or sweets. Avoid: {', '.join(used[-20:])}."
     topic = smart_llm_request(topic_prompt) or f"Cute {theme}"
@@ -143,8 +154,8 @@ CRITICAL RHYME RULES:
 4. Perfect AABB rhyme scheme.
 
 CRITICAL VISUAL RULES & CHARACTER CONSISTENCY:
-5. First, design a highly specific protagonist for this video. Example: 'a cute 5-year-old Indian boy with curly black hair wearing red overalls'.
-6. EVERY SINGLE 'image_prompt' MUST begin with the exact phrase from the 'main_character' field.
+5. First, design a highly specific protagonist for this video. The protagonist MUST be based on this archetype: [{archetype}]. Describe their specific clothes, colors, and unique features in exactly 10 to 15 English words.
+6. EVERY SINGLE 'image_prompt' MUST begin with the exact phrase from the 'main_character' field to ensure visual consistency across the video.
 7. THE 3-SECOND HOOK: Scene 1's image_prompt MUST describe the character doing something highly energetic (jumping, flying, running, cheering) to hook the viewer instantly.
 
 SEO TITLE RULE:
@@ -192,6 +203,7 @@ def get_image(image_prompt, fn, kw, is_short, video_seed):
     # 🔒 Character Consistency Lock
     scene_seed = video_seed + random.randint(1, 50) 
     
+    # Branded Color Palette Injection
     clean = f"{image_prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k"
     clean_encoded = urllib.parse.quote(clean)
     
@@ -345,7 +357,7 @@ def make_video(content, is_short=True):
         times.append(f"{time.strftime('%M:%S', time.gmtime(current_time))} - {scene['line'][:55]}...")
         current_time += clip.duration
         
-    # 🔁 TODDLER TRANCE LOOP: Only add the Outro to Long Videos!
+    # 🔁 TODDLER TRANCE LOOP: Skip outro for Shorts
     if not is_short:
         clips.append(create_outro(is_short))
         
