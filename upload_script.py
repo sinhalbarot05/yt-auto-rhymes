@@ -128,7 +128,6 @@ def generate_content(mode="short"):
     themes = ["Outer Space Planets", "Jungle Safari Animals", "Underwater Ocean Fish", "Magic Trains and Cars", "Dinosaur Friends", "Talking Fruits", "Superheroes", "Construction Trucks", "Flying Vehicles", "Robot Pets", "Brave Birds", "Snowy Penguins", "Farm Animals"]
     theme = random.choice(themes)
     
-    # 🌟 NEW: Dynamic Archetype Generator
     archetypes = [
         "an adorable little Indian girl", 
         "a cute chubby baby boy", 
@@ -200,10 +199,8 @@ def download_file(url, fn, headers=None):
 def get_image(image_prompt, fn, kw, is_short, video_seed):
     w, h = (1080, 1920) if is_short else (1920, 1080)
     
-    # 🔒 Character Consistency Lock
     scene_seed = video_seed + random.randint(1, 50) 
     
-    # Branded Color Palette Injection
     clean = f"{image_prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k"
     clean_encoded = urllib.parse.quote(clean)
     
@@ -331,7 +328,7 @@ def make_video(content, is_short=True):
     times = []
     current_time = 0.0 
 
-    print("🎧 Mixing Edge-TTS Vocals with Dynamic Instrumental...")
+    print("🎧 Applying Studio Reverb + Background Music...")
     for i, scene in enumerate(content['scenes']):
         aud = os.path.join(ASSETS_DIR, f"a_{suffix}_{i}.mp3")
         img = os.path.join(ASSETS_DIR, f"i_{suffix}_{i}.jpg")
@@ -341,18 +338,25 @@ def make_video(content, is_short=True):
             return None, None, None, None
 
         voice = AudioFileClip(aud)
-        dur = voice.duration
         
-        bg_clip = AudioFileClip(ai_music_path).volumex(0.085)
+        # 🌟 NEW: Studio Reverb Effect (delayed echo at low volume)
+        echo = voice.volumex(0.25).set_start(0.18)  
+        enhanced_voice = CompositeAudioClip([voice, echo]).set_duration(voice.duration + 0.3)
+        
+        dur = enhanced_voice.duration
+        
+        # Add free background music loop with fade
+        bg_clip = AudioFileClip(ai_music_path).volumex(0.085).audio_fadein(2.5).audio_fadeout(2.5)
+        
         if bg_clip.duration > 0:
             repeats = int(math.ceil(dur / bg_clip.duration))
             bg_looped = concatenate_audioclips([bg_clip] * repeats).subclip(0, dur)
         else:
             bg_looped = bg_clip
             
-        audio = CompositeAudioClip([voice, bg_looped])
+        final_audio = CompositeAudioClip([enhanced_voice, bg_looped])
         
-        clip = create_segment_unified(scene['line'], img, is_short, i, dur).set_audio(audio)
+        clip = create_segment_unified(scene['line'], img, is_short, i, dur).set_audio(final_audio)
         clips.append(clip)
         times.append(f"{time.strftime('%M:%S', time.gmtime(current_time))} - {scene['line'][:55]}...")
         current_time += clip.duration
@@ -421,7 +425,6 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
                 valid_tags.append(clean_tag)
                 total_chars += len(clean_tag) + 1 
         
-        # 📈 HASHTAG STACKING LOGIC
         topic_tag = content.get('keyword', 'KidsVideo').replace(' ', '')
         desc = f"{title}\n\n{desc_template.replace('[TIMESTAMPS]', chr(10).join(times))}\n\nLIKE + SUBSCRIBE + SHARE for daily new rhymes!\n#Shorts #HindiRhymes #BalGeet #KidsCartoon #{topic_tag}"
         
