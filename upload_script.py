@@ -184,50 +184,37 @@ Output ONLY valid JSON:
     return None
 
 # ==========================================
-# 🛡️ VIDEO & IMAGE LOGIC (CRASH-PROOF)
+# VIDEO & IMAGE LOGIC
 # ==========================================
 def download_file(url, fn, headers=None):
     try:
         r = requests.get(url, headers=headers or {"User-Agent": "Mozilla/5.0"}, timeout=45)
-        r.raise_for_status() # Throw error if it's a 404 or 500
-        
-        # 🛡️ CRITICAL FIX: Ensure the server sent an actual image, not an HTML error page!
-        if 'image' not in r.headers.get('Content-Type', '').lower():
-            return False
-            
-        with open(fn, 'wb') as f:
-            f.write(r.content)
-            
-        with Image.open(fn) as img:
-            img.verify()
-        return True
-    except Exception: 
-        return False
+        if r.status_code == 200:
+            open(fn, 'wb').write(r.content)
+            Image.open(fn).verify()
+            return True
+    except: pass
+    return False
 
 def get_image(image_prompt, fn, kw, is_short, video_seed):
     w, h = (1080, 1920) if is_short else (1920, 1080)
     
-    # 🔒 Character Consistency Lock
     scene_seed = video_seed + random.randint(1, 50) 
     
-    # Branded Color Palette Injection
     clean = f"{image_prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k"
     clean_encoded = urllib.parse.quote(clean)
     
-    # 🌟 FIX: Use the free public endpoint so we never hit an Auth HTML Error again
-    url = f"https://image.pollinations.ai/prompt/{clean_encoded}?width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
-    
-    if download_file(url, fn):
-        try:
-            with Image.open(fn) as im:
-                im = im.convert("RGB").resize((w, h), Image.LANCZOS)
-                im.save(fn, "JPEG", quality=98, optimize=True)
+    api = os.getenv('POLLINATIONS_API_KEY')
+    if api:
+        url = f"https://gen.pollinations.ai/image/{clean_encoded}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
+        if download_file(url, fn, {"Authorization": f"Bearer {api}"}):
+            try:
+                with Image.open(fn) as im:
+                    im = im.convert("RGB").resize((w, h), Image.LANCZOS)
+                    im.save(fn, "JPEG", quality=98, optimize=True)
+            except: pass
             return
-        except Exception:
-            pass
             
-    # 🌟 GUARANTEED FALLBACK: If internet/API fails, create safe branded color block
-    print(f"⚠️ API or Image parsing failed. Creating branded fallback for {fn}")
     brand_colors = [(255, 204, 0), (65, 105, 225), (0, 139, 139)] 
     Image.new('RGB', (w, h), random.choice(brand_colors)).save(fn)
 
@@ -352,7 +339,7 @@ def make_video(content, is_short=True):
 
         voice = AudioFileClip(aud)
         
-        # 🌟 Studio Reverb Effect (delayed echo at low volume)
+        # 🌟 NEW: Studio Reverb Effect (delayed echo at low volume)
         echo = voice.volumex(0.25).set_start(0.18)  
         enhanced_voice = CompositeAudioClip([voice, echo]).set_duration(voice.duration + 0.3)
         
@@ -438,7 +425,6 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
                 valid_tags.append(clean_tag)
                 total_chars += len(clean_tag) + 1 
         
-        # 📈 HASHTAG STACKING LOGIC
         topic_tag = content.get('keyword', 'KidsVideo').replace(' ', '')
         desc = f"{title}\n\n{desc_template.replace('[TIMESTAMPS]', chr(10).join(times))}\n\nLIKE + SUBSCRIBE + SHARE for daily new rhymes!\n#Shorts #HindiRhymes #BalGeet #KidsCartoon #{topic_tag}"
         
@@ -478,7 +464,7 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
     except Exception as e: print(f"❌ Upload crash: {e}"); return False
 
 if __name__ == "__main__":
-    print("===== HINDI MASTI RHYMES – 2026 BROADCAST EDITION =====")
+    print("===== HINDI MASTI RHYMES – 2026 ZERO-BUDGET EDITION =====")
     
     total_successes = 0
     
