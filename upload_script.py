@@ -1,5 +1,5 @@
-import os, random, json, requests, time, numpy as np, re, math, subprocess, shutil, sys
-import urllib.parse, io
+import os, random, json, requests, time, numpy as np, re, math, subprocess, shutil, sys, io
+import urllib.parse
 from pathlib import Path
 import pickle
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -18,6 +18,9 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
 
+# ==========================================
+# CONFIGURATION
+# ==========================================
 MEMORY_DIR = "memory/"
 OUTPUT_DIR = "videos/"
 ASSETS_DIR = "assets/"
@@ -115,67 +118,28 @@ def clean_json(text):
 def generate_content(mode="short"):
     print("\nContacting AI for script, SEO, and character design...")
     used = load_memory("used_topics.json")
-    # ── 40 HIGH-RETENTION THEMES ──
-    # Organised by category so the AI brain gets maximum variety.
-    # Never repeat — used_topics.json memory guards against this.
     themes = [
-        # 🚀 Adventure & Fantasy
-        "Outer Space Planets and Stars",
-        "Magic Flying Carpet Adventure",
-        "Brave Little Astronaut",
-        "Enchanted Rainbow Forest",
-        "Friendly Cloud Giants",
-        "Underwater Mermaid Kingdom",
-        "Time-Traveling Baby Robot",
-        "Magical Talking Mirror",
-        # 🦁 Animals (proven top-performers for toddlers)
-        "Jungle Safari Animals",
-        "Baby Elephant Learning to Dance",
-        "Tiny Lion Cub Roars",
-        "Funny Talking Parrot",
-        "Snowy Penguin Friends",
-        "Baby Monkey Plays",
-        "Brave Little Turtle",
-        "Colorful Butterfly Garden",
-        "Friendly Farm Animals",
-        "Baby Giraffe Long Neck",
-        "Sleepy Panda Bear",
-        "Playful Dolphin Splash",
-        # 🌈 Nature & Seasons
-        "Happy Rainy Day Puddles",
-        "Rainbow After the Storm",
-        "Sparkling Winter Snow",
-        "Beautiful Spring Flowers",
-        "Shining Sun and Moon",
-        "Twinkling Stars at Night",
-        # 🚂 Vehicles (obsession category for toddler boys)
-        "Magic Talking Train",
-        "Giant Construction Trucks",
-        "Colorful Hot Air Balloon",
-        "Speedy Racing Cars",
-        "Super Rescue Fire Truck",
-        "Friendly Flying Airplane",
-        # 🌮 Food & Learning
-        "Talking Fruits and Vegetables",
-        "Magical Number Kingdom",
-        "Colorful Alphabet Letters",
-        "Healthy Food is Yummy",
-        # 🦸 Heroes & Action
-        "Tiny Baby Superhero",
-        "Kind Doctor Helps Everyone",
-        "Little Chef Cooks Today",
-        "Baby Painter Colors World",
+        "Outer Space Planets and Stars", "Magic Flying Carpet Adventure", "Brave Little Astronaut",
+        "Enchanted Rainbow Forest", "Friendly Cloud Giants", "Underwater Mermaid Kingdom",
+        "Time-Traveling Baby Robot", "Magical Talking Mirror", "Jungle Safari Animals",
+        "Baby Elephant Learning to Dance", "Tiny Lion Cub Roars", "Funny Talking Parrot",
+        "Snowy Penguin Friends", "Baby Monkey Plays", "Brave Little Turtle",
+        "Colorful Butterfly Garden", "Friendly Farm Animals", "Baby Giraffe Long Neck",
+        "Sleepy Panda Bear", "Playful Dolphin Splash", "Happy Rainy Day Puddles",
+        "Rainbow After the Storm", "Sparkling Winter Snow", "Beautiful Spring Flowers",
+        "Shining Sun and Moon", "Twinkling Stars at Night", "Magic Talking Train",
+        "Giant Construction Trucks", "Colorful Hot Air Balloon", "Speedy Racing Cars",
+        "Super Rescue Fire Truck", "Friendly Flying Airplane", "Talking Fruits and Vegetables",
+        "Magical Number Kingdom", "Colorful Alphabet Letters", "Healthy Food is Yummy",
+        "Tiny Baby Superhero", "Kind Doctor Helps Everyone", "Little Chef Cooks Today",
+        "Baby Painter Colors World"
     ]
 
-    # Filter out recently used themes to prevent repetition
     available_themes = [t for t in themes if t not in used[-40:]]
     if not available_themes:
-        available_themes = themes   # Full reset if all have been used
+        available_themes = themes
     theme = random.choice(available_themes)
 
-    # ── 10 CHARACTER ARCHETYPES ──
-    # Rich, specific descriptions guide the LLM to create
-    # visually distinctive protagonists per video.
     archetypes = [
         "an adorable little Indian girl with big brown eyes in a bright pink lehenga",
         "a cute chubby Indian baby boy with curly hair in a yellow kurta",
@@ -186,15 +150,15 @@ def generate_content(mode="short"):
         "a cheerful baby alien with big blue eyes and a shiny silver suit",
         "a playful little Indian boy dressed as a chef with a tiny white hat",
         "an energetic baby girl dressed as an astronaut in a white and orange suit",
-        "a tiny talking animal sidekick duo — one big, one small, same theme",
+        "a tiny talking animal sidekick duo — one big, one small, same theme"
     ]
     archetype = random.choice(archetypes)
     topic_prompt = f"Output ONLY a 3-to-4 word English topic for a Hindi kids rhyme about: {theme}. CRITICAL: Do NOT use rabbits, bunnies, cakes, cupcakes, or sweets. Avoid: {', '.join(used[-20:])}."
     topic = smart_llm_request(topic_prompt) or f"Cute {theme}"
     time.sleep(2)
     line_count = 14 if mode == "short" else 26
+    
     prompt = f"""You are a senior YouTube SEO strategist AND a top Hindi children's poet.
-You specialise in the Hindi nursery rhymes (balgeet) niche — the most competitive kids niche in India.
 Topic: "{topic}"
 Character archetype: [{archetype}]
 
@@ -202,42 +166,24 @@ Character archetype: [{archetype}]
 1. Write EXACTLY {line_count} scenes/lines.
 2. Pure Devanagari Hindi ONLY — zero English words, zero numerals inside the rhyme.
 3. RHYTHM: Every line must be exactly 5–7 words. No exceptions.
-4. Perfect AABB rhyme scheme (lines 1+2 rhyme, lines 3+4 rhyme, etc.).
+4. Perfect AABB rhyme scheme.
 
 ━━ CHARACTER CONSISTENCY RULES ━━
 5. Design ONE protagonist matching the archetype. Describe clothes, color, and ONE unique feature in exactly 12–15 English words.
 6. EVERY image_prompt MUST start with the exact protagonist description word-for-word.
 7. Scene 1 image_prompt MUST show the character doing something energetic (jumping, flying, dancing) — this is the 3-second hook.
 
-━━ ADVANCED SEO RULES (2026 YOUTUBE INDIA ALGORITHM) ━━
-8. TITLE — front-load the primary Hindi keyword, then add English translation, then branding.
-   Format EXACTLY: "Primary Hindi Keyword | English Translation | 3D Balgeet 2026 | Hindi Rhymes for Kids"
-   Example: "बेबी हाथी नाचे | Baby Elephant Dance | 3D Balgeet 2026 | Hindi Rhymes for Kids"
-   Max 70 characters. Keyword must appear in first 60 characters.
+━━ ADVANCED SEO RULES ━━
+8. TITLE Format EXACTLY: "Primary Hindi Keyword | English Translation | 3D Balgeet 2026 | Hindi Rhymes for Kids"
+9. SEO_TAGS — Generate exactly 30 tags (mix of broad, specific, long-tail, and Devanagari).
+10. SEO_DESCRIPTION — 250 words total with hook sentence, [TIMESTAMPS] placeholder, and [LYRICS] placeholder.
 
-9. SEO_TAGS — Generate exactly 30 tags using this mix:
-   - 5 broad: (hindi nursery rhymes, balgeet, bachon ke geet, hindi rhymes for kids, hindi bal geet)
-   - 8 specific to THIS topic in English and Romanized Hindi
-   - 5 long-tail phrases: ("3d hindi rhymes for toddlers", "hindi rhymes for 2 year old", etc.)
-   - 5 format tags: ("3d animated", "with lyrics", "cartoon rhymes", "preschool hindi", "balgeet with lyrics")
-   - 4 competitor/niche tags: ("infobells hindi", "zappytoons style", "cocomelon hindi", "kids channel india")
-   - 3 Devanagari tags: (exact Hindi keywords parents type)
-
-10. SEO_DESCRIPTION — Write a 250-word description:
-    - Line 1 (first 150 chars): Primary keyword + hook sentence — this is what shows before "Show More"
-    - Line 2: Secondary keyword sentence
-    - Then: [TIMESTAMPS] placeholder
-    - Then: Full Hindi lyrics placeholder [LYRICS]
-    - Then: "LIKE 👍 SUBSCRIBE 🔔 SHARE — नई rhymes हर रोज़!"
-    - End with EXACTLY these hashtags on one line:
-      #HindiRhymes #Balgeet #BachonKeGeet #HindiNurseryRhymes #KidsSongs #3DCartoon #BalGeet #HindiKids #NurseryRhymes #KidsCartoon
-
-Output ONLY valid JSON — no preamble, no markdown fences:
+Output ONLY valid JSON:
 {{
   "title": "Primary Hindi Keyword | English | 3D Balgeet 2026 | Hindi Rhymes for Kids",
   "keyword": "single most searchable English word for this topic",
-  "seo_tags": ["tag1","tag2",...30 tags total],
-  "seo_description": "Full 250-word description with [TIMESTAMPS] and [LYRICS] placeholders",
+  "seo_tags": ["tag1","tag2"],
+  "seo_description": "Full description with [TIMESTAMPS] and [LYRICS] placeholders",
   "main_character": "Exactly 12-15 word English visual description of protagonist",
   "scenes": [{{"line": "5-7 word Devanagari Hindi sentence", "image_prompt": "protagonist description + energetic action"}}]
 }}"""
@@ -256,17 +202,8 @@ Output ONLY valid JSON — no preamble, no markdown fences:
 
 # ==========================================
 # 🛡️ THE HYDRA IMAGE ENGINE (4-LAYER FALLBACK)
-# Layer 1: Authenticated Pollinations (gen.pollinations.ai + API key)
-# Layer 2: Public Pollinations         (image.pollinations.ai, no key)
-# Layer 3: LoremFlickr stock photo     (keyword-matched, loremflickr.com)
-# Layer 4: PIL branded solid color     (zero network, cannot fail)
 # ==========================================
 def download_file(url, fn, headers=None):
-    """
-    Retry-backed downloader with dual byte shield.
-    Shield 1: Rejects non-image Content-Type (catches HTML error pages).
-    Shield 2: PIL verify() catches truncated/corrupt downloads.
-    """
     session = requests.Session()
     retry = Retry(
         total=4, backoff_factor=0.5,
@@ -277,19 +214,13 @@ def download_file(url, fn, headers=None):
     session.mount('http://',  HTTPAdapter(max_retries=retry))
 
     try:
-        r = session.get(
-            url,
-            headers=headers or {"User-Agent": "Mozilla/5.0"},
-            timeout=35
-        )
+        r = session.get(url, headers=headers or {"User-Agent": "Mozilla/5.0"}, timeout=35)
         r.raise_for_status()
 
-        # Byte Shield 1: reject HTML/JSON error responses
         if 'image' not in r.headers.get('Content-Type', '').lower():
             print(f"   ↳ Non-image Content-Type rejected: {r.headers.get('Content-Type')}")
             return False
 
-        # Byte Shield 2: reject truncated or corrupt image bytes
         try:
             Image.open(io.BytesIO(r.content)).verify()
         except Exception as e:
@@ -304,12 +235,7 @@ def download_file(url, fn, headers=None):
         print(f"   ↳ Download failed [{url[:50]}...]: {e}")
         return False
 
-
 def get_image(image_prompt, fn, kw, is_short, video_seed):
-    """
-    4-layer invincible image fetcher. Always produces a valid file.
-    Color grading applied on every successful network layer.
-    """
     w, h = (1080, 1920) if is_short else (1920, 1080)
     scene_seed = video_seed + random.randint(1, 50)
 
@@ -321,52 +247,39 @@ def get_image(image_prompt, fn, kw, is_short, video_seed):
     api = os.getenv('POLLINATIONS_API_KEY')
     success = False
 
-    # ── Layer 1: Authenticated Pollinations ──
     if api:
-        url_auth = (
-            f"https://gen.pollinations.ai/image/{clean_encoded}"
-            f"?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
-        )
+        url_auth = f"https://gen.pollinations.ai/image/{clean_encoded}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
         success = download_file(url_auth, fn, {"Authorization": f"Bearer {api}"})
 
-    # ── Layer 2: Public Pollinations ──
     if not success:
         print("   ↳ Layer 1 failed. Trying Layer 2 (public Pollinations)...")
-        time.sleep(2)   # Step outside the same rate-limit window
-        url_pub = (
-            f"https://image.pollinations.ai/prompt/{clean_encoded}"
-            f"?width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
-        )
+        time.sleep(2)
+        url_pub = f"https://image.pollinations.ai/prompt/{clean_encoded}?width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
         success = download_file(url_pub, fn)
 
-    # ── Layer 3: LoremFlickr keyword stock photo ──
-    # NOTE: Unsplash Source was shut down in 2024. LoremFlickr is the correct replacement.
     if not success:
         print("   ↳ Layer 2 failed. Trying Layer 3 (LoremFlickr stock photo)...")
         kw_encoded = urllib.parse.quote(kw or "colorful kids cartoon")
         url_stock = f"https://loremflickr.com/{w}/{h}/{kw_encoded}?lock={scene_seed}"
         success = download_file(url_stock, fn)
 
-    # ── Color grade & resize every successful network result ──
     if success:
         try:
             with Image.open(fn) as im:
                 im = im.convert("RGB").resize((w, h), Image.LANCZOS)
-                im = ImageEnhance.Color(im).enhance(1.15)      # +15% Vibrance
-                im = ImageEnhance.Contrast(im).enhance(1.10)   # +10% Punch
-                im = ImageEnhance.Sharpness(im).enhance(1.20)  # +20% Crispness
+                im = ImageEnhance.Color(im).enhance(1.15)
+                im = ImageEnhance.Contrast(im).enhance(1.10)
+                im = ImageEnhance.Sharpness(im).enhance(1.20)
                 im.save(fn, "JPEG", quality=98, optimize=True)
         except Exception as e:
             print(f"   ↳ Color grade skipped (image preserved): {e}")
         return
 
-    # ── Layer 4: PIL branded solid color (zero network, cannot fail) ──
     print(f"🚨 All network layers failed. Generating branded color block.")
     brand_colors = [(255, 204, 0), (65, 105, 225), (0, 139, 139)]
     Image.new('RGB', (w, h), random.choice(brand_colors)).save(fn)
 
 def generate_text_clip_pil(text, w, h, base_size, dur, color='#FFFF00', pos_y=None, pos_x=None, stroke_width=8, is_english=False):
-    # UPGRADE 2: Soft drop shadow for legibility on busy backgrounds.
     text = clean_text_for_font(text, is_english)
     img = Image.new('RGBA', (w, h), (0,0,0,0))
     draw = ImageDraw.Draw(img)
@@ -399,13 +312,10 @@ def generate_text_clip_pil(text, w, h, base_size, dur, color='#FFFF00', pos_y=No
     x = pos_x if pos_x is not None else (w-tw)//2
     y = pos_y if pos_y is not None else (h-th-340)
 
-    # Soft translucent drop shadow (new)
     draw.multiline_text((x+6, y+6), wrapped_text, font=font, fill=(0,0,0,160), align="center" if pos_x is None else "left")
-    # Hard black stroke (original, unchanged)
     for dx in range(-stroke_width, stroke_width+1, 2):
         for dy in range(-stroke_width, stroke_width+1, 2):
             draw.multiline_text((x+dx, y+dy), wrapped_text, font=font, fill='black', align="center" if pos_x is None else "left")
-    # Main colored text
     draw.multiline_text((x,y), wrapped_text, font=font, fill=color, align="center" if pos_x is None else "left")
     return ImageClip(np.array(img)).set_duration(dur)
 
@@ -499,8 +409,6 @@ def make_video(content, is_short=True):
     final=concatenate_videoclips(clips,method="compose")
     out=os.path.join(OUTPUT_DIR,f"final_{suffix}.mp4")
 
-    # UPGRADE 3: Broadcast H.264. preset=medium (was ultrafast), crf=19 (was 23).
-    # CRF-only — no bitrate= param. Mixing CRF + bitrate crashes FFmpeg.
     final.write_videofile(out,fps=24,codec='libx264',audio_codec='aac',threads=2,
                           preset='medium',ffmpeg_params=['-crf','19','-pix_fmt','yuv420p'])
     return out,full_lyrics_text,times,content.get('seo_description','')
@@ -549,13 +457,10 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
             creds = pickle.load(f)
         service = build('youtube', 'v3', credentials=creds)
 
-        title = content.get('title', "Hindi Nursery Rhymes for Kids 2026")[:100]
+        title = content.get('title', "Hindi Nursery Rhymes for Kids 2026")
         keyword = content.get('keyword', 'kids')
         topic_tag = keyword.replace(' ', '')
 
-        # ── ADVANCED TAG PIPELINE ──
-        # Seed with research-backed baseline tags that rank in this niche,
-        # then layer in AI-generated topic-specific tags from the LLM.
         baseline_tags = [
             "hindi nursery rhymes", "balgeet", "bachon ke geet",
             "hindi rhymes for kids", "hindi bal geet",
@@ -568,7 +473,7 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
             "hindi rhymes compilation",
         ]
         ai_tags = content.get('seo_tags', [])
-        all_tags = list(dict.fromkeys(ai_tags + baseline_tags))   # AI tags first, dedup
+        all_tags = list(dict.fromkeys(ai_tags + baseline_tags))
 
         valid_tags, total_chars = [], 0
         for tag in all_tags:
@@ -577,24 +482,17 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
                 valid_tags.append(clean_tag)
                 total_chars += len(clean_tag) + 1
 
-        # ── ADVANCED DESCRIPTION BUILDER ──
-        # Structure: hook → timestamps → lyrics → CTA → hashtags
-        # Full lyrics = YouTube indexes every word for search ranking.
         timestamps_block = "\n".join(times) if times else ""
         lyrics_block     = lyrics if lyrics else ""
 
-        # SMART TRUNCATION: cap lyrics BEFORE assembly.
-        # Guarantees timestamps + hashtags are NEVER chopped by the 5000-char limit.
-        # Budget: ~1500 chars reserved for title/timestamps/CTA/hashtags = 3500 safe for lyrics.
+        # 🛡️ SMART TRUNCATION: Restrict lyrics size so hashtags never get deleted
         if len(lyrics_block) > 3500:
             lyrics_block = lyrics_block[:3500] + "\n... [Lyrics Truncated]"
 
-        # Replace placeholders the LLM was told to include
         desc_body = desc_template \
             .replace('[TIMESTAMPS]', timestamps_block) \
             .replace('[LYRICS]', lyrics_block)
 
-        # Bilingual hashtag block — always assembled last, always present
         hashtag_line = (
             "#HindiRhymes #Balgeet #BachonKeGeet #HindiNurseryRhymes "
             "#KidsSongs #3DCartoon #BalGeet #HindiKids #NurseryRhymes "
@@ -614,15 +512,13 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
             f"{hashtag_line}"
         )
 
-        # CLEAN TITLE: adds '...' if Groq hallucinates a long title — never looks broken
-        safe_title = (title[:97] + '...') if len(title) > 100 else title
-
         body = {
             'snippet': {
-                'title': safe_title,
-                'description': desc,           # No blind slice — smart truncation above handles it
-                'tags': valid_tags[:30],        # YouTube hard limit = 30 tags
-                'categoryId': '24',
+                # Clean title slicing for YouTube's 100-char limit
+                'title': (title[:97] + '...') if len(title) > 100 else title,
+                'description': desc,
+                'tags': valid_tags[:30],        
+                'categoryId': '24',            
                 'defaultLanguage': 'hi',
                 'defaultAudioLanguage': 'hi',
             },
@@ -652,7 +548,6 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
                 print(f"Connection dropped. Retrying {error_count}/5...")
                 time.sleep(5)
 
-        # Thumbnail for long-form only (Shorts use auto-frame)
         if not is_short:
             thumb = os.path.join(OUTPUT_DIR, "thumb.png")
             first_img = os.path.join(ASSETS_DIR, "i_l_0.jpg")
