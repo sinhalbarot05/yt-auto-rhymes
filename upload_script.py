@@ -115,40 +115,131 @@ def clean_json(text):
 def generate_content(mode="short"):
     print("\nContacting AI for script, SEO, and character design...")
     used = load_memory("used_topics.json")
-    themes = ["Outer Space Planets", "Jungle Safari Animals", "Underwater Ocean Fish", "Magic Trains and Cars", "Dinosaur Friends", "Talking Fruits", "Superheroes", "Construction Trucks", "Flying Vehicles", "Robot Pets", "Brave Birds", "Snowy Penguins", "Farm Animals"]
-    theme = random.choice(themes)
-    archetypes = ["an adorable little Indian girl", "a cute chubby baby boy", "a friendly baby animal (matching the theme)", "a magical creature or fairy", "a cute funny robot or living toy"]
+    # ── 40 HIGH-RETENTION THEMES ──
+    # Organised by category so the AI brain gets maximum variety.
+    # Never repeat — used_topics.json memory guards against this.
+    themes = [
+        # 🚀 Adventure & Fantasy
+        "Outer Space Planets and Stars",
+        "Magic Flying Carpet Adventure",
+        "Brave Little Astronaut",
+        "Enchanted Rainbow Forest",
+        "Friendly Cloud Giants",
+        "Underwater Mermaid Kingdom",
+        "Time-Traveling Baby Robot",
+        "Magical Talking Mirror",
+        # 🦁 Animals (proven top-performers for toddlers)
+        "Jungle Safari Animals",
+        "Baby Elephant Learning to Dance",
+        "Tiny Lion Cub Roars",
+        "Funny Talking Parrot",
+        "Snowy Penguin Friends",
+        "Baby Monkey Plays",
+        "Brave Little Turtle",
+        "Colorful Butterfly Garden",
+        "Friendly Farm Animals",
+        "Baby Giraffe Long Neck",
+        "Sleepy Panda Bear",
+        "Playful Dolphin Splash",
+        # 🌈 Nature & Seasons
+        "Happy Rainy Day Puddles",
+        "Rainbow After the Storm",
+        "Sparkling Winter Snow",
+        "Beautiful Spring Flowers",
+        "Shining Sun and Moon",
+        "Twinkling Stars at Night",
+        # 🚂 Vehicles (obsession category for toddler boys)
+        "Magic Talking Train",
+        "Giant Construction Trucks",
+        "Colorful Hot Air Balloon",
+        "Speedy Racing Cars",
+        "Super Rescue Fire Truck",
+        "Friendly Flying Airplane",
+        # 🌮 Food & Learning
+        "Talking Fruits and Vegetables",
+        "Magical Number Kingdom",
+        "Colorful Alphabet Letters",
+        "Healthy Food is Yummy",
+        # 🦸 Heroes & Action
+        "Tiny Baby Superhero",
+        "Kind Doctor Helps Everyone",
+        "Little Chef Cooks Today",
+        "Baby Painter Colors World",
+    ]
+
+    # Filter out recently used themes to prevent repetition
+    available_themes = [t for t in themes if t not in used[-40:]]
+    if not available_themes:
+        available_themes = themes   # Full reset if all have been used
+    theme = random.choice(available_themes)
+
+    # ── 10 CHARACTER ARCHETYPES ──
+    # Rich, specific descriptions guide the LLM to create
+    # visually distinctive protagonists per video.
+    archetypes = [
+        "an adorable little Indian girl with big brown eyes in a bright pink lehenga",
+        "a cute chubby Indian baby boy with curly hair in a yellow kurta",
+        "a friendly baby animal perfectly matching the video theme (species, color, costume)",
+        "a magical glowing fairy with tiny wings in pastel purple and gold",
+        "a cute funny round robot with blinking LED eyes and colorful buttons",
+        "a brave little Indian superhero toddler wearing a tiny cape and mask",
+        "a cheerful baby alien with big blue eyes and a shiny silver suit",
+        "a playful little Indian boy dressed as a chef with a tiny white hat",
+        "an energetic baby girl dressed as an astronaut in a white and orange suit",
+        "a tiny talking animal sidekick duo — one big, one small, same theme",
+    ]
     archetype = random.choice(archetypes)
     topic_prompt = f"Output ONLY a 3-to-4 word English topic for a Hindi kids rhyme about: {theme}. CRITICAL: Do NOT use rabbits, bunnies, cakes, cupcakes, or sweets. Avoid: {', '.join(used[-20:])}."
     topic = smart_llm_request(topic_prompt) or f"Cute {theme}"
     time.sleep(2)
     line_count = 14 if mode == "short" else 26
-    prompt = f"""You are a top-tier Hindi children's poet and YouTube SEO Expert.
+    prompt = f"""You are a senior YouTube SEO strategist AND a top Hindi children's poet.
+You specialise in the Hindi nursery rhymes (balgeet) niche — the most competitive kids niche in India.
 Topic: "{topic}"
+Character archetype: [{archetype}]
 
-CRITICAL RHYME RULES:
+━━ RHYME RULES ━━
 1. Write EXACTLY {line_count} scenes/lines.
-2. Pure Devanagari Hindi ONLY (no English words, no numbers in the rhyme).
-3. PERFECT RHYTHM: Every line must have exactly 5 to 7 words.
-4. Perfect AABB rhyme scheme.
+2. Pure Devanagari Hindi ONLY — zero English words, zero numerals inside the rhyme.
+3. RHYTHM: Every line must be exactly 5–7 words. No exceptions.
+4. Perfect AABB rhyme scheme (lines 1+2 rhyme, lines 3+4 rhyme, etc.).
 
-CRITICAL VISUAL RULES & CHARACTER CONSISTENCY:
-5. Design a specific protagonist based on: [{archetype}]. Describe their specific clothes, colors, and unique features in exactly 10 to 15 English words.
-6. EVERY SINGLE image_prompt MUST begin with the exact phrase from main_character.
-7. THE 3-SECOND HOOK: Scene 1 MUST show the character doing something highly energetic.
+━━ CHARACTER CONSISTENCY RULES ━━
+5. Design ONE protagonist matching the archetype. Describe clothes, color, and ONE unique feature in exactly 12–15 English words.
+6. EVERY image_prompt MUST start with the exact protagonist description word-for-word.
+7. Scene 1 image_prompt MUST show the character doing something energetic (jumping, flying, dancing) — this is the 3-second hook.
 
-SEO TITLE RULE:
-8. title MUST be: "English Title (Hindi Title) | 3D Hindi Rhymes | Bal Geet"
+━━ ADVANCED SEO RULES (2026 YOUTUBE INDIA ALGORITHM) ━━
+8. TITLE — front-load the primary Hindi keyword, then add English translation, then branding.
+   Format EXACTLY: "Primary Hindi Keyword | English Translation | 3D Balgeet 2026 | Hindi Rhymes for Kids"
+   Example: "बेबी हाथी नाचे | Baby Elephant Dance | 3D Balgeet 2026 | Hindi Rhymes for Kids"
+   Max 70 characters. Keyword must appear in first 60 characters.
 
-Output ONLY valid JSON:
+9. SEO_TAGS — Generate exactly 30 tags using this mix:
+   - 5 broad: (hindi nursery rhymes, balgeet, bachon ke geet, hindi rhymes for kids, hindi bal geet)
+   - 8 specific to THIS topic in English and Romanized Hindi
+   - 5 long-tail phrases: ("3d hindi rhymes for toddlers", "hindi rhymes for 2 year old", etc.)
+   - 5 format tags: ("3d animated", "with lyrics", "cartoon rhymes", "preschool hindi", "balgeet with lyrics")
+   - 4 competitor/niche tags: ("infobells hindi", "zappytoons style", "cocomelon hindi", "kids channel india")
+   - 3 Devanagari tags: (exact Hindi keywords parents type)
+
+10. SEO_DESCRIPTION — Write a 250-word description:
+    - Line 1 (first 150 chars): Primary keyword + hook sentence — this is what shows before "Show More"
+    - Line 2: Secondary keyword sentence
+    - Then: [TIMESTAMPS] placeholder
+    - Then: Full Hindi lyrics placeholder [LYRICS]
+    - Then: "LIKE 👍 SUBSCRIBE 🔔 SHARE — नई rhymes हर रोज़!"
+    - End with EXACTLY these hashtags on one line:
+      #HindiRhymes #Balgeet #BachonKeGeet #HindiNurseryRhymes #KidsSongs #3DCartoon #BalGeet #HindiKids #NurseryRhymes #KidsCartoon
+
+Output ONLY valid JSON — no preamble, no markdown fences:
 {{
-  "seo_title": "Best 2026 title starting with keyword",
-  "title": "English Name (Hindi Name) | 3D Hindi Rhymes | Bal Geet",
-  "keyword": "Main subject one word",
-  "seo_tags": ["hindi bal geet", "kids rhymes"],
-  "seo_description": "Description template with [TIMESTAMPS]",
-  "main_character": "Highly detailed 15-word English visual description.",
-  "scenes": [{{"line": "5 to 7 word Hindi sentence", "image_prompt": "Starts with main_character text, then action."}}]
+  "title": "Primary Hindi Keyword | English | 3D Balgeet 2026 | Hindi Rhymes for Kids",
+  "keyword": "single most searchable English word for this topic",
+  "seo_tags": ["tag1","tag2",...30 tags total],
+  "seo_description": "Full 250-word description with [TIMESTAMPS] and [LYRICS] placeholders",
+  "main_character": "Exactly 12-15 word English visual description of protagonist",
+  "scenes": [{{"line": "5-7 word Devanagari Hindi sentence", "image_prompt": "protagonist description + energetic action"}}]
 }}"""
     for attempt in range(4):
         raw = smart_llm_request(prompt)
@@ -454,40 +545,134 @@ def create_thumbnail(title, bg_path, out_path, is_short):
 def upload_video(vid, content, lyrics, times, desc_template, is_short):
     try:
         print(f"Uploading: {content['title']}")
-        with open(TOKEN_FILE,'rb') as f: creds=pickle.load(f)
-        service=build('youtube','v3',credentials=creds)
-        title=content.get('title',"Hindi Nursery Rhymes for Kids 2026")
-        raw_tags=content.get('seo_tags',['hindi rhymes','bal geet','kids songs','nursery rhymes'])
-        valid_tags,total_chars=[],0
-        for tag in raw_tags:
-            clean_tag=str(tag).replace('<','').replace('>','').replace('"','').replace(',','').strip()
-            if clean_tag and len(clean_tag)<50 and total_chars+len(clean_tag)<450:
-                valid_tags.append(clean_tag); total_chars+=len(clean_tag)+1
-        topic_tag=content.get('keyword','KidsVideo').replace(' ','')
-        desc=f"{title}\n\n{desc_template.replace('[TIMESTAMPS]',chr(10).join(times))}\n\nLIKE + SUBSCRIBE + SHARE for daily new rhymes!\n#Shorts #HindiRhymes #BalGeet #KidsCartoon #{topic_tag}"
-        body={'snippet':{'title':title[:100],'description':desc,'tags':valid_tags,'categoryId':'24','defaultLanguage':'hi','defaultAudioLanguage':'hi'},'status':{'privacyStatus':'public','selfDeclaredMadeForKids':True}}
-        media=MediaFileUpload(vid,chunksize=-1,resumable=True)
-        req=service.videos().insert(part="snippet,status",body=body,media_body=media)
-        response=None; error_count=0
+        with open(TOKEN_FILE, 'rb') as f:
+            creds = pickle.load(f)
+        service = build('youtube', 'v3', credentials=creds)
+
+        title = content.get('title', "Hindi Nursery Rhymes for Kids 2026")[:100]
+        keyword = content.get('keyword', 'kids')
+        topic_tag = keyword.replace(' ', '')
+
+        # ── ADVANCED TAG PIPELINE ──
+        # Seed with research-backed baseline tags that rank in this niche,
+        # then layer in AI-generated topic-specific tags from the LLM.
+        baseline_tags = [
+            "hindi nursery rhymes", "balgeet", "bachon ke geet",
+            "hindi rhymes for kids", "hindi bal geet",
+            "3d hindi rhymes for toddlers", "hindi rhymes for 2 year old",
+            "hindi nursery rhymes with lyrics", "balgeet with lyrics",
+            "3d animated hindi rhymes", "cartoon rhymes hindi",
+            "preschool hindi songs", "hindi kids songs 2026",
+            "infobells hindi", "cocomelon hindi", "kids channel india",
+            "hindi kavita", "bal geet 3d", "nursery rhymes in hindi",
+            "hindi rhymes compilation",
+        ]
+        ai_tags = content.get('seo_tags', [])
+        all_tags = list(dict.fromkeys(ai_tags + baseline_tags))   # AI tags first, dedup
+
+        valid_tags, total_chars = [], 0
+        for tag in all_tags:
+            clean_tag = re.sub(r'[<>",]', '', str(tag)).strip()
+            if clean_tag and len(clean_tag) < 50 and total_chars + len(clean_tag) < 490:
+                valid_tags.append(clean_tag)
+                total_chars += len(clean_tag) + 1
+
+        # ── ADVANCED DESCRIPTION BUILDER ──
+        # Structure: hook → timestamps → lyrics → CTA → hashtags
+        # Full lyrics = YouTube indexes every word for search ranking.
+        timestamps_block = "\n".join(times) if times else ""
+        lyrics_block     = lyrics if lyrics else ""
+
+        # SMART TRUNCATION: cap lyrics BEFORE assembly.
+        # Guarantees timestamps + hashtags are NEVER chopped by the 5000-char limit.
+        # Budget: ~1500 chars reserved for title/timestamps/CTA/hashtags = 3500 safe for lyrics.
+        if len(lyrics_block) > 3500:
+            lyrics_block = lyrics_block[:3500] + "\n... [Lyrics Truncated]"
+
+        # Replace placeholders the LLM was told to include
+        desc_body = desc_template \
+            .replace('[TIMESTAMPS]', timestamps_block) \
+            .replace('[LYRICS]', lyrics_block)
+
+        # Bilingual hashtag block — always assembled last, always present
+        hashtag_line = (
+            "#HindiRhymes #Balgeet #BachonKeGeet #HindiNurseryRhymes "
+            "#KidsSongs #3DCartoon #BalGeet #HindiKids #NurseryRhymes "
+            f"#KidsCartoon #Shorts #{topic_tag}"
+        )
+
+        desc = (
+            f"{title}\n\n"
+            f"{desc_body}\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"📌 CHAPTERS / TIMESTAMPS:\n{timestamps_block}\n\n"
+            f"📝 LYRICS:\n{lyrics_block}\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"LIKE 👍 | SUBSCRIBE 🔔 | SHARE ↗️\n"
+            f"नई rhymes हर रोज़! New Hindi rhymes every day!\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"{hashtag_line}"
+        )
+
+        # CLEAN TITLE: adds '...' if Groq hallucinates a long title — never looks broken
+        safe_title = (title[:97] + '...') if len(title) > 100 else title
+
+        body = {
+            'snippet': {
+                'title': safe_title,
+                'description': desc,           # No blind slice — smart truncation above handles it
+                'tags': valid_tags[:30],        # YouTube hard limit = 30 tags
+                'categoryId': '24',
+                'defaultLanguage': 'hi',
+                'defaultAudioLanguage': 'hi',
+            },
+            'status': {
+                'privacyStatus': 'public',
+                'selfDeclaredMadeForKids': True,
+            }
+        }
+
+        media = MediaFileUpload(vid, chunksize=-1, resumable=True)
+        req = service.videos().insert(part="snippet,status", body=body, media_body=media)
+
+        response = None
+        error_count = 0
         while response is None:
             try:
-                status,response=req.next_chunk()
-                if status: print(f"Upload progress: {int(status.progress()*100)}%")
-                if response is not None: print(f"VIDEO UPLOADED! ID: {response['id']}")
-            except (HttpError,ConnectionResetError,BrokenPipeError) as e:
-                error_count+=1
-                if error_count>5: print(f"Upload dropped 5 times. Aborting. {e}"); return False
-                print(f"Connection dropped. Retrying {error_count}/5..."); time.sleep(5)
+                status, response = req.next_chunk()
+                if status:
+                    print(f"Upload progress: {int(status.progress() * 100)}%")
+                if response is not None:
+                    print(f"✅ VIDEO UPLOADED! ID: {response['id']}")
+            except (HttpError, ConnectionResetError, BrokenPipeError) as e:
+                error_count += 1
+                if error_count > 5:
+                    print(f"Upload dropped 5 times. Aborting. {e}")
+                    return False
+                print(f"Connection dropped. Retrying {error_count}/5...")
+                time.sleep(5)
+
+        # Thumbnail for long-form only (Shorts use auto-frame)
         if not is_short:
-            thumb=os.path.join(OUTPUT_DIR,"thumb.png")
-            first_img=os.path.join(ASSETS_DIR,"i_l_0.jpg")
-            create_thumbnail(content['title'],first_img,thumb,is_short)
+            thumb = os.path.join(OUTPUT_DIR, "thumb.png")
+            first_img = os.path.join(ASSETS_DIR, "i_l_0.jpg")
+            create_thumbnail(content['title'], first_img, thumb, is_short)
             if os.path.exists(thumb):
-                service.thumbnails().set(videoId=response['id'],media_body=MediaFileUpload(thumb)).execute()
-        save_to_memory("used_rhymes.json",content['title'])
+                service.thumbnails().set(
+                    videoId=response['id'],
+                    media_body=MediaFileUpload(thumb)
+                ).execute()
+                print("✅ Thumbnail uploaded.")
+
+        save_to_memory("used_rhymes.json", content['title'])
         return True
-    except HttpError as e: print(f"YouTube API Error: {e.reason}"); return False
-    except Exception as e: print(f"Upload crash: {e}"); return False
+
+    except HttpError as e:
+        print(f"YouTube API Error: {e.reason}")
+        return False
+    except Exception as e:
+        print(f"Upload crash: {e}")
+        return False
 
 if __name__=="__main__":
     print("===== HINDI MASTI RHYMES - 2026 BROADCAST EDITION =====")
