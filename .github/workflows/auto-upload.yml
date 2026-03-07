@@ -2,55 +2,128 @@ name: Hindi Masti Rhymes – 2026 Broadcast Edition
 
 on:
   schedule:
-    - cron: '30 1 * * *'
-    - cron: '30 13 * * *'
-  workflow_dispatch:
+    - cron: '30 1 * * *'    # 1:30 AM UTC daily  (7:00 AM IST)
+    - cron: '30 13 * * *'   # 1:30 PM UTC daily  (7:00 PM IST)
+  workflow_dispatch:         # Manual trigger from GitHub UI — always keep this
+
+# Prevent two runs colliding if a previous job overruns
+concurrency:
+  group: broadcast-pipeline
+  cancel-in-progress: false  # Never cancel a running upload mid-stream
 
 permissions:
-  contents: write
+  contents: write            # Needed for memory commit push
 
 jobs:
   upload:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # ubuntu-22.04 is more stable than ubuntu-latest for FFmpeg + ImageMagick
+    runs-on: ubuntu-22.04
+
+    # CRITICAL: preset=medium encode on a Long video takes ~15-20 min.
+    # Short + Long together = ~25 min render + ~5 min upload.
+    # 45 min gives a safe 15-min buffer before GitHub kills the runner.
+    timeout-minutes: 45
 
     steps:
-      - name: Checkout code
+      # ── STEP 1: Checkout ──
+      - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ── STEP 2: Pip cache (saves 2-3 min per run) ──
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-v2-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-v2-
+            ${{ runner.os }}-pip-
+
+      # ── STEP 3: System dependencies ──
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg imagemagick ghostscript fonts-noto
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            ffmpeg \
+            imagemagick \
+            ghostscript \
+            fonts-noto \
+            fonts-noto-cjk
 
-      - name: Fix ImageMagick Policy
-        run: sudo sed -i 's/none/read,write/g' /etc/ImageMagick-6/policy.xml
+      # ── STEP 4: Fix ImageMagick policy (required for MoviePy text ops) ──
+      - name: Fix ImageMagick policy
+        run: |
+          sudo sed -i 's/rights="none"/rights="read|write"/g' /etc/ImageMagick-6/policy.xml || true
 
-      - name: Setup Python
+      # ── STEP 5: Python setup ──
+      - name: Setup Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: 'pip'
 
+      # ── STEP 6: Python packages ──
+      # Pinned versions = no surprise breaking changes on runner
       - name: Install Python packages
         run: |
           python -m pip install --upgrade pip
-          pip install --upgrade requests google-api-python-client google-auth-oauthlib google-auth-httplib2 edge-tts moviepy==1.0.3 numpy==1.26.4 "Pillow"
+          pip install --upgrade \
+            requests \
+            urllib3 \
+            google-api-python-client \
+            google-auth-oauthlib \
+            google-auth-httplib2 \
+            edge-tts \
+            "moviepy==1.0.3" \
+            "numpy==1.26.4" \
+            "Pillow>=10.0.0"
 
+      # ── STEP 7: Decode YouTube OAuth token from secret ──
       - name: Decode YouTube credentials
         run: |
           echo "${{ secrets.YOUTUBE_TOKEN_JSON_B64 }}" | base64 -d > youtube_token.pickle
+          # Verify the file was decoded correctly (non-zero size)
+          test -s youtube_token.pickle || (echo "ERROR: Token pickle is empty!" && exit 1)
 
-      - name: Generate and Upload
+      # ── STEP 8: Verify all required secrets are present ──
+      - name: Verify required secrets
+        run: |
+          missing=0
+          [ -z "$GROQ_API_KEY" ]        && echo "WARNING: GROQ_API_KEY not set"        && missing=$((missing+1)) || echo "✅ GROQ_API_KEY present"
+          [ -z "$POLLINATIONS_API_KEY" ] && echo "WARNING: POLLINATIONS_API_KEY not set" && missing=$((missing+1)) || echo "✅ POLLINATIONS_API_KEY present"
+          [ -z "$OPENAI_API_KEY" ]       && echo "INFO: OPENAI_API_KEY not set (Groq fallback active)"
+          # Only fail if BOTH LLM keys are missing (no brain = no content)
+          [ -z "$GROQ_API_KEY" ] && [ -z "$OPENAI_API_KEY" ] && echo "FATAL: No LLM API key!" && exit 1 || true
         env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GROQ_API_KEY:        ${{ secrets.GROQ_API_KEY }}
+          OPENAI_API_KEY:      ${{ secrets.OPENAI_API_KEY }}
+          POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
+
+      # ── STEP 9: Generate and upload ──
+      - name: Generate and Upload Videos
+        env:
+          GROQ_API_KEY:        ${{ secrets.GROQ_API_KEY }}
+          OPENAI_API_KEY:      ${{ secrets.OPENAI_API_KEY }}
           POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
         run: python upload_script.py
 
-      - name: Save memory
+      # ── STEP 10: Save memory (only on success) ──
+      # Uses [skip ci] to prevent this commit from triggering another run
+      - name: Commit memory update
         if: success()
         run: |
-          git config user.name "AutoBroadcaster"
-          git config user.email "bot@github.com"
+          git config user.name  "AutoBroadcaster"
+          git config user.email "bot@hindimastrhymes.auto"
           git add memory/*.json
-          git diff --quiet --staged || (git commit -m "Update memory [skip ci]" && git push)
+          git diff --quiet --staged || \
+            (git commit -m "chore: update memory [skip ci]" && git push)
+
+      # ── STEP 11: Always log final status ──
+      - name: Log result
+        if: always()
+        run: |
+          echo "================================================"
+          echo "Job status : ${{ job.status }}"
+          echo "Runner OS  : ${{ runner.os }}"
+          echo "Timestamp  : $(date -u)"
+          echo "================================================"
