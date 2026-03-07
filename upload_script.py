@@ -214,13 +214,19 @@ def download_file(url, fn, headers=None):
     session.mount('http://',  HTTPAdapter(max_retries=retry))
 
     try:
-        r = session.get(url, headers=headers or {"User-Agent": "Mozilla/5.0"}, timeout=35)
+        r = session.get(
+            url,
+            headers=headers or {"User-Agent": "Mozilla/5.0"},
+            timeout=35
+        )
         r.raise_for_status()
 
+        # Byte Shield 1: reject HTML/JSON error responses
         if 'image' not in r.headers.get('Content-Type', '').lower():
             print(f"   ↳ Non-image Content-Type rejected: {r.headers.get('Content-Type')}")
             return False
 
+        # Byte Shield 2: reject truncated or corrupt image bytes
         try:
             Image.open(io.BytesIO(r.content)).verify()
         except Exception as e:
@@ -248,13 +254,19 @@ def get_image(image_prompt, fn, kw, is_short, video_seed):
     success = False
 
     if api:
-        url_auth = f"https://gen.pollinations.ai/image/{clean_encoded}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
+        url_auth = (
+            f"https://gen.pollinations.ai/image/{clean_encoded}"
+            f"?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
+        )
         success = download_file(url_auth, fn, {"Authorization": f"Bearer {api}"})
 
     if not success:
         print("   ↳ Layer 1 failed. Trying Layer 2 (public Pollinations)...")
         time.sleep(2)
-        url_pub = f"https://image.pollinations.ai/prompt/{clean_encoded}?width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
+        url_pub = (
+            f"https://image.pollinations.ai/prompt/{clean_encoded}"
+            f"?width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
+        )
         success = download_file(url_pub, fn)
 
     if not success:
@@ -461,6 +473,7 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
         keyword = content.get('keyword', 'kids')
         topic_tag = keyword.replace(' ', '')
 
+        # ── ADVANCED TAG PIPELINE (CRASH-PROOF) ──
         baseline_tags = [
             "hindi nursery rhymes", "balgeet", "bachon ke geet",
             "hindi rhymes for kids", "hindi bal geet",
@@ -477,10 +490,15 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
 
         valid_tags, total_chars = [], 0
         for tag in all_tags:
-            clean_tag = re.sub(r'[<>",]', '', str(tag)).strip()
-            if clean_tag and len(clean_tag) < 50 and total_chars + len(clean_tag) < 490:
-                valid_tags.append(clean_tag)
-                total_chars += len(clean_tag) + 1
+            # Aggressively strip hashtags, brackets, pipes, and newlines
+            clean_tag = re.sub(r'[<>",#|\[\]{}\n\r]', '', str(tag)).strip()
+            
+            # YouTube API hates empty tags or massively long tags
+            if len(clean_tag) > 2 and len(clean_tag) < 40:
+                # Hindi UTF-8 characters take more bytes. Cap it at 350 to be ultra-safe.
+                if total_chars + len(clean_tag) < 350:
+                    valid_tags.append(clean_tag)
+                    total_chars += len(clean_tag) + 1 # +1 for the comma separator
 
         timestamps_block = "\n".join(times) if times else ""
         lyrics_block     = lyrics if lyrics else ""
@@ -517,7 +535,7 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
                 # Clean title slicing for YouTube's 100-char limit
                 'title': (title[:97] + '...') if len(title) > 100 else title,
                 'description': desc,
-                'tags': valid_tags[:30],        
+                'tags': valid_tags,        
                 'categoryId': '24',            
                 'defaultLanguage': 'hi',
                 'defaultAudioLanguage': 'hi',
