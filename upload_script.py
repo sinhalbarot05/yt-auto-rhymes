@@ -158,35 +158,39 @@ def generate_content(mode="short"):
     time.sleep(2)
     line_count = 14 if mode == "short" else 26
     
-    prompt = f"""You are a senior YouTube SEO strategist AND a top Hindi children's poet.
+    prompt = f"""You are a native Hindi-speaking children's poet and a top YouTube India SEO expert.
 Topic: "{topic}"
 Character archetype: [{archetype}]
 
-━━ RHYME RULES ━━
+━━ NATIVE HINDI LINGUISTIC RULES (CRITICAL) ━━
 1. Write EXACTLY {line_count} scenes/lines.
-2. Pure Devanagari Hindi ONLY — zero English words, zero numerals inside the rhyme.
-3. RHYTHM: Every line must be exactly 5–7 words. No exceptions.
-4. Perfect AABB rhyme scheme.
+2. PERFECT HINDI GRAMMAR: The rhyme must sound completely natural, like a classic Indian balgeet (similar to "मछली जल की रानी है"). Avoid clunky literal translations. Use simple, lovely, conversational Hindi words for toddlers (e.g., use "प्यारा तोता" instead of unnatural words).
+3. PURE DEVANAGARI: Use 100% correct Hindi spelling. NEVER mix English, Roman, or Cyrillic letters in the Hindi text. 
+4. PERFECT RHYTHM (तुकबंदी): Focus on a bouncy, sing-song meter. Lines must be 4 to 8 words long. 
+5. RHYME SCHEME: AABB. (Lines 1 & 2 rhyme perfectly, Lines 3 & 4 rhyme perfectly, etc.). NEVER sacrifice Hindi grammar just to force a rhyme.
 
 ━━ CHARACTER CONSISTENCY RULES ━━
-5. Design ONE protagonist matching the archetype. Describe clothes, color, and ONE unique feature in exactly 12–15 English words.
-6. EVERY image_prompt MUST start with the exact protagonist description word-for-word.
-7. Scene 1 image_prompt MUST show the character doing something energetic (jumping, flying, dancing) — this is the 3-second hook.
+6. Design ONE protagonist matching the archetype. Describe clothes, color, and ONE unique feature in exactly 12–15 English words.
+7. EVERY image_prompt MUST start with the exact protagonist description word-for-word.
+8. Scene 1 image_prompt MUST show the character doing something energetic (jumping, flying, dancing).
 
 ━━ ADVANCED SEO RULES ━━
-8. TITLE Format EXACTLY: "Primary Hindi Keyword | English Translation | 3D Balgeet 2026 | Hindi Rhymes for Kids"
-9. SEO_TAGS — Generate exactly 30 tags (mix of broad, specific, long-tail, and Devanagari).
-10. SEO_DESCRIPTION — 250 words total with hook sentence, [TIMESTAMPS] placeholder, and [LYRICS] placeholder.
+9. TITLE: Create a highly clickable, grammatically perfect Hindi title. 
+   Format EXACTLY: "Perfect Hindi Catchphrase | English Translation | 3D Balgeet 2026 | Hindi Rhymes for Kids"
+   Example: "प्यारा तोता उड़ गया | Cute Flying Parrot | 3D Balgeet 2026 | Hindi Rhymes for Kids"
+10. SEO_TAGS: Generate exactly 30 tags (mix of broad, specific, long-tail, and Devanagari).
+11. SEO_DESCRIPTION: 250 words total with hook sentence, [TIMESTAMPS] placeholder, and [LYRICS] placeholder.
 
 Output ONLY valid JSON:
 {{
-  "title": "Primary Hindi Keyword | English | 3D Balgeet 2026 | Hindi Rhymes for Kids",
+  "title": "Grammatically Perfect Hindi | English | 3D Balgeet 2026 | Hindi Rhymes for Kids",
   "keyword": "single most searchable English word for this topic",
   "seo_tags": ["tag1","tag2"],
   "seo_description": "Full description with [TIMESTAMPS] and [LYRICS] placeholders",
   "main_character": "Exactly 12-15 word English visual description of protagonist",
-  "scenes": [{{"line": "5-7 word Devanagari Hindi sentence", "image_prompt": "protagonist description + energetic action"}}]
+  "scenes": [{{"line": "4-8 word perfectly grammatical Devanagari Hindi sentence", "image_prompt": "protagonist description + energetic action"}}]
 }}"""
+    
     for attempt in range(4):
         raw = smart_llm_request(prompt)
         data = clean_json(raw)
