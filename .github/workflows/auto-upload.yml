@@ -19,9 +19,7 @@ jobs:
     # ubuntu-22.04 is more stable than ubuntu-latest for FFmpeg + ImageMagick
     runs-on: ubuntu-22.04
 
-    # CRITICAL: preset=medium encode on a Long video takes ~15-20 min.
-    # Short + Long together = ~25 min render + ~5 min upload.
-    # 45 min gives a safe 15-min buffer before GitHub kills the runner.
+    # The 2-Shorts pipeline is fast, but we keep the 45-min limit as a safety buffer
     timeout-minutes: 45
 
     steps:
@@ -67,16 +65,7 @@ jobs:
       - name: Install Python packages
         run: |
           python -m pip install --upgrade pip
-          pip install --upgrade \
-            requests \
-            urllib3 \
-            google-api-python-client \
-            google-auth-oauthlib \
-            google-auth-httplib2 \
-            edge-tts \
-            "moviepy==1.0.3" \
-            "numpy==1.26.4" \
-            "Pillow>=10.0.0"
+          pip install -r requirements.txt
 
       # ── STEP 7: Decode YouTube OAuth token from secret ──
       - name: Decode YouTube credentials
