@@ -110,29 +110,41 @@ def smart_llm_request(prompt):
 def clean_json(text):
     if not text: return None
     try:
-        if "```json" in text: text = text.split("```json")[1].split("```")[0]
-        elif "```" in text: text = text.split("```")[1].split("```")[0]
+        marker = '`' * 3
+        json_marker = marker + 'json'
+        if json_marker in text:
+            text = text.split(json_marker)[1].split(marker)[0]
+        elif marker in text:
+            text = text.split(marker)[1].split(marker)[0]
         return json.loads(text[text.find('{'):text.rfind('}')+1])
     except Exception: return None
 
 def generate_content(mode="short"):
     print("\nContacting AI for script, SEO, and character design...")
     used = load_memory("used_topics.json")
+    
+    # ── 50 HYPER-VIRAL INDIAN TODDLER THEMES ──
     themes = [
-        "Outer Space Planets and Stars", "Magic Flying Carpet Adventure", "Brave Little Astronaut",
-        "Enchanted Rainbow Forest", "Friendly Cloud Giants", "Underwater Mermaid Kingdom",
-        "Time-Traveling Baby Robot", "Magical Talking Mirror", "Jungle Safari Animals",
-        "Baby Elephant Learning to Dance", "Tiny Lion Cub Roars", "Funny Talking Parrot",
-        "Snowy Penguin Friends", "Baby Monkey Plays", "Brave Little Turtle",
-        "Colorful Butterfly Garden", "Friendly Farm Animals", "Baby Giraffe Long Neck",
-        "Sleepy Panda Bear", "Playful Dolphin Splash", "Happy Rainy Day Puddles",
-        "Rainbow After the Storm", "Sparkling Winter Snow", "Beautiful Spring Flowers",
-        "Shining Sun and Moon", "Twinkling Stars at Night", "Magic Talking Train",
-        "Giant Construction Trucks", "Colorful Hot Air Balloon", "Speedy Racing Cars",
-        "Super Rescue Fire Truck", "Friendly Flying Airplane", "Talking Fruits and Vegetables",
-        "Magical Number Kingdom", "Colorful Alphabet Letters", "Healthy Food is Yummy",
-        "Tiny Baby Superhero", "Kind Doctor Helps Everyone", "Little Chef Cooks Today",
-        "Baby Painter Colors World"
+        "Yellow JCB Excavator Digging Mud", "Red Tractor Driving in Village Farm",
+        "Big Red Fire Truck Rescue", "Police Car Chasing Thieves",
+        "Colorful Choo Choo Train on Tracks", "Giant Monster Truck Jumping",
+        "Garbage Truck Cleaning the City", "Flying Helicopter Rescue",
+        "Hathi Raja (King Elephant) Dancing", "Naughty Bandar Mama (Monkey) Eating Bananas",
+        "Sher Khan (Lion King) Roaring loudly", "Chalak Lomdi (Clever Fox) Running",
+        "Pyaasa Kauwa (Thirsty Crow) Drinking Water", "Dancing Mor (Colorful Peacock) in Rain",
+        "Bhalu (Bear) Dancing in Jungle", "Kachhua (Slow Turtle) Winning Race",
+        "Moti Kutta (Chubby Dog) Barking", "Billi Mausi (Aunt Cat) Drinking Milk",
+        "Happy Baby Brushing Teeth Song", "Crying Baby Takes a Bubble Bath",
+        "Toddler Eating Healthy Green Vegetables", "Baby Going to Sleep Lullaby",
+        "Getting Dressed for School Morning", "Washing Hands with Soap Song",
+        "Sharing Toys with Friends", "Funny Bhoot (Friendly Ghost) in House",
+        "Naughty Baby Hiding from Mummy", "Five Little Monkeys Jumping on Bed",
+        "Baby Falling Down and Crying loudly", "Magic Flying Carpet in Starry Sky",
+        "Rainbow Unicorn Flying in Clouds", "Talking Colorful Ice Cream Cones",
+        "Dancing Mangoes and Apples", "Beautiful Mermaid in Deep Blue Ocean",
+        "Glowing Fireflies in Dark Forest", "Magic Wand Changing Colors",
+        "Mummy and Papa Loving Baby", "Dada Dadi (Grandparents) Telling Story",
+        "Playing with Little Sister", "Baby Helping Mummy in Kitchen"
     ]
 
     available_themes = [t for t in themes if t not in used[-40:]]
@@ -225,12 +237,10 @@ def download_file(url, fn, headers=None):
         )
         r.raise_for_status()
 
-        # Byte Shield 1: reject HTML/JSON error responses
         if 'image' not in r.headers.get('Content-Type', '').lower():
             print(f"   ↳ Non-image Content-Type rejected: {r.headers.get('Content-Type')}")
             return False
 
-        # Byte Shield 2: reject truncated or corrupt image bytes
         try:
             Image.open(io.BytesIO(r.content)).verify()
         except Exception as e:
@@ -291,7 +301,7 @@ def get_image(image_prompt, fn, kw, is_short, video_seed):
             print(f"   ↳ Color grade skipped (image preserved): {e}")
         return
 
-    print(f"🚨 All network layers failed. Generating branded color block.")
+    print(f"🚨 All network layers failed. Generating @HindiMastiRhymes branded color block.")
     brand_colors = [(255, 204, 0), (65, 105, 225), (0, 139, 139)]
     Image.new('RGB', (w, h), random.choice(brand_colors)).save(fn)
 
@@ -338,7 +348,7 @@ def generate_text_clip_pil(text, w, h, base_size, dur, color='#FFFF00', pos_y=No
 def create_outro(is_short):
     w, h = (1080,1920) if is_short else (1920,1080)
     clip = ColorClip((w,h),(15,15,20)).set_duration(4.0)
-    txt1 = generate_text_clip_pil("LIKE SUBSCRIBE", w, h, 85, 4.0, pos_y=h//3, is_english=True)
+    txt1 = generate_text_clip_pil("LIKE AND SUBSCRIBE", w, h, 85, 4.0, pos_y=h//3, is_english=True)
     txt2 = generate_text_clip_pil("@HindiMastiRhymes", w, h, 65, 4.0, color='#AAAAAA', pos_y=int(h*0.55), is_english=True)
     return CompositeVideoClip([clip,txt1,txt2],size=(w,h)).crossfadein(0.5)
 
@@ -431,38 +441,38 @@ def make_video(content, is_short=True):
 
 def create_thumbnail(title, bg_path, out_path, is_short):
     try:
-        clean_title=clean_text_for_font(title,is_english=False)
+        short_title = title.split('|')[0].strip() if '|' in title else title
+        clean_title = clean_text_for_font(short_title, is_english=False)
+        
         with Image.open(bg_path) as im:
-            im=im.convert("RGB").resize((1280,720),Image.LANCZOS)
-            im=ImageEnhance.Contrast(im).enhance(1.28)
-            overlay=Image.new("RGBA",(1280,720),(0,0,0,92))
-            im=Image.alpha_composite(im.convert("RGBA"),overlay).convert("RGB")
-            draw=ImageDraw.Draw(im)
-            font_size=130; max_w=1180
-            def get_wrapped_thumb(t,f):
-                words=t.split(); lines,curr=[],""
-                for word in words:
-                    test=curr+" "+word if curr else word
-                    if draw.textbbox((0,0),test,font=f)[2]<=max_w: curr=test
-                    else:
-                        if curr: lines.append(curr)
-                        curr=word
-                if curr: lines.append(curr)
-                return "\n".join(lines)
-            font_big=ImageFont.truetype(FONT_FILE,font_size) if os.path.exists(FONT_FILE) else ImageFont.load_default()
-            wrapped_title=get_wrapped_thumb(clean_title,font_big)
-            bbox=draw.multiline_textbbox((0,0),wrapped_title,font=font_big,align="center")
-            while (bbox[2]-bbox[0]>max_w) and font_size>50:
-                font_size-=5
-                font_big=ImageFont.truetype(FONT_FILE,font_size)
-                wrapped_title=get_wrapped_thumb(clean_title,font_big)
-                bbox=draw.multiline_textbbox((0,0),wrapped_title,font=font_big,align="center")
-            x=(1280-(bbox[2]-bbox[0]))//2
-            for off in [(6,6),(8,8)]: draw.multiline_text((x+off[0],120+off[1]),wrapped_title,font=font_big,fill=(0,0,0),align="center")
-            draw.multiline_text((x,120),wrapped_title,font=font_big,fill="#FFEA00",align="center")
-            font_small=ImageFont.truetype(ENG_FONT_FILE,72) if os.path.exists(ENG_FONT_FILE) else ImageFont.load_default()
-            draw.text((420,520),"2026 FOR KIDS",font=font_small,fill="#FFFF00")
-            im.save(out_path,quality=98,optimize=True)
+            im = im.convert("RGB").resize((1280, 720), Image.LANCZOS)
+            im = ImageEnhance.Color(im).enhance(1.4)
+            im = ImageEnhance.Contrast(im).enhance(1.2)
+            
+            draw = ImageDraw.Draw(im)
+            font_size = 95
+            font_big = ImageFont.truetype(FONT_FILE, font_size) if os.path.exists(FONT_FILE) else ImageFont.load_default()
+            
+            bbox = draw.textbbox((0,0), clean_title, font=font_big)
+            tw = bbox[2] - bbox[0]
+            
+            while tw > 1180 and font_size > 50:
+                font_size -= 5
+                font_big = ImageFont.truetype(FONT_FILE, font_size)
+                bbox = draw.textbbox((0,0), clean_title, font=font_big)
+                tw = bbox[2] - bbox[0]
+            
+            x = (1280 - tw) // 2
+            y = 570 
+            
+            stroke_width = 8
+            for dx in range(-stroke_width, stroke_width+1, 2):
+                for dy in range(-stroke_width, stroke_width+1, 2):
+                    draw.text((x+dx, y+dy), clean_title, font=font_big, fill='black')
+            
+            draw.text((x, y), clean_title, font=font_big, fill="#FFCC00")
+            im.save(out_path, quality=98, optimize=True)
+            print("✅ High-CTR Thumbnail Generated.")
     except Exception as e:
         print(f"Thumbnail warning: {e}")
 
@@ -477,7 +487,6 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
         keyword = content.get('keyword', 'kids')
         topic_tag = keyword.replace(' ', '')
 
-        # ── ADVANCED TAG PIPELINE (CRASH-PROOF) ──
         baseline_tags = [
             "hindi nursery rhymes", "balgeet", "bachon ke geet",
             "hindi rhymes for kids", "hindi bal geet",
@@ -494,20 +503,16 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
 
         valid_tags, total_chars = [], 0
         for tag in all_tags:
-            # Aggressively strip hashtags, brackets, pipes, and newlines
             clean_tag = re.sub(r'[<>",#|\[\]{}\n\r]', '', str(tag)).strip()
             
-            # YouTube API hates empty tags or massively long tags
             if len(clean_tag) > 2 and len(clean_tag) < 40:
-                # Hindi UTF-8 characters take more bytes. Cap it at 350 to be ultra-safe.
                 if total_chars + len(clean_tag) < 350:
                     valid_tags.append(clean_tag)
-                    total_chars += len(clean_tag) + 1 # +1 for the comma separator
+                    total_chars += len(clean_tag) + 1 
 
         timestamps_block = "\n".join(times) if times else ""
         lyrics_block     = lyrics if lyrics else ""
 
-        # 🛡️ SMART TRUNCATION: Restrict lyrics size so hashtags never get deleted
         if len(lyrics_block) > 3500:
             lyrics_block = lyrics_block[:3500] + "\n... [Lyrics Truncated]"
 
@@ -536,7 +541,6 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
 
         body = {
             'snippet': {
-                # Clean title slicing for YouTube's 100-char limit
                 'title': (title[:97] + '...') if len(title) > 100 else title,
                 'description': desc,
                 'tags': valid_tags,        
