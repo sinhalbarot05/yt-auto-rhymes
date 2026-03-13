@@ -110,6 +110,7 @@ def smart_llm_request(prompt):
 def clean_json(text):
     if not text: return None
     try:
+        # 🛡️ FIX: Avoid literal markdown backticks so UI parser doesn't break
         marker = '`' * 3
         json_marker = marker + 'json'
         if json_marker in text:
@@ -301,7 +302,7 @@ def get_image(image_prompt, fn, kw, is_short, video_seed):
             print(f"   ↳ Color grade skipped (image preserved): {e}")
         return
 
-    print(f"🚨 All network layers failed. Generating @HindiMastiRhymes branded color block.")
+    print(f"🚨 All network layers failed. Generating branded color block.")
     brand_colors = [(255, 204, 0), (65, 105, 225), (0, 139, 139)]
     Image.new('RGB', (w, h), random.choice(brand_colors)).save(fn)
 
@@ -348,7 +349,7 @@ def generate_text_clip_pil(text, w, h, base_size, dur, color='#FFFF00', pos_y=No
 def create_outro(is_short):
     w, h = (1080,1920) if is_short else (1920,1080)
     clip = ColorClip((w,h),(15,15,20)).set_duration(4.0)
-    txt1 = generate_text_clip_pil("LIKE AND SUBSCRIBE", w, h, 85, 4.0, pos_y=h//3, is_english=True)
+    txt1 = generate_text_clip_pil("LIKE SUBSCRIBE", w, h, 85, 4.0, pos_y=h//3, is_english=True)
     txt2 = generate_text_clip_pil("@HindiMastiRhymes", w, h, 65, 4.0, color='#AAAAAA', pos_y=int(h*0.55), is_english=True)
     return CompositeVideoClip([clip,txt1,txt2],size=(w,h)).crossfadein(0.5)
 
@@ -598,7 +599,8 @@ def upload_video(vid, content, lyrics, times, desc_template, is_short):
 if __name__=="__main__":
     print("===== HINDI MASTI RHYMES - 2026 BROADCAST EDITION =====")
     total_successes=0
-    for is_short,name in [(True,"SHORT"),(False,"LONG")]:
+    # 🚀 SHORTS-ONLY MODE (4x a day schedule)
+    for is_short,name in [(True,"SHORT")]:
         print(f"\n>>> GENERATING {name} <<<")
         data=generate_content("short" if is_short else "long")
         if data:
