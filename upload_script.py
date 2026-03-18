@@ -27,7 +27,7 @@ class Config:
     TOKEN_FILE = "youtube_token.pickle"
     FONT_FILE = os.path.join(ASSETS_DIR, "HindiFont.ttf")
     ENG_FONT_FILE = os.path.join(ASSETS_DIR, "EngFont.ttf")
-    BRAND_COLORS = [(255, 204, 0), (65, 105, 225), (0, 139, 139)] # Mango, Royal, Turquoise
+    BRAND_COLORS = [(255, 204, 0), (65, 105, 225), (0, 139, 139)] # Mango Yellow, Royal Blue, Deep Turquoise
     CHANNEL_HANDLE = "@HindiMastiRhymes"
 
     @staticmethod
@@ -105,7 +105,6 @@ class IntelligenceEngine:
                 text = text.split(marker)[1].split(marker)[0]
             
             text = text.strip()
-            # Handle both JSON Arrays and Objects
             if text.startswith('['):
                 return json.loads(text[text.find('['):text.rfind(']')+1])
             else:
@@ -163,7 +162,7 @@ Archetype: [{archetype}]
 ━━ STRICT HINDI LINGUISTIC RULES ━━
 1. Write EXACTLY 14 scenes/lines.
 2. PERFECT HINDI GRAMMAR & GENDER (लिंग): Ensure masculine/feminine words match perfectly.
-3. PURE DEVANAGARI STRICT LOCK: MUST use ONLY standard Devanagari. NO Emojis. NO English/Roman letters mixed inside Hindi words (e.g., NO 'मUMMY'). NO Chinese/Cyrillic.
+3. PURE DEVANAGARI STRICT LOCK: MUST use ONLY standard Devanagari. NO Emojis. NO English/Roman letters mixed inside Hindi words. DO NOT transliterate English words into Hindi script (e.g., do NOT write "मिश्चिव" for mischievous, use "नटखट").
 4. RHYTHM & RHYME: 4 to 8 words per line. Bouncy meter. AABB rhyme scheme. NEVER force a rhyme over good grammar.
 5. NO LITERAL TRANSLATIONS: Write naturally like an Indian mother.
 
@@ -192,7 +191,7 @@ Output ONLY valid JSON:
         return None
 
 # ==========================================
-# CORE 3: ASSET FACTORY (Hydra Image + Edge TTS)
+# CORE 3: ASSET FACTORY (Hydra Image + Edge TTS + Audio)
 # ==========================================
 class AssetEngine:
     """Handles robust file downloading, image generation, and voice synthesis."""
@@ -211,6 +210,28 @@ class AssetEngine:
             with open(filepath, 'wb') as f: f.write(r.content)
             return True
         except Exception: return False
+
+    @staticmethod
+    def fetch_dynamic_background_music(out_path):
+        print("🎵 Fetching dynamic background track...")
+        safe_audio_tracks = [
+            "https://ia800408.us.archive.org/27/items/UpbeatKidsMusic/Upbeat_Kids_Music.mp3",
+            "https://ia801402.us.archive.org/16/items/happy-upbeat-background-music/Happy%20Upbeat.mp3",
+            "https://ia600504.us.archive.org/33/items/bensound-music/bensound-ukulele.mp3",
+            "https://ia800504.us.archive.org/33/items/bensound-music/bensound-buddy.mp3",
+            "https://ia801509.us.archive.org/13/items/bensound-music/bensound-clearday.mp3",
+            "https://ia801509.us.archive.org/13/items/bensound-music/bensound-littleidea.mp3",
+            "https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3"
+        ]
+        try:
+            r = requests.get(random.choice(safe_audio_tracks), timeout=30)
+            r.raise_for_status()
+            with open(out_path, 'wb') as f:
+                f.write(r.content)
+            return True
+        except Exception:
+            shutil.copyfile(os.path.join(Config.ASSETS_DIR, "bg_music_default.mp3"), out_path)
+            return False
 
     @staticmethod
     def generate_image(prompt, filepath, fallback_kw, seed):
@@ -314,7 +335,7 @@ class VideoStudio:
         kw = script_data.get('keyword', 'kids')
         
         bgm_path = os.path.join(Config.ASSETS_DIR, "bg_music_dynamic.mp3")
-        fetch_dynamic_background_music(bgm_path)
+        AssetEngine.fetch_dynamic_background_music(bgm_path)
 
         # Parallel Generation
         with ThreadPoolExecutor(max_workers=6) as ex:
