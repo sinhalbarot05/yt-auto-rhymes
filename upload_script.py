@@ -5,7 +5,7 @@ import pickle
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.LANCZOS
@@ -13,646 +13,462 @@ if not hasattr(Image, 'ANTIALIAS'):
 from moviepy.editor import (AudioFileClip, ImageClip, CompositeVideoClip,
                             concatenate_videoclips, CompositeAudioClip, ColorClip,
                             concatenate_audioclips)
-
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
 
 # ==========================================
-# CONFIGURATION
+# CORE 1: CONFIGURATION & STATE
 # ==========================================
-MEMORY_DIR = "memory/"
-OUTPUT_DIR = "videos/"
-ASSETS_DIR = "assets/"
-TOKEN_FILE = "youtube_token.pickle"
-FONT_FILE = os.path.join(ASSETS_DIR, "HindiFont.ttf")
-ENG_FONT_FILE = os.path.join(ASSETS_DIR, "EngFont.ttf")
+class Config:
+    MEMORY_DIR = "memory/"
+    OUTPUT_DIR = "videos/"
+    ASSETS_DIR = "assets/"
+    TOKEN_FILE = "youtube_token.pickle"
+    FONT_FILE = os.path.join(ASSETS_DIR, "HindiFont.ttf")
+    ENG_FONT_FILE = os.path.join(ASSETS_DIR, "EngFont.ttf")
+    BRAND_COLORS = [(255, 204, 0), (65, 105, 225), (0, 139, 139)] # Mango, Royal, Turquoise
+    CHANNEL_HANDLE = "@HindiMastiRhymes"
 
-for d in [MEMORY_DIR, OUTPUT_DIR, ASSETS_DIR]:
-    Path(d).mkdir(exist_ok=True)
-for f in ["used_topics.json", "used_rhymes.json"]:
-    if not os.path.exists(os.path.join(MEMORY_DIR, f)):
-        json.dump([], open(os.path.join(MEMORY_DIR, f), "w"))
+    @staticmethod
+    def initialize():
+        for d in [Config.MEMORY_DIR, Config.OUTPUT_DIR, Config.ASSETS_DIR]:
+            Path(d).mkdir(exist_ok=True)
+        
+        # Ensure default files exist
+        for f in ["used_topics.json", "used_rhymes.json"]:
+            path = os.path.join(Config.MEMORY_DIR, f)
+            if not os.path.exists(path):
+                with open(path, "w", encoding='utf-8') as file:
+                    json.dump([], file)
 
-def download_assets():
-    try:
-        if not os.path.exists(FONT_FILE):
-            open(FONT_FILE, 'wb').write(requests.get("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf", timeout=20).content)
-        if not os.path.exists(ENG_FONT_FILE):
-            open(ENG_FONT_FILE, 'wb').write(requests.get("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf", timeout=20).content)
-        bg = os.path.join(ASSETS_DIR, "bg_music_default.mp3")
-        if not os.path.exists(bg):
-            open(bg, 'wb').write(requests.get("https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3", timeout=30).content)
-    except Exception as e:
-        print(f"Boot Asset Warning: {e}")
-download_assets()
+        # Download strict dependencies
+        if not os.path.exists(Config.FONT_FILE):
+            open(Config.FONT_FILE, 'wb').write(requests.get("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf", timeout=20).content)
+        if not os.path.exists(Config.ENG_FONT_FILE):
+            open(Config.ENG_FONT_FILE, 'wb').write(requests.get("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf", timeout=20).content)
+        
+        bg_music = os.path.join(Config.ASSETS_DIR, "bg_music_default.mp3")
+        if not os.path.exists(bg_music):
+            open(bg_music, 'wb').write(requests.get("https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3", timeout=30).content)
 
-def load_memory(f):
-    p = os.path.join(MEMORY_DIR, f)
-    return json.load(open(p, encoding='utf-8')) if os.path.exists(p) else []
+class StorageEngine:
+    """Handles all persistent memory (so we don't repeat content)."""
+    @staticmethod
+    def load(filename):
+        path = os.path.join(Config.MEMORY_DIR, filename)
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        return []
 
-def save_to_memory(f, item):
-    data = load_memory(f)
-    if item not in data:
-        data.append(item)
-        json.dump(data[-1000:], open(os.path.join(MEMORY_DIR, f), 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+    @staticmethod
+    def save(filename, item):
+        data = StorageEngine.load(filename)
+        if item not in data:
+            data.append(item)
+            with open(os.path.join(Config.MEMORY_DIR, filename), 'w', encoding='utf-8') as f:
+                json.dump(data[-1000:], f, ensure_ascii=False, indent=2)
 
-def clean_text_for_font(text, is_english=False):
-    # Regex shield: Strips anything that isn't English (if is_english) or pure Devanagari (if Hindi)
-    if is_english: return re.sub(r'[^\w\s\,\.\!\?\-\@]', '', text).strip()
-    else: return re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
-
-def fetch_dynamic_background_music(out_path):
-    print("Fetching dynamic background track...")
-    safe_audio_tracks = [
-        "https://ia800408.us.archive.org/27/items/UpbeatKidsMusic/Upbeat_Kids_Music.mp3",
-        "https://ia801402.us.archive.org/16/items/happy-upbeat-background-music/Happy%20Upbeat.mp3",
-        "https://ia600504.us.archive.org/33/items/bensound-music/bensound-ukulele.mp3",
-        "https://ia800504.us.archive.org/33/items/bensound-music/bensound-buddy.mp3",
-        "https://ia801509.us.archive.org/13/items/bensound-music/bensound-clearday.mp3",
-        "https://ia801509.us.archive.org/13/items/bensound-music/bensound-littleidea.mp3",
-        "https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3"
-    ]
-    try:
-        r = requests.get(random.choice(safe_audio_tracks), timeout=30)
-        r.raise_for_status()
-        with open(out_path, 'wb') as f:
-            f.write(r.content)
-        return True
-    except Exception:
-        shutil.copyfile(os.path.join(ASSETS_DIR, "bg_music_default.mp3"), out_path)
-        return False
-
-def openai_request(prompt):
-    api_key = os.getenv('OPENAI_API_KEY')
-    if not api_key: return None
-    try:
-        r = requests.post("https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "temperature": 0.9, "max_tokens": 2000}, timeout=45)
-        if r.status_code == 200: return r.json()["choices"][0]["message"]["content"].strip()
-    except Exception: pass
-    return None
-
-def groq_request(prompt):
-    api_key = os.getenv('GROQ_API_KEY')
-    if not api_key: return None
-    try:
-        r = requests.post("https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "temperature": 0.9, "max_tokens": 3000}, timeout=45)
-        if r.status_code == 200: return r.json()["choices"][0]["message"]["content"].strip()
-    except Exception: pass
-    return None
-
-def smart_llm_request(prompt):
-    return openai_request(prompt) or groq_request(prompt)
-
-def clean_json(text):
-    if not text: return None
-    try:
-        marker = '`' * 3
-        json_marker = marker + 'json'
-        if json_marker in text:
-            text = text.split(json_marker)[1].split(marker)[0]
-        elif marker in text:
-            text = text.split(marker)[1].split(marker)[0]
-        return json.loads(text[text.find('{'):text.rfind('}')+1])
-    except Exception: return None
-
-def generate_content(mode="short"):
-    print("\nContacting AI for script, SEO, and character design...")
-    used = load_memory("used_topics.json")
-    
-    # ── 50 HYPER-VIRAL INDIAN TODDLER THEMES ──
-    themes = [
-        "Yellow JCB Excavator Digging Mud", "Red Tractor Driving in Village Farm",
-        "Big Red Fire Truck Rescue", "Police Car Chasing Thieves",
-        "Colorful Choo Choo Train on Tracks", "Giant Monster Truck Jumping",
-        "Garbage Truck Cleaning the City", "Flying Helicopter Rescue",
-        "Hathi Raja (King Elephant) Dancing", "Naughty Bandar Mama (Monkey) Eating Bananas",
-        "Sher Khan (Lion King) Roaring loudly", "Chalak Lomdi (Clever Fox) Running",
-        "Pyaasa Kauwa (Thirsty Crow) Drinking Water", "Dancing Mor (Colorful Peacock) in Rain",
-        "Bhalu (Bear) Dancing in Jungle", "Kachhua (Slow Turtle) Winning Race",
-        "Moti Kutta (Chubby Dog) Barking", "Billi Mausi (Aunt Cat) Drinking Milk",
-        "Happy Baby Brushing Teeth Song", "Crying Baby Takes a Bubble Bath",
-        "Toddler Eating Healthy Green Vegetables", "Baby Going to Sleep Lullaby",
-        "Getting Dressed for School Morning", "Washing Hands with Soap Song",
-        "Sharing Toys with Friends", "Funny Bhoot (Friendly Ghost) in House",
-        "Naughty Baby Hiding from Mummy", "Five Little Monkeys Jumping on Bed",
-        "Baby Falling Down and Crying loudly", "Magic Flying Carpet in Starry Sky",
-        "Rainbow Unicorn Flying in Clouds", "Talking Colorful Ice Cream Cones",
-        "Dancing Mangoes and Apples", "Beautiful Mermaid in Deep Blue Ocean",
-        "Glowing Fireflies in Dark Forest", "Magic Wand Changing Colors",
-        "Mummy and Papa Loving Baby", "Dada Dadi (Grandparents) Telling Story",
-        "Playing with Little Sister", "Baby Helping Mummy in Kitchen"
-    ]
-
-    # ── INFINITE THEME EXPANSION ── 
-    available_themes = [t for t in themes if t not in used[-100:]]
-    if len(available_themes) < 5:
-        print("Theme pool running low! Generating fresh viral ideas...")
-        expansion_prompt = "You are a YouTube India Kids strategist. Generate 15 BRAND NEW, highly viral Hindi toddler video topics (like JCBs, animals, magic). Output ONLY a valid JSON list of 15 English strings."
+# ==========================================
+# CORE 2: THE INTELLIGENCE (LLM)
+# ==========================================
+class IntelligenceEngine:
+    """Handles Groq/OpenAI with strict JSON parsing and fallback logic."""
+    @staticmethod
+    def _call_api(url, key, model, prompt, max_tokens):
+        if not key: return None
         try:
-            new_themes_raw = smart_llm_request(expansion_prompt)
-            if new_themes_raw:
-                json_str = new_themes_raw.strip()
-                if json_str.startswith('['):
-                    new_themes = json.loads(json_str)
-                else:
-                    new_themes = clean_json(new_themes_raw)
-                if isinstance(new_themes, list) and len(new_themes) > 5:
-                    available_themes.extend(new_themes)
-                    print(f"Added {len(new_themes)} new themes to the brain.")
-        except Exception:
-            available_themes = themes  # Fallback to original list
+            r = requests.post(url, headers={"Authorization": f"Bearer {key}"},
+                              json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.9, "max_tokens": max_tokens}, timeout=45)
+            if r.status_code == 200:
+                return r.json()["choices"][0]["message"]["content"].strip()
+        except Exception: pass
+        return None
+
+    @staticmethod
+    def ask(prompt):
+        # 1. Try OpenAI
+        res = IntelligenceEngine._call_api("https://api.openai.com/v1/chat/completions", os.getenv('OPENAI_API_KEY'), "gpt-4o-mini", prompt, 2000)
+        if res: return res
+        # 2. Fallback to Groq
+        return IntelligenceEngine._call_api("https://api.groq.com/openai/v1/chat/completions", os.getenv('GROQ_API_KEY'), "llama-3.3-70b-versatile", prompt, 3000)
+
+    @staticmethod
+    def extract_json(text):
+        if not text: return None
+        try:
+            marker = '`' * 3
+            if marker + 'json' in text:
+                text = text.split(marker + 'json')[1].split(marker)[0]
+            elif marker in text:
+                text = text.split(marker)[1].split(marker)[0]
             
-    theme = random.choice(available_themes)
+            text = text.strip()
+            # Handle both JSON Arrays and Objects
+            if text.startswith('['):
+                return json.loads(text[text.find('['):text.rfind(']')+1])
+            else:
+                return json.loads(text[text.find('{'):text.rfind('}')+1])
+        except Exception: return None
 
-    archetypes = [
-        "an adorable little Indian girl with big brown eyes in a bright pink lehenga",
-        "a cute chubby Indian baby boy with curly hair in a yellow kurta",
-        "a friendly baby animal perfectly matching the video theme (species, color, costume)",
-        "a magical glowing fairy with tiny wings in pastel purple and gold",
-        "a cute funny round robot with blinking LED eyes and colorful buttons",
-        "a brave little Indian superhero toddler wearing a tiny cape and mask",
-        "a cheerful baby alien with big blue eyes and a shiny silver suit",
-        "a playful little Indian boy dressed as a chef with a tiny white hat",
-        "an energetic baby girl dressed as an astronaut in a white and orange suit",
-        "a tiny talking animal sidekick duo — one big, one small, same theme"
+class ContentStrategist:
+    """Generates the viral script using strict Hindi logic."""
+    VIRAL_THEMES = [
+        "Yellow JCB Excavator Digging Mud", "Red Tractor Driving in Village Farm", "Big Red Fire Truck Rescue", "Police Car Chasing Thieves",
+        "Colorful Choo Choo Train on Tracks", "Giant Monster Truck Jumping", "Garbage Truck Cleaning the City", "Flying Helicopter Rescue",
+        "Hathi Raja (King Elephant) Dancing", "Naughty Bandar Mama (Monkey) Eating Bananas", "Sher Khan (Lion King) Roaring loudly", "Chalak Lomdi (Clever Fox) Running",
+        "Pyaasa Kauwa (Thirsty Crow) Drinking Water", "Dancing Mor (Colorful Peacock) in Rain", "Bhalu (Bear) Dancing in Jungle", "Kachhua (Slow Turtle) Winning Race",
+        "Moti Kutta (Chubby Dog) Barking", "Billi Mausi (Aunt Cat) Drinking Milk", "Happy Baby Brushing Teeth Song", "Crying Baby Takes a Bubble Bath",
+        "Toddler Eating Healthy Green Vegetables", "Baby Going to Sleep Lullaby", "Getting Dressed for School Morning", "Washing Hands with Soap Song",
+        "Sharing Toys with Friends", "Funny Bhoot (Friendly Ghost) in House", "Naughty Baby Hiding from Mummy", "Five Little Monkeys Jumping on Bed",
+        "Baby Falling Down and Crying loudly", "Magic Flying Carpet in Starry Sky", "Rainbow Unicorn Flying in Clouds", "Talking Colorful Ice Cream Cones",
+        "Dancing Mangoes and Apples", "Beautiful Mermaid in Deep Blue Ocean", "Glowing Fireflies in Dark Forest", "Magic Wand Changing Colors",
+        "Mummy and Papa Loving Baby", "Dada Dadi (Grandparents) Telling Story", "Playing with Little Sister", "Baby Helping Mummy in Kitchen"
     ]
-    archetype = random.choice(archetypes)
-    topic_prompt = f"Output ONLY a 3-to-4 word English topic for a Hindi kids rhyme about: {theme}. CRITICAL: Do NOT use rabbits, bunnies, cakes, cupcakes, or sweets. Avoid: {', '.join(used[-20:])}."
-    topic = smart_llm_request(topic_prompt) or f"Cute {theme}"
-    time.sleep(2)
-    line_count = 14 if mode == "short" else 26
-    
-    prompt = f"""You are a native Hindi-speaking children's poet and a top YouTube India SEO expert.
+
+    ARCHETYPES = [
+        "adorable little Indian girl, big brown eyes, bright pink lehenga", "cute chubby Indian baby boy, curly hair, yellow kurta",
+        "friendly baby animal matching the theme, cute costume", "magical glowing fairy, tiny wings, pastel purple and gold",
+        "cute funny round robot, blinking LED eyes, colorful buttons", "brave little Indian superhero toddler, tiny cape and mask",
+        "cheerful baby alien, big blue eyes, shiny silver suit", "playful little Indian boy, chef outfit, tiny white hat",
+        "energetic baby girl, astronaut white and orange suit", "tiny talking animal sidekick duo, one big, one small"
+    ]
+
+    @staticmethod
+    def get_theme(used_topics):
+        available = [t for t in ContentStrategist.VIRAL_THEMES if t not in used_topics[-100:]]
+        if len(available) < 5:
+            print("🧠 Expanding brain: Generating new viral themes...")
+            prompt = "You are a YouTube India Kids strategist. Generate 15 BRAND NEW, highly viral Hindi toddler video topics (like JCBs, animals, magic). Output ONLY a valid JSON list of 15 English strings."
+            raw = IntelligenceEngine.ask(prompt)
+            new_themes = IntelligenceEngine.extract_json(raw)
+            if isinstance(new_themes, list) and len(new_themes) > 5:
+                available.extend(new_themes)
+        return random.choice(available) if available else random.choice(ContentStrategist.VIRAL_THEMES)
+
+    @staticmethod
+    def create_script():
+        used = StorageEngine.load("used_topics.json")
+        theme = ContentStrategist.get_theme(used)
+        archetype = random.choice(ContentStrategist.ARCHETYPES)
+        
+        topic_prompt = f"Output ONLY a 3-to-4 word English topic for a Hindi kids rhyme about: {theme}. No rabbits, cakes, sweets. Avoid: {', '.join(used[-20:])}."
+        topic = IntelligenceEngine.ask(topic_prompt) or f"Cute {theme}"
+        
+        prompt = f"""You are a native Hindi children's poet and a YouTube India SEO expert.
 Topic: "{topic}"
-Character archetype: [{archetype}]
+Archetype: [{archetype}]
 
-━━ NATIVE HINDI LINGUISTIC RULES (CRITICAL) ━━
-1. Write EXACTLY {line_count} scenes/lines.
-2. PERFECT HINDI GRAMMAR: The rhyme must sound completely natural, like a classic Indian balgeet. Use simple, conversational Hindi for toddlers.
-3. PURE DEVANAGARI STRICT LOCK: You MUST write the Hindi sections using ONLY standard Devanagari characters. 
-   - NO Emojis or symbols (e.g., no 龜).
-   - NO English/Roman letters mixed inside Hindi words (e.g., NEVER write "मUMMY", use "मम्मी" or "माँ").
-   - NO Chinese, Japanese, or Cyrillic characters.
-4. PERFECT RHYTHM (तुकबंदी): Focus on a bouncy, sing-song meter. Lines must be 4 to 8 words long. 
-5. RHYME SCHEME: AABB. NEVER sacrifice Hindi grammar just to force a rhyme.
+━━ STRICT HINDI LINGUISTIC RULES ━━
+1. Write EXACTLY 14 scenes/lines.
+2. PERFECT HINDI GRAMMAR & GENDER (लिंग): Ensure masculine/feminine words match perfectly.
+3. PURE DEVANAGARI STRICT LOCK: MUST use ONLY standard Devanagari. NO Emojis. NO English/Roman letters mixed inside Hindi words (e.g., NO 'मUMMY'). NO Chinese/Cyrillic.
+4. RHYTHM & RHYME: 4 to 8 words per line. Bouncy meter. AABB rhyme scheme. NEVER force a rhyme over good grammar.
+5. NO LITERAL TRANSLATIONS: Write naturally like an Indian mother.
 
-━━ CHARACTER CONSISTENCY RULES ━━
-6. Design ONE protagonist matching the archetype. Describe clothes, color, and ONE unique feature in exactly 12-15 English words.
-7. EVERY image_prompt MUST start with the exact protagonist description word-for-word.
-8. Scene 1 image_prompt MUST show the character doing something energetic (jumping, flying, dancing).
-
-━━ ADVANCED SEO RULES ━━
-9. TITLE: Create a highly clickable, grammatically perfect Hindi title. 
-   Format EXACTLY: "Perfect Hindi Catchphrase | English Translation | 3D बालगीत 2026 | हिंदी राइम्स फॉर किड्स"
-   (Note the correct spelling of 'बालगीत').
-   Example: "कछुए की जीत | Slow Turtle Wins | 3D बालगीत 2026 | हिंदी राइम्स फॉर किड्स"
-10. SEO_TAGS: Generate exactly 30 tags (mix of broad, specific, long-tail, and Devanagari).
-11. SEO_DESCRIPTION: 250 words total with hook sentence, [TIMESTAMPS] placeholder, and [LYRICS] placeholder.
+━━ VISUAL & SEO RULES ━━
+6. Protagonist: Describe in 12-15 English words using Mango Yellow, Royal Blue, or Deep Turquoise. EVERY image_prompt MUST start with this exact description.
+7. TITLE: Create a SHORT, natural Hindi catchphrase (2 to 4 words). Format EXACTLY: "Short Hindi Catchphrase | English | 3D बालगीत 2026 | हिंदी राइम्स फॉर किड्स" (Note correct spelling of बालगीत).
+8. Generate 30 SEO tags and a 250-word description with [TIMESTAMPS] and [LYRICS] placeholders.
 
 Output ONLY valid JSON:
 {{
-  "title": "Grammatically Perfect Pure Hindi | English | 3D बालगीत 2026 | हिंदी राइम्स फॉर किड्स",
-  "keyword": "single most searchable English word for this topic",
+  "title": "Short Hindi | English | 3D बालगीत 2026 | हिंदी राइम्स फॉर किड्स",
+  "keyword": "searchable english word",
   "seo_tags": ["tag1","tag2"],
-  "seo_description": "Full description with [TIMESTAMPS] and [LYRICS] placeholders",
-  "main_character": "Exactly 12-15 word English visual description of protagonist",
-  "scenes": [{{"line": "4-8 word perfectly grammatical pure Devanagari Hindi sentence", "image_prompt": "protagonist description + energetic action"}}]
+  "seo_description": "...",
+  "main_character": "12-15 word English description",
+  "scenes": [{{"line": "4-8 word pure Devanagari sentence", "image_prompt": "character description + action"}}]
 }}"""
+        for _ in range(4):
+            raw = IntelligenceEngine.ask(prompt)
+            data = IntelligenceEngine.extract_json(raw)
+            if data and "scenes" in data and len(data["scenes"]) >= 12:
+                StorageEngine.save("used_topics.json", topic)
+                print(f"✅ Script Generated: {data['title']}")
+                return data
+            time.sleep(4)
+        return None
+
+# ==========================================
+# CORE 3: ASSET FACTORY (Hydra Image + Edge TTS)
+# ==========================================
+class AssetEngine:
+    """Handles robust file downloading, image generation, and voice synthesis."""
     
-    for attempt in range(4):
-        raw = smart_llm_request(prompt)
-        data = clean_json(raw)
-        if data and "scenes" in data and "main_character" in data:
-            if len(data["scenes"]) < (line_count - 2): continue
-            data['generated_topic'] = topic
-            save_to_memory("used_topics.json", topic)
-            print(f"Character: {data['main_character']}")
-            print(f"SEO Title: {data['title']}")
-            return data
-        time.sleep(4)
-    return None
-
-# ==========================================
-# 🛡️ THE HYDRA IMAGE ENGINE (4-LAYER FALLBACK)
-# ==========================================
-def download_file(url, fn, headers=None):
-    session = requests.Session()
-    retry = Retry(
-        total=4, backoff_factor=0.5,
-        status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods={"GET"}, raise_on_status=False
-    )
-    session.mount('https://', HTTPAdapter(max_retries=retry))
-    session.mount('http://',  HTTPAdapter(max_retries=retry))
-
-    try:
-        r = session.get(
-            url,
-            headers=headers or {"User-Agent": "Mozilla/5.0"},
-            timeout=35
-        )
-        r.raise_for_status()
-
-        if 'image' not in r.headers.get('Content-Type', '').lower():
-            print(f"   ↳ Non-image Content-Type rejected: {r.headers.get('Content-Type')}")
-            return False
-
+    @staticmethod
+    def _download(url, filepath):
+        session = requests.Session()
+        retry = Retry(total=4, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504], allowed_methods={"GET"})
+        session.mount('https://', HTTPAdapter(max_retries=retry))
         try:
-            Image.open(io.BytesIO(r.content)).verify()
-        except Exception as e:
-            print(f"   ↳ Corrupted image bytes rejected: {e}")
-            return False
+            r = session.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=35)
+            r.raise_for_status()
+            if 'image' not in r.headers.get('Content-Type', '').lower(): return False
+            try: Image.open(io.BytesIO(r.content)).verify()
+            except Exception: return False
+            with open(filepath, 'wb') as f: f.write(r.content)
+            return True
+        except Exception: return False
 
-        with open(fn, 'wb') as f:
-            f.write(r.content)
-        return True
+    @staticmethod
+    def generate_image(prompt, filepath, fallback_kw, seed):
+        w, h = 1080, 1920
+        scene_seed = seed + random.randint(1, 100)
+        clean_prompt = urllib.parse.quote(f"{prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k")
+        api = os.getenv('POLLINATIONS_API_KEY')
+        
+        # Layer 1 & 2: Pollinations (Auth -> Public)
+        urls = []
+        if api: urls.append(f"https://gen.pollinations.ai/image/{clean_prompt}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true")
+        urls.append(f"https://image.pollinations.ai/prompt/{clean_prompt}?width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true")
+        # Layer 3: LoremFlickr Stock
+        urls.append(f"https://loremflickr.com/{w}/{h}/{urllib.parse.quote(fallback_kw or 'cartoon kids')}?lock={scene_seed}")
 
-    except Exception as e:
-        print(f"   ↳ Download failed [{url[:50]}...]: {e}")
+        success = False
+        for url in urls:
+            if AssetEngine._download(url, filepath):
+                success = True
+                break
+        
+        # Enhance or Layer 4 (Color Block)
+        if success:
+            try:
+                with Image.open(filepath) as im:
+                    im = im.convert("RGB").resize((w, h), Image.LANCZOS)
+                    im = ImageEnhance.Color(im).enhance(1.15)
+                    im = ImageEnhance.Contrast(im).enhance(1.10)
+                    im.save(filepath, "JPEG", quality=98, optimize=True)
+            except Exception: pass
+        else:
+            print("🚨 All image layers failed. Generating brand block.")
+            Image.new('RGB', (w, h), random.choice(Config.BRAND_COLORS)).save(filepath)
+
+    @staticmethod
+    def generate_voice(text, filepath):
+        # Strict fallback sanitization to protect edge-tts from symbols
+        clean_speech = re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
+        if len(clean_speech) < 2: clean_speech = "मस्ती"
+        
+        for _ in range(5):
+            try:
+                subprocess.run(["edge-tts", "--voice", "hi-IN-SwaraNeural", "--rate=-10%", "--pitch=+10Hz", "--text", clean_speech, "--write-media", filepath], capture_output=True, timeout=15)
+                if os.path.exists(filepath) and os.path.getsize(filepath) > 1000: return True
+            except Exception: pass
+            time.sleep(random.uniform(1, 3))
         return False
 
-def get_image(image_prompt, fn, kw, is_short, video_seed):
-    w, h = (1080, 1920) if is_short else (1920, 1080)
-    scene_seed = video_seed + random.randint(1, 50)
-
-    clean = (
-        f"{image_prompt}, Mango Yellow, Royal Blue, Deep Turquoise, "
-        f"3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k"
-    )
-    clean_encoded = urllib.parse.quote(clean)
-    api = os.getenv('POLLINATIONS_API_KEY')
-    success = False
-
-    if api:
-        url_auth = (
-            f"https://gen.pollinations.ai/image/{clean_encoded}"
-            f"?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
-        )
-        success = download_file(url_auth, fn, {"Authorization": f"Bearer {api}"})
-
-    if not success:
-        print("   ↳ Layer 1 failed. Trying Layer 2 (public Pollinations)...")
-        time.sleep(2)
-        url_pub = (
-            f"https://image.pollinations.ai/prompt/{clean_encoded}"
-            f"?width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
-        )
-        success = download_file(url_pub, fn)
-
-    if not success:
-        print("   ↳ Layer 2 failed. Trying Layer 3 (LoremFlickr stock photo)...")
-        kw_encoded = urllib.parse.quote(kw or "colorful kids cartoon")
-        url_stock = f"https://loremflickr.com/{w}/{h}/{kw_encoded}?lock={scene_seed}"
-        success = download_file(url_stock, fn)
-
-    if success:
-        try:
-            with Image.open(fn) as im:
-                im = im.convert("RGB").resize((w, h), Image.LANCZOS)
-                im = ImageEnhance.Color(im).enhance(1.15)
-                im = ImageEnhance.Contrast(im).enhance(1.10)
-                im = ImageEnhance.Sharpness(im).enhance(1.20)
-                im.save(fn, "JPEG", quality=98, optimize=True)
-        except Exception as e:
-            print(f"   ↳ Color grade skipped (image preserved): {e}")
-        return
-
-    print(f"🚨 All network layers failed. Generating branded color block.")
-    brand_colors = [(255, 204, 0), (65, 105, 225), (0, 139, 139)]
-    Image.new('RGB', (w, h), random.choice(brand_colors)).save(fn)
-
-def generate_text_clip_pil(text, w, h, base_size, dur, color='#FFFF00', pos_y=None, pos_x=None, stroke_width=8, is_english=False):
-    text = clean_text_for_font(text, is_english)
-    img = Image.new('RGBA', (w, h), (0,0,0,0))
-    draw = ImageDraw.Draw(img)
-    target_font = ENG_FONT_FILE if is_english else FONT_FILE
-    max_w = w - 120
-    size = base_size
-
-    def get_wrapped_text(t, f):
-        words = t.split(); lines, curr = [], ""
+# ==========================================
+# CORE 4: VIDEO STUDIO (MoviePy)
+# ==========================================
+class VideoStudio:
+    """Assembles the final video using dynamic camera moves and text overlays."""
+    
+    @staticmethod
+    def _create_text_overlay(text, w, h, size, dur, color='#FFFF00', y_pos=None, is_eng=False):
+        clean_text = re.sub(r'[^\w\s\,\.\!\?\-\@]', '', text).strip() if is_eng else re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
+        img = Image.new('RGBA', (w, h), (0,0,0,0))
+        draw = ImageDraw.Draw(img)
+        font_path = Config.ENG_FONT_FILE if is_eng else Config.FONT_FILE
+        
+        font = ImageFont.truetype(font_path, size) if os.path.exists(font_path) else ImageFont.load_default()
+        
+        # Simple word wrap
+        max_w = w - 120
+        words = clean_text.split()
+        lines, curr = [], ""
         for word in words:
             test = curr + " " + word if curr else word
-            if draw.textbbox((0,0), test, font=f)[2] <= max_w: curr = test
+            if draw.textbbox((0,0), test, font=font)[2] <= max_w: curr = test
             else:
                 if curr: lines.append(curr)
                 curr = word
         if curr: lines.append(curr)
-        return "\n".join(lines)
-
-    font = ImageFont.truetype(target_font, size) if os.path.exists(target_font) else ImageFont.load_default()
-    wrapped_text = get_wrapped_text(text, font)
-    bbox = draw.multiline_textbbox((0,0), wrapped_text, font=font, align="center")
-
-    while (bbox[2]-bbox[0] > max_w) and size > 40:
-        size -= 4
-        font = ImageFont.truetype(target_font, size)
-        wrapped_text = get_wrapped_text(text, font)
-        bbox = draw.multiline_textbbox((0,0), wrapped_text, font=font, align="center")
-
-    tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
-    x = pos_x if pos_x is not None else (w-tw)//2
-    y = pos_y if pos_y is not None else (h-th-340)
-
-    draw.multiline_text((x+6, y+6), wrapped_text, font=font, fill=(0,0,0,160), align="center" if pos_x is None else "left")
-    for dx in range(-stroke_width, stroke_width+1, 2):
-        for dy in range(-stroke_width, stroke_width+1, 2):
-            draw.multiline_text((x+dx, y+dy), wrapped_text, font=font, fill='black', align="center" if pos_x is None else "left")
-    draw.multiline_text((x,y), wrapped_text, font=font, fill=color, align="center" if pos_x is None else "left")
-    return ImageClip(np.array(img)).set_duration(dur)
-
-def create_outro(is_short):
-    w, h = (1080,1920) if is_short else (1920,1080)
-    clip = ColorClip((w,h),(15,15,20)).set_duration(4.0)
-    txt1 = generate_text_clip_pil("LIKE AND SUBSCRIBE", w, h, 85, 4.0, pos_y=h//3, is_english=True)
-    txt2 = generate_text_clip_pil("@HindiMastiRhymes", w, h, 65, 4.0, color='#AAAAAA', pos_y=int(h*0.55), is_english=True)
-    return CompositeVideoClip([clip,txt1,txt2],size=(w,h)).crossfadein(0.5)
-
-def create_segment_unified(line, img_path, is_short, idx, dur):
-    w, h = (1080,1920) if is_short else (1920,1080)
-    img = ImageClip(img_path).resize(1.15)
-    ex_x, ex_y = img.w-w, img.h-h
-    camera_move = random.choice(['zoom_in','zoom_out','pan_left','pan_right','pan_up','pan_down'])
-    if camera_move=='zoom_in': anim=img.resize(lambda t:1.0+0.15*(t/dur)).set_position('center')
-    elif camera_move=='zoom_out': anim=img.resize(lambda t:1.15-0.15*(t/dur)).set_position('center')
-    elif camera_move=='pan_left': anim=img.set_position(lambda t:(-ex_x*(t/dur),'center'))
-    elif camera_move=='pan_right': anim=img.set_position(lambda t:(-ex_x+(ex_x*(t/dur)),'center'))
-    elif camera_move=='pan_up': anim=img.set_position(lambda t:('center',-ex_y*(t/dur)))
-    elif camera_move=='pan_down': anim=img.set_position(lambda t:('center',-ex_y+(ex_y*(t/dur))))
-    anim=anim.set_duration(dur)
-    txt=generate_text_clip_pil(line,w,h,118,dur).crossfadein(0.4)
-    wm=generate_text_clip_pil("@HindiMastiRhymes",w,h,38,dur,color='white',pos_y=40,pos_x=40,stroke_width=2,is_english=True)
-    clip=CompositeVideoClip([anim,txt,wm.set_opacity(0.60)],size=(w,h)).set_duration(dur)
-    if idx>0: clip=clip.crossfadein(0.45)
-    return clip
-
-def get_voice(text, fn):
-    clean_speech = clean_text_for_font(text, is_english=False)
-    if len(clean_speech)<2: clean_speech="मस्ती"
-    for attempt in range(5):
-        try:
-            subprocess.run(["edge-tts","--voice","hi-IN-SwaraNeural","--rate=-10%","--pitch=+10Hz","--text",clean_speech,"--write-media",fn],capture_output=True,timeout=15)
-            if os.path.exists(fn) and os.path.getsize(fn)>1000: return True
-        except Exception: pass
-        time.sleep(random.uniform(1,3))
-    print(f"FATAL TTS ERROR: Could not render voice for '{clean_speech[:20]}...'")
-    return False
-
-def make_video(content, is_short=True):
-    print(f"Premium Render {'SHORT' if is_short else 'LONG'}...")
-    clips=[]
-    suffix="s" if is_short else "l"
-    keyword=content.get('keyword','kids')
-    full_lyrics_lines=[scene['line'] for scene in content['scenes']]
-    full_lyrics_text="\n".join(full_lyrics_lines)
-    ai_music_path=os.path.join(ASSETS_DIR,f"bg_music_dynamic_{suffix}.mp3")
-    fetch_dynamic_background_music(ai_music_path)
-    video_master_seed=random.randint(1000,999999)
-
-    print("Generating Images and Voiceovers in parallel...")
-    with ThreadPoolExecutor(max_workers=6) as ex:
-        futures=[]
-        for i,scene in enumerate(content['scenes']):
-            img=os.path.join(ASSETS_DIR,f"i_{suffix}_{i}.jpg")
-            img_prompt=scene.get('image_prompt',scene.get('action','cute kids cartoon'))
-            futures.append(ex.submit(get_image,img_prompt,img,keyword,is_short,video_master_seed))
-            aud=os.path.join(ASSETS_DIR,f"a_{suffix}_{i}.mp3")
-            futures.append(ex.submit(get_voice,scene['line'],aud))
-        for f in as_completed(futures): f.result()
-
-    times=[]
-    current_time=0.0
-    print("Applying Studio Reverb + BGM...")
-    for i,scene in enumerate(content['scenes']):
-        aud=os.path.join(ASSETS_DIR,f"a_{suffix}_{i}.mp3")
-        img=os.path.join(ASSETS_DIR,f"i_{suffix}_{i}.jpg")
-        if not os.path.exists(aud):
-            print("Critical Audio missing. Aborting render.")
-            return None,None,None,None
-        voice=AudioFileClip(aud)
-        echo=voice.volumex(0.25).set_start(0.18)
-        enhanced_voice=CompositeAudioClip([voice,echo]).set_duration(voice.duration+0.3)
-        dur=enhanced_voice.duration
-        bg_clip=AudioFileClip(ai_music_path).volumex(0.085).audio_fadein(2.5).audio_fadeout(2.5)
-        if bg_clip.duration>0:
-            repeats=int(math.ceil(dur/bg_clip.duration))
-            bg_looped=concatenate_audioclips([bg_clip]*repeats).subclip(0,dur)
-        else:
-            bg_looped=bg_clip
-        final_audio=CompositeAudioClip([enhanced_voice,bg_looped])
-        clip=create_segment_unified(scene['line'],img,is_short,i,dur).set_audio(final_audio)
-        clips.append(clip)
-        times.append(f"{time.strftime('%M:%S',time.gmtime(current_time))} - {scene['line'][:55]}...")
-        current_time+=clip.duration
-
-    if not is_short:
-        clips.append(create_outro(is_short))
-
-    final=concatenate_videoclips(clips,method="compose")
-    out=os.path.join(OUTPUT_DIR,f"final_{suffix}.mp4")
-
-    final.write_videofile(out,fps=24,codec='libx264',audio_codec='aac',threads=2,
-                          preset='medium',ffmpeg_params=['-crf','19','-pix_fmt','yuv420p'])
-    return out,full_lyrics_text,times,content.get('seo_description','')
-
-def create_thumbnail(title, bg_path, out_path, is_short):
-    try:
-        short_title = title.split('|')[0].strip() if '|' in title else title
-        clean_title = clean_text_for_font(short_title, is_english=False)
+        wrapped = "\n".join(lines)
         
-        with Image.open(bg_path) as im:
-            im = im.convert("RGB").resize((1280, 720), Image.LANCZOS)
-            im = ImageEnhance.Color(im).enhance(1.4)
-            im = ImageEnhance.Contrast(im).enhance(1.2)
+        # Scale down if too tall
+        bbox = draw.multiline_textbbox((0,0), wrapped, font=font, align="center")
+        while (bbox[2]-bbox[0] > max_w) and size > 40:
+            size -= 4
+            font = ImageFont.truetype(font_path, size)
+            bbox = draw.multiline_textbbox((0,0), wrapped, font=font, align="center")
+
+        tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
+        x = (w - tw) // 2
+        y = y_pos if y_pos is not None else (h - th - 340)
+
+        # Draw stroke then text
+        stroke = 8
+        draw.multiline_text((x+6, y+6), wrapped, font=font, fill=(0,0,0,160), align="center")
+        for dx in range(-stroke, stroke+1, 2):
+            for dy in range(-stroke, stroke+1, 2):
+                draw.multiline_text((x+dx, y+dy), wrapped, font=font, fill='black', align="center")
+        draw.multiline_text((x,y), wrapped, font=font, fill=color, align="center")
+        return ImageClip(np.array(img)).set_duration(dur)
+
+    @staticmethod
+    def render_short(script_data):
+        print("🎬 Assembling Studio Short...")
+        master_seed = random.randint(1000, 999999)
+        kw = script_data.get('keyword', 'kids')
+        
+        bgm_path = os.path.join(Config.ASSETS_DIR, "bg_music_dynamic.mp3")
+        fetch_dynamic_background_music(bgm_path)
+
+        # Parallel Generation
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            futures = []
+            for i, scene in enumerate(script_data['scenes']):
+                img_path = os.path.join(Config.ASSETS_DIR, f"img_{i}.jpg")
+                aud_path = os.path.join(Config.ASSETS_DIR, f"aud_{i}.mp3")
+                futures.append(ex.submit(AssetEngine.generate_image, scene.get('image_prompt', 'cartoon'), img_path, kw, master_seed))
+                futures.append(ex.submit(AssetEngine.generate_voice, scene['line'], aud_path))
+            for f in as_completed(futures): f.result()
+
+        clips = []
+        timestamps = []
+        current_time = 0.0
+        w, h = 1080, 1920
+
+        for i, scene in enumerate(script_data['scenes']):
+            img_path = os.path.join(Config.ASSETS_DIR, f"img_{i}.jpg")
+            aud_path = os.path.join(Config.ASSETS_DIR, f"aud_{i}.mp3")
+            if not os.path.exists(aud_path): return None, None, None # Fail safe
             
-            draw = ImageDraw.Draw(im)
-            font_size = 95
-            font_big = ImageFont.truetype(FONT_FILE, font_size) if os.path.exists(FONT_FILE) else ImageFont.load_default()
+            # Audio mix (Voice + Reverb + BGM)
+            voice = AudioFileClip(aud_path)
+            echo = voice.volumex(0.25).set_start(0.18)
+            enhanced_voice = CompositeAudioClip([voice, echo]).set_duration(voice.duration + 0.3)
+            dur = enhanced_voice.duration
             
-            bbox = draw.textbbox((0,0), clean_title, font=font_big)
-            tw = bbox[2] - bbox[0]
+            bgm = AudioFileClip(bgm_path).volumex(0.085).audio_fadein(2.0)
+            bg_looped = concatenate_audioclips([bgm] * int(math.ceil(dur/bgm.duration))).subclip(0, dur) if bgm.duration > 0 else bgm
             
-            while tw > 1180 and font_size > 50:
-                font_size -= 5
-                font_big = ImageFont.truetype(FONT_FILE, font_size)
-                bbox = draw.textbbox((0,0), clean_title, font=font_big)
-                tw = bbox[2] - bbox[0]
+            # Video mix (Camera Pan + Text)
+            img = ImageClip(img_path).resize(1.15)
+            ex_x, ex_y = img.w - w, img.h - h
+            move = random.choice(['zoom_in','zoom_out','pan_left','pan_right','pan_up','pan_down'])
             
-            x = (1280 - tw) // 2
-            y = 570 
+            if move=='zoom_in': anim = img.resize(lambda t: 1.0 + 0.15*(t/dur)).set_position('center')
+            elif move=='zoom_out': anim = img.resize(lambda t: 1.15 - 0.15*(t/dur)).set_position('center')
+            elif move=='pan_left': anim = img.set_position(lambda t: (-ex_x*(t/dur), 'center'))
+            elif move=='pan_right': anim = img.set_position(lambda t: (-ex_x + (ex_x*(t/dur)), 'center'))
+            elif move=='pan_up': anim = img.set_position(lambda t: ('center', -ex_y*(t/dur)))
+            else: anim = img.set_position(lambda t: ('center', -ex_y + (ex_y*(t/dur))))
             
-            stroke_width = 8
-            for dx in range(-stroke_width, stroke_width+1, 2):
-                for dy in range(-stroke_width, stroke_width+1, 2):
-                    draw.text((x+dx, y+dy), clean_title, font=font_big, fill='black')
+            anim = anim.set_duration(dur)
+            txt = VideoStudio._create_text_overlay(scene['line'], w, h, 118, dur).crossfadein(0.4)
+            wm = VideoStudio._create_text_overlay(Config.CHANNEL_HANDLE, w, h, 38, dur, color='white', y_pos=40, is_eng=True).set_opacity(0.6)
             
-            draw.text((x, y), clean_title, font=font_big, fill="#FFCC00")
-            im.save(out_path, quality=98, optimize=True)
-            print("✅ High-CTR Thumbnail Generated.")
-    except Exception as e:
-        print(f"Thumbnail warning: {e}")
+            clip = CompositeVideoClip([anim, txt, wm], size=(w,h)).set_audio(CompositeAudioClip([enhanced_voice, bg_looped])).set_duration(dur)
+            if i > 0: clip = clip.crossfadein(0.4)
+            
+            clips.append(clip)
+            timestamps.append(f"{time.strftime('%M:%S', time.gmtime(current_time))} - {scene['line'][:55]}...")
+            current_time += dur
 
-def upload_video(vid, content, lyrics, times, desc_template, is_short):
-    try:
-        print(f"Uploading: {content['title']}")
-        with open(TOKEN_FILE, 'rb') as f:
-            creds = pickle.load(f)
-        service = build('youtube', 'v3', credentials=creds)
+        out_path = os.path.join(Config.OUTPUT_DIR, "final_short.mp4")
+        final = concatenate_videoclips(clips, method="compose")
+        final.write_videofile(out_path, fps=24, codec='libx264', audio_codec='aac', threads=2, preset='medium', ffmpeg_params=['-crf','19','-pix_fmt','yuv420p'])
+        
+        lyrics = "\n".join([s['line'] for s in script_data['scenes']])
+        return out_path, lyrics, timestamps
 
-        title = content.get('title', "Hindi Nursery Rhymes for Kids 2026")
-        keyword = content.get('keyword', 'kids')
-        topic_tag = keyword.replace(' ', '')
-
-        baseline_tags = [
-            "hindi nursery rhymes", "balgeet", "bachon ke geet",
-            "hindi rhymes for kids", "hindi bal geet",
-            "3d hindi rhymes for toddlers", "hindi rhymes for 2 year old",
-            "hindi nursery rhymes with lyrics", "balgeet with lyrics",
-            "3d animated hindi rhymes", "cartoon rhymes hindi",
-            "preschool hindi songs", "hindi kids songs 2026",
-            "infobells hindi", "cocomelon hindi", "kids channel india",
-            "hindi kavita", "bal geet 3d", "nursery rhymes in hindi",
-            "hindi rhymes compilation",
-        ]
-        ai_tags = content.get('seo_tags', [])
-        all_tags = list(dict.fromkeys(ai_tags + baseline_tags))
-
-        valid_tags, total_chars = [], 0
-        for tag in all_tags:
-            clean_tag = re.sub(r'[<>",#|\[\]{}\n\r]', '', str(tag)).strip()
-            if len(clean_tag) > 2 and len(clean_tag) < 40:
-                if total_chars + len(clean_tag) < 350:
-                    valid_tags.append(clean_tag)
-                    total_chars += len(clean_tag) + 1 
-
-        timestamps_block = "\n".join(times) if times else ""
-        lyrics_block     = lyrics if lyrics else ""
-
-        if len(lyrics_block) > 3500:
-            lyrics_block = lyrics_block[:3500] + "\n... [Lyrics Truncated]"
-
-        desc_body = desc_template \
-            .replace('[TIMESTAMPS]', timestamps_block) \
-            .replace('[LYRICS]', lyrics_block)
-
-        hashtag_line = (
-            "#HindiRhymes #Balgeet #BachonKeGeet #HindiNurseryRhymes "
-            "#KidsSongs #3DCartoon #BalGeet #HindiKids #NurseryRhymes "
-            f"#KidsCartoon #Shorts #{topic_tag}"
-        )
-
-        desc = (
-            f"{title}\n\n"
-            f"{desc_body}\n\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"📌 CHAPTERS / TIMESTAMPS:\n{timestamps_block}\n\n"
-            f"📝 LYRICS:\n{lyrics_block}\n\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"LIKE 👍 | SUBSCRIBE 🔔 | SHARE ↗️\n"
-            f"नई rhymes हर रोज़! New Hindi rhymes every day!\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"{hashtag_line}"
-        )
-
-        body = {
-            'snippet': {
-                'title': (title[:97] + '...') if len(title) > 100 else title,
-                'description': desc,
-                'tags': valid_tags,        
-                'categoryId': '24',            
-                'defaultLanguage': 'hi',
-                'defaultAudioLanguage': 'hi',
-            },
-            'status': {
-                'privacyStatus': 'public',
-                'selfDeclaredMadeForKids': True,
-            }
-        }
-
-        media = MediaFileUpload(vid, chunksize=-1, resumable=True)
-        req = service.videos().insert(part="snippet,status", body=body, media_body=media)
-
-        response = None
-        error_count = 0
-        while response is None:
-            try:
-                status, response = req.next_chunk()
-                if status:
-                    print(f"Upload progress: {int(status.progress() * 100)}%")
-                if response is not None:
-                    print(f"✅ VIDEO UPLOADED! ID: {response['id']}")
-            except (HttpError, ConnectionResetError, BrokenPipeError) as e:
-                error_count += 1
-                if error_count > 5:
-                    print(f"Upload dropped 5 times. Aborting. {e}")
-                    return False
-                print(f"Connection dropped. Retrying {error_count}/5...")
-                time.sleep(5)
-
-        if not is_short:
-            thumb = os.path.join(OUTPUT_DIR, "thumb.png")
-            first_img = os.path.join(ASSETS_DIR, "i_l_0.jpg")
-            create_thumbnail(content['title'], first_img, thumb, is_short)
-            if os.path.exists(thumb):
-                service.thumbnails().set(
-                    videoId=response['id'],
-                    media_body=MediaFileUpload(thumb)
-                ).execute()
-                print("✅ Thumbnail uploaded.")
-
-        save_to_memory("used_rhymes.json", content['title'])
-        return True
-
-    except HttpError as e:
-        print(f"YouTube API Error: {e.reason}")
-        return False
-    except Exception as e:
-        print(f"Upload crash: {e}")
-        return False
-
-def cleanup_temp_files():
-    print("🧹 Cleaning up temporary assets to save disk space...")
-    for directory in [ASSETS_DIR]:
-        for filename in os.listdir(directory):
-            file_path = os.path.join(directory, filename)
-            try:
-                if not filename.endswith(('.ttf', 'default.mp3')):
-                    if os.path.isfile(file_path) or os.path.islink(file_path):
-                        os.unlink(file_path)
-            except Exception as e:
-                print(f"Failed to delete {file_path}. Reason: {e}")
-
-if __name__=="__main__":
-    print("===== @HindiMastiRhymes - 2026 BROADCAST EDITION =====")
-    total_successes = 0
+# ==========================================
+# CORE 5: BROADCASTER (YouTube Upload)
+# ==========================================
+class Broadcaster:
+    """Handles safe YouTube metadata truncation and API uploading."""
     
-    # 🚀 SHORTS-ONLY MODE (Optimized for 4x daily GitHub Actions)
-    for is_short, name in [(True, "SHORT")]:
-        print(f"\n>>> INITIATING {name} PIPELINE <<<")
+    @staticmethod
+    def upload(video_path, script_data, lyrics, timestamps):
         try:
-            data = generate_content("short" if is_short else "long")
-            if data:
-                vid, lyrics, times, desc = make_video(data, is_short)
-                if vid:
-                    if upload_video(vid, data, lyrics, times, desc, is_short): 
-                        total_successes += 1
-                        print(f"✅ {name} Broadcast Successful!")
-                else: 
-                    print(f"❌ Render failed for {name}. Skipping upload.")
-            else: 
-                print(f"❌ Critical Failure: Could not generate JSON content for {name}.")
-        except Exception as e:
-            print(f"🚨 PIPELINE CRASH: {str(e)}")
+            print(f"🚀 Broadcaster Authenticating...")
+            with open(Config.TOKEN_FILE, 'rb') as f:
+                creds = pickle.load(f)
+            service = build('youtube', 'v3', credentials=creds)
+
+            # Metadata Sanitization
+            title = script_data.get('title', "Hindi Nursery Rhymes for Kids 2026")
+            if len(title) > 97: title = title[:97] + "..."
             
-    # Run the new cleanup function
-    cleanup_temp_files()
+            ai_tags = script_data.get('seo_tags', [])
+            base_tags = ["hindi nursery rhymes", "balgeet", "bachon ke geet", "3d hindi rhymes", "shorts"]
+            valid_tags, char_count = [], 0
+            for tag in list(dict.fromkeys(ai_tags + base_tags)):
+                clean = re.sub(r'[<>",#|\[\]{}\n\r]', '', str(tag)).strip()
+                if 2 < len(clean) < 40 and char_count + len(clean) < 350:
+                    valid_tags.append(clean)
+                    char_count += len(clean) + 1
+
+            lyrics_block = lyrics[:3500] + "\n... [Truncated]" if len(lyrics) > 3500 else lyrics
+            time_block = "\n".join(timestamps)
+            
+            desc_template = script_data.get('seo_description', '')
+            desc_body = desc_template.replace('[TIMESTAMPS]', time_block).replace('[LYRICS]', lyrics_block)
+            
+            desc = (f"{title}\n\n{desc_body}\n\n"
+                    f"📌 TIMESTAMPS:\n{time_block}\n\n"
+                    f"📝 LYRICS:\n{lyrics_block}\n\n"
+                    f"👍 LIKE | SUBSCRIBE | SHARE ↗️\n"
+                    f"#HindiRhymes #Balgeet #Shorts #KidsCartoon")
+
+            body = {
+                'snippet': {
+                    'title': title, 'description': desc, 'tags': valid_tags,
+                    'categoryId': '24', 'defaultLanguage': 'hi', 'defaultAudioLanguage': 'hi'
+                },
+                'status': {'privacyStatus': 'public', 'selfDeclaredMadeForKids': True}
+            }
+
+            media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
+            req = service.videos().insert(part="snippet,status", body=body, media_body=media)
+
+            response, errors = None, 0
+            while response is None:
+                try:
+                    status, response = req.next_chunk()
+                    if status: print(f"Upload: {int(status.progress() * 100)}%")
+                except (HttpError, ConnectionResetError, BrokenPipeError) as e:
+                    errors += 1
+                    if errors > 5: return False
+                    print(f"Connection dropped. Retrying {errors}/5...")
+                    time.sleep(5)
+
+            print(f"✅ UPLOAD SUCCESS! ID: {response['id']}")
+            StorageEngine.save("used_rhymes.json", title)
+            return True
+        except Exception as e:
+            print(f"🚨 Broadcaster Crash: {e}")
+            return False
+
+def system_cleanup():
+    print("🧹 First Principles Cleanup: Purging temporary assets...")
+    for f in os.listdir(Config.ASSETS_DIR):
+        if not f.endswith(('.ttf', 'default.mp3')):
+            try: os.unlink(os.path.join(Config.ASSETS_DIR, f))
+            except Exception: pass
+
+# ==========================================
+# MAIN EXECUTION
+# ==========================================
+if __name__=="__main__":
+    print(f"===== {Config.CHANNEL_HANDLE} - FIRST PRINCIPLES ENGINE =====")
+    Config.initialize()
     
-    print("\n🏁 Daily broadcast workflow completed.")
-    if total_successes == 0:
-        print("ALL PIPELINES FAILED. Throwing exit code 1.")
+    script_data = ContentStrategist.create_script()
+    if script_data:
+        vid_path, lyrics, times = VideoStudio.render_short(script_data)
+        if vid_path:
+            success = Broadcaster.upload(vid_path, script_data, lyrics, times)
+            if not success: sys.exit(1)
+        else:
+            print("❌ Video Assembly Failed.")
+            sys.exit(1)
+    else:
+        print("❌ Intelligence Engine Failed.")
         sys.exit(1)
+        
+    system_cleanup()
+    print("🏁 Pipeline execution perfect.")
