@@ -114,6 +114,13 @@ class IntelligenceEngine:
 class ContentStrategist:
     """Generates the viral script using strict Hindi logic."""
     VIRAL_THEMES = [
+        # --- NEW DATA-BACKED THEMES FROM ANALYTICS ---
+        "Chote Bachon Ka Khilona (Small Kids Colorful Toys) Playing",
+        "Giant Green T-Rex Dinosaur Roaring loudly",
+        "Cute Baby Dinosaur Hatching from Egg",
+        "Toy Train and Building Blocks for Kids",
+        
+        # --- EXISTING HYPER-VIRAL THEMES ---
         "Yellow JCB Excavator Digging Mud", "Red Tractor Driving in Village Farm", "Big Red Fire Truck Rescue", "Police Car Chasing Thieves",
         "Colorful Choo Choo Train on Tracks", "Giant Monster Truck Jumping", "Garbage Truck Cleaning the City", "Flying Helicopter Rescue",
         "Hathi Raja (King Elephant) Dancing", "Naughty Bandar Mama (Monkey) Eating Bananas", "Sher Khan (Lion King) Roaring loudly", "Chalak Lomdi (Clever Fox) Running",
