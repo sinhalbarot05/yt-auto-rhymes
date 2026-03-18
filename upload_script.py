@@ -58,6 +58,7 @@ def save_to_memory(f, item):
         json.dump(data[-1000:], open(os.path.join(MEMORY_DIR, f), 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
 
 def clean_text_for_font(text, is_english=False):
+    # Regex shield: Strips anything that isn't English (if is_english) or pure Devanagari (if Hindi)
     if is_english: return re.sub(r'[^\w\s\,\.\!\?\-\@]', '', text).strip()
     else: return re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
 
@@ -147,7 +148,7 @@ def generate_content(mode="short"):
         "Playing with Little Sister", "Baby Helping Mummy in Kitchen"
     ]
 
-    # ── INFINITE THEME EXPANSION ── (upgraded from simple [-40:] filter)
+    # ── INFINITE THEME EXPANSION ── 
     available_themes = [t for t in themes if t not in used[-100:]]
     if len(available_themes) < 5:
         print("Theme pool running low! Generating fresh viral ideas...")
@@ -192,31 +193,35 @@ Character archetype: [{archetype}]
 
 ━━ NATIVE HINDI LINGUISTIC RULES (CRITICAL) ━━
 1. Write EXACTLY {line_count} scenes/lines.
-2. PERFECT HINDI GRAMMAR: The rhyme must sound completely natural, like a classic Indian balgeet (similar to "मछली जल की रानी है"). Avoid clunky literal translations. Use simple, lovely, conversational Hindi words for toddlers (e.g., use "प्यारा तोता" instead of unnatural words).
-3. PURE DEVANAGARI: Use 100% correct Hindi spelling. NEVER mix English, Roman, or Cyrillic letters in the Hindi text. 
+2. PERFECT HINDI GRAMMAR: The rhyme must sound completely natural, like a classic Indian balgeet. Use simple, conversational Hindi for toddlers.
+3. PURE DEVANAGARI STRICT LOCK: You MUST write the Hindi sections using ONLY standard Devanagari characters. 
+   - NO Emojis or symbols (e.g., no 龜).
+   - NO English/Roman letters mixed inside Hindi words (e.g., NEVER write "मUMMY", use "मम्मी" or "माँ").
+   - NO Chinese, Japanese, or Cyrillic characters.
 4. PERFECT RHYTHM (तुकबंदी): Focus on a bouncy, sing-song meter. Lines must be 4 to 8 words long. 
-5. RHYME SCHEME: AABB. (Lines 1 & 2 rhyme perfectly, Lines 3 & 4 rhyme perfectly, etc.). NEVER sacrifice Hindi grammar just to force a rhyme.
+5. RHYME SCHEME: AABB. NEVER sacrifice Hindi grammar just to force a rhyme.
 
 ━━ CHARACTER CONSISTENCY RULES ━━
-6. Design ONE protagonist matching the archetype. Describe clothes, color, and ONE unique feature in exactly 12–15 English words.
+6. Design ONE protagonist matching the archetype. Describe clothes, color, and ONE unique feature in exactly 12-15 English words.
 7. EVERY image_prompt MUST start with the exact protagonist description word-for-word.
 8. Scene 1 image_prompt MUST show the character doing something energetic (jumping, flying, dancing).
 
 ━━ ADVANCED SEO RULES ━━
 9. TITLE: Create a highly clickable, grammatically perfect Hindi title. 
-   Format EXACTLY: "Perfect Hindi Catchphrase | English Translation | 3D Balgeet 2026 | Hindi Rhymes for Kids"
-   Example: "प्यारा तोता उड़ गया | Cute Flying Parrot | 3D Balgeet 2026 | Hindi Rhymes for Kids"
+   Format EXACTLY: "Perfect Hindi Catchphrase | English Translation | 3D बालगीत 2026 | हिंदी राइम्स फॉर किड्स"
+   (Note the correct spelling of 'बालगीत').
+   Example: "कछुए की जीत | Slow Turtle Wins | 3D बालगीत 2026 | हिंदी राइम्स फॉर किड्स"
 10. SEO_TAGS: Generate exactly 30 tags (mix of broad, specific, long-tail, and Devanagari).
 11. SEO_DESCRIPTION: 250 words total with hook sentence, [TIMESTAMPS] placeholder, and [LYRICS] placeholder.
 
 Output ONLY valid JSON:
 {{
-  "title": "Grammatically Perfect Hindi | English | 3D Balgeet 2026 | Hindi Rhymes for Kids",
+  "title": "Grammatically Perfect Pure Hindi | English | 3D बालगीत 2026 | हिंदी राइम्स फॉर किड्स",
   "keyword": "single most searchable English word for this topic",
   "seo_tags": ["tag1","tag2"],
   "seo_description": "Full description with [TIMESTAMPS] and [LYRICS] placeholders",
   "main_character": "Exactly 12-15 word English visual description of protagonist",
-  "scenes": [{{"line": "4-8 word perfectly grammatical Devanagari Hindi sentence", "image_prompt": "protagonist description + energetic action"}}]
+  "scenes": [{{"line": "4-8 word perfectly grammatical pure Devanagari Hindi sentence", "image_prompt": "protagonist description + energetic action"}}]
 }}"""
     
     for attempt in range(4):
