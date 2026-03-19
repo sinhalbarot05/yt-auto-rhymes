@@ -35,14 +35,12 @@ class Config:
         for d in [Config.MEMORY_DIR, Config.OUTPUT_DIR, Config.ASSETS_DIR]:
             Path(d).mkdir(exist_ok=True)
         
-        # Ensure default files exist
         for f in ["used_topics.json", "used_rhymes.json"]:
             path = os.path.join(Config.MEMORY_DIR, f)
             if not os.path.exists(path):
                 with open(path, "w", encoding='utf-8') as file:
                     json.dump([], file)
 
-        # Download strict dependencies
         if not os.path.exists(Config.FONT_FILE):
             open(Config.FONT_FILE, 'wb').write(requests.get("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf", timeout=20).content)
         if not os.path.exists(Config.ENG_FONT_FILE):
@@ -53,7 +51,6 @@ class Config:
             open(bg_music, 'wb').write(requests.get("https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3", timeout=30).content)
 
 class StorageEngine:
-    """Handles all persistent memory (so we don't repeat content)."""
     @staticmethod
     def load(filename):
         path = os.path.join(Config.MEMORY_DIR, filename)
@@ -74,7 +71,6 @@ class StorageEngine:
 # CORE 2: THE INTELLIGENCE (LLM)
 # ==========================================
 class IntelligenceEngine:
-    """Handles Groq/OpenAI with strict JSON parsing and fallback logic."""
     @staticmethod
     def _call_api(url, key, model, prompt, max_tokens):
         if not key: return None
@@ -88,10 +84,8 @@ class IntelligenceEngine:
 
     @staticmethod
     def ask(prompt):
-        # 1. Try OpenAI
         res = IntelligenceEngine._call_api("https://api.openai.com/v1/chat/completions", os.getenv('OPENAI_API_KEY'), "gpt-4o-mini", prompt, 2000)
         if res: return res
-        # 2. Fallback to Groq
         return IntelligenceEngine._call_api("https://api.groq.com/openai/v1/chat/completions", os.getenv('GROQ_API_KEY'), "llama-3.3-70b-versatile", prompt, 3000)
 
     @staticmethod
@@ -112,15 +106,11 @@ class IntelligenceEngine:
         except Exception: return None
 
 class ContentStrategist:
-    """Generates the viral script using strict Hindi logic."""
     VIRAL_THEMES = [
-        # --- NEW DATA-BACKED THEMES FROM ANALYTICS ---
         "Chote Bachon Ka Khilona (Small Kids Colorful Toys) Playing",
         "Giant Green T-Rex Dinosaur Roaring loudly",
         "Cute Baby Dinosaur Hatching from Egg",
         "Toy Train and Building Blocks for Kids",
-        
-        # --- EXISTING HYPER-VIRAL THEMES ---
         "Yellow JCB Excavator Digging Mud", "Red Tractor Driving in Village Farm", "Big Red Fire Truck Rescue", "Police Car Chasing Thieves",
         "Colorful Choo Choo Train on Tracks", "Giant Monster Truck Jumping", "Garbage Truck Cleaning the City", "Flying Helicopter Rescue",
         "Hathi Raja (King Elephant) Dancing", "Naughty Bandar Mama (Monkey) Eating Bananas", "Sher Khan (Lion King) Roaring loudly", "Chalak Lomdi (Clever Fox) Running",
@@ -201,22 +191,32 @@ Output ONLY valid JSON:
 # CORE 3: ASSET FACTORY (Hydra Image + Edge TTS + Audio)
 # ==========================================
 class AssetEngine:
-    """Handles robust file downloading, image generation, and voice synthesis."""
-    
     @staticmethod
-    def _download(url, filepath):
+    def _download(url, filepath, headers=None):
         session = requests.Session()
-        retry = Retry(total=4, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504], allowed_methods={"GET"})
+        retry = Retry(total=4, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504], allowed_methods={"GET"})
         session.mount('https://', HTTPAdapter(max_retries=retry))
         try:
-            r = session.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=35)
+            req_headers = {"User-Agent": "Mozilla/5.0"}
+            if headers: req_headers.update(headers) # Inject API Keys if present
+            
+            r = session.get(url, headers=req_headers, timeout=45)
             r.raise_for_status()
-            if 'image' not in r.headers.get('Content-Type', '').lower(): return False
+            
+            if 'image' not in r.headers.get('Content-Type', '').lower():
+                print(f"   ↳ ❌ Not an image (got {r.headers.get('Content-Type')}) - URL: {url[:30]}...")
+                return False
+                
             try: Image.open(io.BytesIO(r.content)).verify()
-            except Exception: return False
+            except Exception as e:
+                print(f"   ↳ ❌ Corrupt image bytes: {e}")
+                return False
+                
             with open(filepath, 'wb') as f: f.write(r.content)
             return True
-        except Exception: return False
+        except Exception as e:
+            print(f"   ↳ ❌ Network Error: {str(e)[:50]}...")
+            return False
 
     @staticmethod
     def fetch_dynamic_background_music(out_path):
@@ -247,20 +247,19 @@ class AssetEngine:
         clean_prompt = urllib.parse.quote(f"{prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k")
         api = os.getenv('POLLINATIONS_API_KEY')
         
-        # Layer 1 & 2: Pollinations (Auth -> Public)
-        urls = []
-        if api: urls.append(f"https://gen.pollinations.ai/image/{clean_prompt}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true")
-        urls.append(f"https://image.pollinations.ai/prompt/{clean_prompt}?width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true")
-        # Layer 3: LoremFlickr Stock
-        urls.append(f"https://loremflickr.com/{w}/{h}/{urllib.parse.quote(fallback_kw or 'cartoon kids')}?lock={scene_seed}")
+        # Build tasks with correct headers
+        tasks = []
+        if api: 
+            tasks.append({"url": f"https://gen.pollinations.ai/image/{clean_prompt}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true", "headers": {"Authorization": f"Bearer {api}"}})
+        tasks.append({"url": f"https://image.pollinations.ai/prompt/{clean_prompt}?width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true", "headers": None})
+        tasks.append({"url": f"https://loremflickr.com/{w}/{h}/{urllib.parse.quote(fallback_kw or 'cartoon kids')}?lock={scene_seed}", "headers": None})
 
         success = False
-        for url in urls:
-            if AssetEngine._download(url, filepath):
+        for task in tasks:
+            if AssetEngine._download(task["url"], filepath, task["headers"]):
                 success = True
                 break
         
-        # Enhance or Layer 4 (Color Block)
         if success:
             try:
                 with Image.open(filepath) as im:
@@ -275,7 +274,6 @@ class AssetEngine:
 
     @staticmethod
     def generate_voice(text, filepath):
-        # Strict fallback sanitization to protect edge-tts from symbols
         clean_speech = re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
         if len(clean_speech) < 2: clean_speech = "मस्ती"
         
@@ -291,8 +289,6 @@ class AssetEngine:
 # CORE 4: VIDEO STUDIO (MoviePy)
 # ==========================================
 class VideoStudio:
-    """Assembles the final video using dynamic camera moves and text overlays."""
-    
     @staticmethod
     def _create_text_overlay(text, w, h, size, dur, color='#FFFF00', y_pos=None, is_eng=False):
         clean_text = re.sub(r'[^\w\s\,\.\!\?\-\@]', '', text).strip() if is_eng else re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
@@ -302,7 +298,6 @@ class VideoStudio:
         
         font = ImageFont.truetype(font_path, size) if os.path.exists(font_path) else ImageFont.load_default()
         
-        # Simple word wrap
         max_w = w - 120
         words = clean_text.split()
         lines, curr = [], ""
@@ -315,7 +310,6 @@ class VideoStudio:
         if curr: lines.append(curr)
         wrapped = "\n".join(lines)
         
-        # Scale down if too tall
         bbox = draw.multiline_textbbox((0,0), wrapped, font=font, align="center")
         while (bbox[2]-bbox[0] > max_w) and size > 40:
             size -= 4
@@ -326,7 +320,6 @@ class VideoStudio:
         x = (w - tw) // 2
         y = y_pos if y_pos is not None else (h - th - 340)
 
-        # Draw stroke then text
         stroke = 8
         draw.multiline_text((x+6, y+6), wrapped, font=font, fill=(0,0,0,160), align="center")
         for dx in range(-stroke, stroke+1, 2):
@@ -344,8 +337,8 @@ class VideoStudio:
         bgm_path = os.path.join(Config.ASSETS_DIR, "bg_music_dynamic.mp3")
         AssetEngine.fetch_dynamic_background_music(bgm_path)
 
-        # Parallel Generation
-        with ThreadPoolExecutor(max_workers=6) as ex:
+        # REDUCED CONCURRENCY TO 3: Prevents Cloudflare / API rate-limits from blocking GitHub Runner IP
+        with ThreadPoolExecutor(max_workers=3) as ex:
             futures = []
             for i, scene in enumerate(script_data['scenes']):
                 img_path = os.path.join(Config.ASSETS_DIR, f"img_{i}.jpg")
@@ -362,9 +355,8 @@ class VideoStudio:
         for i, scene in enumerate(script_data['scenes']):
             img_path = os.path.join(Config.ASSETS_DIR, f"img_{i}.jpg")
             aud_path = os.path.join(Config.ASSETS_DIR, f"aud_{i}.mp3")
-            if not os.path.exists(aud_path): return None, None, None # Fail safe
+            if not os.path.exists(aud_path): return None, None, None
             
-            # Audio mix (Voice + Reverb + BGM)
             voice = AudioFileClip(aud_path)
             echo = voice.volumex(0.25).set_start(0.18)
             enhanced_voice = CompositeAudioClip([voice, echo]).set_duration(voice.duration + 0.3)
@@ -373,7 +365,6 @@ class VideoStudio:
             bgm = AudioFileClip(bgm_path).volumex(0.085).audio_fadein(2.0)
             bg_looped = concatenate_audioclips([bgm] * int(math.ceil(dur/bgm.duration))).subclip(0, dur) if bgm.duration > 0 else bgm
             
-            # Video mix (Camera Pan + Text)
             img = ImageClip(img_path).resize(1.15)
             ex_x, ex_y = img.w - w, img.h - h
             move = random.choice(['zoom_in','zoom_out','pan_left','pan_right','pan_up','pan_down'])
@@ -407,8 +398,6 @@ class VideoStudio:
 # CORE 5: BROADCASTER (YouTube Upload)
 # ==========================================
 class Broadcaster:
-    """Handles safe YouTube metadata truncation and API uploading."""
-    
     @staticmethod
     def upload(video_path, script_data, lyrics, timestamps):
         try:
@@ -417,7 +406,6 @@ class Broadcaster:
                 creds = pickle.load(f)
             service = build('youtube', 'v3', credentials=creds)
 
-            # Metadata Sanitization
             title = script_data.get('title', "Hindi Nursery Rhymes for Kids 2026")
             if len(title) > 97: title = title[:97] + "..."
             
