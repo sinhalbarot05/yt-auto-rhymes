@@ -68,25 +68,46 @@ class StorageEngine:
                 json.dump(data[-1000:], f, ensure_ascii=False, indent=2)
 
 # ==========================================
-# CORE 2: THE INTELLIGENCE (LLM)
+# CORE 2: THE INTELLIGENCE (3-TIER LLM HYDRA)
 # ==========================================
 class IntelligenceEngine:
     @staticmethod
-    def _call_api(url, key, model, prompt, max_tokens):
-        if not key: return None
+    def _call_api(name, url, key, model, prompt, max_tokens):
+        if not key: 
+            print(f"   ↳ ⚠️ Skipping {name}: No API key found.")
+            return None
         try:
             r = requests.post(url, headers={"Authorization": f"Bearer {key}"},
                               json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.9, "max_tokens": max_tokens}, timeout=45)
             if r.status_code == 200:
+                print(f"   ↳ ✅ {name} successfully generated response.")
                 return r.json()["choices"][0]["message"]["content"].strip()
-        except Exception: pass
+            else:
+                print(f"   ↳ ❌ {name} Error {r.status_code}: {r.text[:50]}")
+        except Exception as e:
+            print(f"   ↳ ❌ {name} Timeout/Crash: {str(e)[:50]}")
         return None
 
     @staticmethod
     def ask(prompt):
-        res = IntelligenceEngine._call_api("https://api.openai.com/v1/chat/completions", os.getenv('OPENAI_API_KEY'), "gpt-4o-mini", prompt, 2000)
+        print("🧠 Engaging Omni-Fallback Intelligence Engine...")
+        
+        # Layer 1: OpenAI
+        res = IntelligenceEngine._call_api("OpenAI", "https://api.openai.com/v1/chat/completions", os.getenv('OPENAI_API_KEY'), "gpt-4o-mini", prompt, 2000)
         if res: return res
-        return IntelligenceEngine._call_api("https://api.groq.com/openai/v1/chat/completions", os.getenv('GROQ_API_KEY'), "llama-3.3-70b-versatile", prompt, 3000)
+        
+        # Layer 2: Groq
+        print("   ↳ 🔄 Falling back to Groq...")
+        res = IntelligenceEngine._call_api("Groq", "https://api.groq.com/openai/v1/chat/completions", os.getenv('GROQ_API_KEY'), "llama-3.3-70b-versatile", prompt, 3000)
+        if res: return res
+        
+        # Layer 3: WaveSpeed
+        print("   ↳ 🔄 Falling back to WaveSpeed...")
+        res = IntelligenceEngine._call_api("WaveSpeed", "https://api.wavespeed.ai/v1/chat/completions", os.getenv('WAVESPEED_API_KEY'), "llama-3-70b", prompt, 3000) 
+        if res: return res
+
+        print("🚨 ALL LLM LAYERS FAILED.")
+        return None
 
     @staticmethod
     def extract_json(text):
@@ -135,7 +156,7 @@ class ContentStrategist:
     def get_theme(used_topics):
         available = [t for t in ContentStrategist.VIRAL_THEMES if t not in used_topics[-100:]]
         if len(available) < 5:
-            print("🧠 Expanding brain: Generating new viral themes...")
+            print("🧠 Expanding brain pool...")
             prompt = "You are a YouTube India Kids strategist. Generate 15 BRAND NEW, highly viral Hindi toddler video topics (like JCBs, animals, magic). Output ONLY a valid JSON list of 15 English strings."
             raw = IntelligenceEngine.ask(prompt)
             new_themes = IntelligenceEngine.extract_json(raw)
@@ -159,7 +180,7 @@ Archetype: [{archetype}]
 ━━ STRICT HINDI LINGUISTIC RULES ━━
 1. Write EXACTLY 14 scenes/lines.
 2. PERFECT HINDI GRAMMAR & GENDER (लिंग): Ensure masculine/feminine words match perfectly.
-3. PURE DEVANAGARI STRICT LOCK: MUST use ONLY standard Devanagari. NO Emojis. NO English/Roman letters mixed inside Hindi words. DO NOT transliterate English words into Hindi script (e.g., do NOT write "मिश्चिव" for mischievous, use "नटखट").
+3. PURE DEVANAGARI STRICT LOCK: MUST use ONLY standard Devanagari. NO Emojis. NO English/Roman letters mixed inside Hindi words. DO NOT transliterate English words into Hindi script.
 4. RHYTHM & RHYME: 4 to 8 words per line. Bouncy meter. AABB rhyme scheme. NEVER force a rhyme over good grammar.
 5. NO LITERAL TRANSLATIONS: Write naturally like an Indian mother.
 
@@ -188,7 +209,7 @@ Output ONLY valid JSON:
         return None
 
 # ==========================================
-# CORE 3: ASSET FACTORY (Hydra Image + Edge TTS + Audio)
+# CORE 3: ASSET FACTORY (4-TIER IMAGE HYDRA)
 # ==========================================
 class AssetEngine:
     @staticmethod
@@ -198,25 +219,20 @@ class AssetEngine:
         session.mount('https://', HTTPAdapter(max_retries=retry))
         try:
             req_headers = {"User-Agent": "Mozilla/5.0"}
-            if headers: req_headers.update(headers) # Inject API Keys if present
+            if headers: req_headers.update(headers)
             
             r = session.get(url, headers=req_headers, timeout=45)
             r.raise_for_status()
             
             if 'image' not in r.headers.get('Content-Type', '').lower():
-                print(f"   ↳ ❌ Not an image (got {r.headers.get('Content-Type')}) - URL: {url[:30]}...")
                 return False
                 
             try: Image.open(io.BytesIO(r.content)).verify()
-            except Exception as e:
-                print(f"   ↳ ❌ Corrupt image bytes: {e}")
-                return False
+            except Exception: return False
                 
             with open(filepath, 'wb') as f: f.write(r.content)
             return True
-        except Exception as e:
-            print(f"   ↳ ❌ Network Error: {str(e)[:50]}...")
-            return False
+        except Exception: return False
 
     @staticmethod
     def fetch_dynamic_background_music(out_path):
@@ -247,7 +263,6 @@ class AssetEngine:
         clean_prompt = urllib.parse.quote(f"{prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k")
         api = os.getenv('POLLINATIONS_API_KEY')
         
-        # Build tasks with correct headers
         tasks = []
         if api: 
             tasks.append({"url": f"https://gen.pollinations.ai/image/{clean_prompt}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true", "headers": {"Authorization": f"Bearer {api}"}})
@@ -269,7 +284,6 @@ class AssetEngine:
                     im.save(filepath, "JPEG", quality=98, optimize=True)
             except Exception: pass
         else:
-            print("🚨 All image layers failed. Generating brand block.")
             Image.new('RGB', (w, h), random.choice(Config.BRAND_COLORS)).save(filepath)
 
     @staticmethod
@@ -286,7 +300,7 @@ class AssetEngine:
         return False
 
 # ==========================================
-# CORE 4: VIDEO STUDIO (MoviePy)
+# CORE 4: VIDEO STUDIO
 # ==========================================
 class VideoStudio:
     @staticmethod
@@ -337,7 +351,6 @@ class VideoStudio:
         bgm_path = os.path.join(Config.ASSETS_DIR, "bg_music_dynamic.mp3")
         AssetEngine.fetch_dynamic_background_music(bgm_path)
 
-        # REDUCED CONCURRENCY TO 3: Prevents Cloudflare / API rate-limits from blocking GitHub Runner IP
         with ThreadPoolExecutor(max_workers=3) as ex:
             futures = []
             for i, scene in enumerate(script_data['scenes']):
@@ -355,7 +368,7 @@ class VideoStudio:
         for i, scene in enumerate(script_data['scenes']):
             img_path = os.path.join(Config.ASSETS_DIR, f"img_{i}.jpg")
             aud_path = os.path.join(Config.ASSETS_DIR, f"aud_{i}.mp3")
-            if not os.path.exists(aud_path): return None, None, None
+            if not os.path.exists(aud_path): return None, None, None 
             
             voice = AudioFileClip(aud_path)
             echo = voice.volumex(0.25).set_start(0.18)
@@ -395,7 +408,7 @@ class VideoStudio:
         return out_path, lyrics, timestamps
 
 # ==========================================
-# CORE 5: BROADCASTER (YouTube Upload)
+# CORE 5: BROADCASTER
 # ==========================================
 class Broadcaster:
     @staticmethod
@@ -470,7 +483,7 @@ def system_cleanup():
 # MAIN EXECUTION
 # ==========================================
 if __name__=="__main__":
-    print(f"===== {Config.CHANNEL_HANDLE} - FIRST PRINCIPLES ENGINE =====")
+    print(f"===== {Config.CHANNEL_HANDLE} - FIRST PRINCIPLES OMNI-ENGINE =====")
     Config.initialize()
     
     script_data = ContentStrategist.create_script()
