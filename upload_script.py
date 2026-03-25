@@ -126,38 +126,50 @@ class IntelligenceEngine:
                 return json.loads(text[text.find('{'):text.rfind('}')+1])
         except Exception: return None
 
+# ==========================================
+# DIGITAL TOY FACTORY PIVOT
+# ==========================================
 class ContentStrategist:
     VIRAL_THEMES = [
         "Chote Bachon Ka Khilona (Small Kids Colorful Toys) Playing",
         "Giant Green T-Rex Dinosaur Roaring loudly",
         "Cute Baby Dinosaur Hatching from Egg",
         "Toy Train and Building Blocks for Kids",
-        "Yellow JCB Excavator Digging Mud", "Red Tractor Driving in Village Farm", "Big Red Fire Truck Rescue", "Police Car Chasing Thieves",
-        "Colorful Choo Choo Train on Tracks", "Giant Monster Truck Jumping", "Garbage Truck Cleaning the City", "Flying Helicopter Rescue",
-        "Hathi Raja (King Elephant) Dancing", "Naughty Bandar Mama (Monkey) Eating Bananas", "Sher Khan (Lion King) Roaring loudly", "Chalak Lomdi (Clever Fox) Running",
-        "Pyaasa Kauwa (Thirsty Crow) Drinking Water", "Dancing Mor (Colorful Peacock) in Rain", "Bhalu (Bear) Dancing in Jungle", "Kachhua (Slow Turtle) Winning Race",
-        "Moti Kutta (Chubby Dog) Barking", "Billi Mausi (Aunt Cat) Drinking Milk", "Happy Baby Brushing Teeth Song", "Crying Baby Takes a Bubble Bath",
-        "Toddler Eating Healthy Green Vegetables", "Baby Going to Sleep Lullaby", "Getting Dressed for School Morning", "Washing Hands with Soap Song",
-        "Sharing Toys with Friends", "Funny Bhoot (Friendly Ghost) in House", "Naughty Baby Hiding from Mummy", "Five Little Monkeys Jumping on Bed",
-        "Baby Falling Down and Crying loudly", "Magic Flying Carpet in Starry Sky", "Rainbow Unicorn Flying in Clouds", "Talking Colorful Ice Cream Cones",
-        "Dancing Mangoes and Apples", "Beautiful Mermaid in Deep Blue Ocean", "Glowing Fireflies in Dark Forest", "Magic Wand Changing Colors",
-        "Mummy and Papa Loving Baby", "Dada Dadi (Grandparents) Telling Story", "Playing with Little Sister", "Baby Helping Mummy in Kitchen"
+        "Mango Yellow JCB Excavator Digging Mud", 
+        "Red Toy Tractor Driving in Village Farm", 
+        "Big Red Toy Fire Truck Rescue", 
+        "Police Car Toy Chasing Thieves",
+        "Colorful Choo Choo Toy Train on Tracks", 
+        "Giant Monster Truck Toy Jumping", 
+        "Garbage Truck Toy Cleaning the City", 
+        "Flying Helicopter Toy Rescue",
+        "Remote Control Racing Car Zooming",
+        "Naughty Toy Robot Driving a Tractor",
+        "Cute Plush Dinosaur Riding a Train",
+        "Plastic Toy Animals Racing in Farm",
+        "Mango Yellow Crane Lifting Toy Blocks",
+        "Royal Blue Toy Airplane Flying High",
+        "Deep Turquoise Toy Boat in Water",
+        "Magical Glowing Toy Robot Dancing"
     ]
 
     ARCHETYPES = [
-        "adorable little Indian girl, big brown eyes, bright pink lehenga", "cute chubby Indian baby boy, curly hair, yellow kurta",
-        "friendly baby animal matching the theme, cute costume", "magical glowing fairy, tiny wings, pastel purple and gold",
-        "cute funny round robot, blinking LED eyes, colorful buttons", "brave little Indian superhero toddler, tiny cape and mask",
-        "cheerful baby alien, big blue eyes, shiny silver suit", "playful little Indian boy, chef outfit, tiny white hat",
-        "energetic baby girl, astronaut white and orange suit", "tiny talking animal sidekick duo, one big, one small"
+        "premium 3D plastic Mango Yellow toy robot with glowing eyes", 
+        "cute plush Deep Turquoise baby dinosaur toy",
+        "glossy Royal Blue plastic toy tractor with big wheels", 
+        "vibrant 3D plastic toy train engine",
+        "cute chunky Mango Yellow toy JCB excavator", 
+        "shiny 3D plastic toy helicopter",
+        "adorable plush monkey toy riding a tractor", 
+        "premium plastic toy police car with flashing lights"
     ]
 
     @staticmethod
     def get_theme(used_topics):
         available = [t for t in ContentStrategist.VIRAL_THEMES if t not in used_topics[-100:]]
         if len(available) < 5:
-            print("🧠 Expanding brain pool...")
-            prompt = "You are a YouTube India Kids strategist. Generate 15 BRAND NEW, highly viral Hindi toddler video topics (like JCBs, animals, magic). Output ONLY a valid JSON list of 15 English strings."
+            print("🧠 Expanding brain pool with more Toy/Vehicle ideas...")
+            prompt = "You are a YouTube India Kids strategist. Generate 15 BRAND NEW, highly viral Hindi toddler video topics focused STRICTLY on TOYS, TRACTORS, VEHICLES, and DINOSAURS. Output ONLY a valid JSON list of 15 English strings."
             raw = IntelligenceEngine.ask(prompt)
             new_themes = IntelligenceEngine.extract_json(raw)
             if isinstance(new_themes, list) and len(new_themes) > 5:
@@ -170,8 +182,8 @@ class ContentStrategist:
         theme = ContentStrategist.get_theme(used)
         archetype = random.choice(ContentStrategist.ARCHETYPES)
         
-        topic_prompt = f"Output ONLY a 3-to-4 word English topic for a Hindi kids rhyme about: {theme}. No rabbits, cakes, sweets. Avoid: {', '.join(used[-20:])}."
-        topic = IntelligenceEngine.ask(topic_prompt) or f"Cute {theme}"
+        topic_prompt = f"Output ONLY a 3-to-4 word English topic for a Hindi kids rhyme about: {theme}. No generic baby stuff. Focus on toys/vehicles. Avoid: {', '.join(used[-20:])}."
+        topic = IntelligenceEngine.ask(topic_prompt) or f"Cute Toy {theme}"
         
         prompt = f"""You are a native Hindi children's poet and a YouTube India SEO expert.
 Topic: "{topic}"
@@ -185,9 +197,10 @@ Archetype: [{archetype}]
 5. NO LITERAL TRANSLATIONS: Write naturally like an Indian mother.
 
 ━━ VISUAL & SEO RULES ━━
-6. Protagonist: Describe in 12-15 English words using Mango Yellow, Royal Blue, or Deep Turquoise. EVERY image_prompt MUST start with this exact description.
-7. TITLE: Create a SHORT, natural Hindi catchphrase (2 to 4 words). Format EXACTLY: "Short Hindi Catchphrase | English | 3D बालगीत 2026 | हिंदी राइम्स फॉर किड्स" (Note correct spelling of बालगीत).
-8. Generate 30 SEO tags and a 250-word description with [TIMESTAMPS] and [LYRICS] placeholders.
+6. Protagonist: Describe in 12-15 English words as a premium 3D toy using Mango Yellow, Royal Blue, or Deep Turquoise. EVERY image_prompt MUST start with this exact description.
+7. TOY AESTHETIC: EVERY image_prompt MUST include "High-contrast, hyper-vibrant, bright lighting, plastic toy store aesthetic".
+8. TITLE: Create a SHORT, natural Hindi catchphrase (2 to 4 words). Format EXACTLY: "Short Hindi Catchphrase | English | 3D बालगीत 2026 | हिंदी राइम्स फॉर किड्स" (Note correct spelling of बालगीत).
+9. Generate 30 SEO tags and a 250-word description with [TIMESTAMPS] and [LYRICS] placeholders.
 
 Output ONLY valid JSON:
 {{
@@ -196,7 +209,7 @@ Output ONLY valid JSON:
   "seo_tags": ["tag1","tag2"],
   "seo_description": "...",
   "main_character": "12-15 word English description",
-  "scenes": [{{"line": "4-8 word pure Devanagari sentence", "image_prompt": "character description + action"}}]
+  "scenes": [{{"line": "4-8 word pure Devanagari sentence", "image_prompt": "character description + toy aesthetic + action"}}]
 }}"""
         for _ in range(4):
             raw = IntelligenceEngine.ask(prompt)
@@ -408,7 +421,7 @@ class VideoStudio:
         return out_path, lyrics, timestamps
 
 # ==========================================
-# CORE 5: BROADCASTER
+# CORE 5: BROADCASTER (Weaponized Metadata)
 # ==========================================
 class Broadcaster:
     @staticmethod
@@ -423,9 +436,16 @@ class Broadcaster:
             if len(title) > 97: title = title[:97] + "..."
             
             ai_tags = script_data.get('seo_tags', [])
-            base_tags = ["hindi nursery rhymes", "balgeet", "bachon ke geet", "3d hindi rhymes", "shorts"]
+            
+            # 🚨 HARDCODED WINNING SEO METADATA BASED ON ANALYTICS 🚨
+            base_tags = [
+                "छोटे बच्चों का खिलौना", "dinosaur poem in hindi", "rems hindi", "reams hindi", 
+                "tractor cartoon", "khilona wala cartoon", "hindi nursery rhymes", "balgeet", 
+                "bachon ke geet", "3d hindi rhymes", "shorts"
+            ]
+            
             valid_tags, char_count = [], 0
-            for tag in list(dict.fromkeys(ai_tags + base_tags)):
+            for tag in list(dict.fromkeys(base_tags + ai_tags)):
                 clean = re.sub(r'[<>",#|\[\]{}\n\r]', '', str(tag)).strip()
                 if 2 < len(clean) < 40 and char_count + len(clean) < 350:
                     valid_tags.append(clean)
@@ -441,7 +461,7 @@ class Broadcaster:
                     f"📌 TIMESTAMPS:\n{time_block}\n\n"
                     f"📝 LYRICS:\n{lyrics_block}\n\n"
                     f"👍 LIKE | SUBSCRIBE | SHARE ↗️\n"
-                    f"#HindiRhymes #Balgeet #Shorts #KidsCartoon")
+                    f"#HindiRhymes #छोटेबच्चोंकाखिलौना #TractorCartoon #Balgeet #Shorts #KidsToys")
 
             body = {
                 'snippet': {
@@ -483,7 +503,7 @@ def system_cleanup():
 # MAIN EXECUTION
 # ==========================================
 if __name__=="__main__":
-    print(f"===== {Config.CHANNEL_HANDLE} - FIRST PRINCIPLES OMNI-ENGINE =====")
+    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY OMNI-ENGINE =====")
     Config.initialize()
     
     script_data = ContentStrategist.create_script()
