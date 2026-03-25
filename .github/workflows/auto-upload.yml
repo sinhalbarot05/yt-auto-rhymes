@@ -58,4 +58,4 @@ jobs:
           git config user.name "AutoBroadcaster"
           git config user.email "bot@hindimastrhymes.auto"
           git add memory/*.json
-          git diff --quiet --staged || (git commit -m "chore: update memory [skip ci]" && git push)
+          git diff --quiet --staged || (git commit -m "chore: update memory [skip ci]" && git pull --rebase origin main && git push)
