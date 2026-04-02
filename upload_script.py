@@ -127,7 +127,7 @@ class IntelligenceEngine:
         except Exception: return None
 
 # ==========================================
-# DIGITAL TOY FACTORY PIVOT
+# DIGITAL TOY FACTORY PIVOT (VIRAL LOOP EDITION)
 # ==========================================
 class ContentStrategist:
     VIRAL_THEMES = [
@@ -145,12 +145,7 @@ class ContentStrategist:
         "Flying Helicopter Toy Rescue",
         "Remote Control Racing Car Zooming",
         "Naughty Toy Robot Driving a Tractor",
-        "Cute Plush Dinosaur Riding a Train",
-        "Plastic Toy Animals Racing in Farm",
-        "Mango Yellow Crane Lifting Toy Blocks",
-        "Royal Blue Toy Airplane Flying High",
-        "Deep Turquoise Toy Boat in Water",
-        "Magical Glowing Toy Robot Dancing"
+        "Cute Plush Dinosaur Riding a Train"
     ]
 
     ARCHETYPES = [
@@ -158,22 +153,12 @@ class ContentStrategist:
         "cute plush Deep Turquoise baby dinosaur toy",
         "glossy Royal Blue plastic toy tractor with big wheels", 
         "vibrant 3D plastic toy train engine",
-        "cute chunky Mango Yellow toy JCB excavator", 
-        "shiny 3D plastic toy helicopter",
-        "adorable plush monkey toy riding a tractor", 
-        "premium plastic toy police car with flashing lights"
+        "cute chunky Mango Yellow toy JCB excavator"
     ]
 
     @staticmethod
     def get_theme(used_topics):
         available = [t for t in ContentStrategist.VIRAL_THEMES if t not in used_topics[-100:]]
-        if len(available) < 5:
-            print("🧠 Expanding brain pool with more Toy/Vehicle ideas...")
-            prompt = "You are a YouTube India Kids strategist. Generate 15 BRAND NEW, highly viral Hindi toddler video topics focused STRICTLY on TOYS, TRACTORS, VEHICLES, and DINOSAURS. Output ONLY a valid JSON list of 15 English strings."
-            raw = IntelligenceEngine.ask(prompt)
-            new_themes = IntelligenceEngine.extract_json(raw)
-            if isinstance(new_themes, list) and len(new_themes) > 5:
-                available.extend(new_themes)
         return random.choice(available) if available else random.choice(ContentStrategist.VIRAL_THEMES)
 
     @staticmethod
@@ -182,41 +167,41 @@ class ContentStrategist:
         theme = ContentStrategist.get_theme(used)
         archetype = random.choice(ContentStrategist.ARCHETYPES)
         
-        topic_prompt = f"Output ONLY a 3-to-4 word English topic for a Hindi kids rhyme about: {theme}. No generic baby stuff. Focus on toys/vehicles. Avoid: {', '.join(used[-20:])}."
+        topic_prompt = f"Output ONLY a 3-to-4 word English topic for a Hindi kids rhyme about: {theme}. Focus on toys/vehicles. Avoid: {', '.join(used[-20:])}."
         topic = IntelligenceEngine.ask(topic_prompt) or f"Cute Toy {theme}"
         
-        prompt = f"""You are a native Hindi children's poet and a YouTube India SEO expert.
+        prompt = f"""You are a top YouTube India Kids SEO expert and poet.
 Topic: "{topic}"
 Archetype: [{archetype}]
 
-━━ STRICT HINDI LINGUISTIC RULES ━━
-1. Write EXACTLY 14 scenes/lines.
-2. PERFECT HINDI GRAMMAR & GENDER (लिंग): Ensure masculine/feminine words match perfectly.
-3. PURE DEVANAGARI STRICT LOCK: MUST use ONLY standard Devanagari. NO Emojis. NO English/Roman letters mixed inside Hindi words. DO NOT transliterate English words into Hindi script.
-4. RHYTHM & RHYME: 4 to 8 words per line. Bouncy meter. AABB rhyme scheme. NEVER force a rhyme over good grammar.
-5. NO LITERAL TRANSLATIONS: Write naturally like an Indian mother.
+━━ VIRAL RETENTION RULE (THE INFINITE LOOP) ━━
+1. Write EXACTLY 14 scenes. 
+2. INFINITE LOOP: The rhyme must be a perfect loop. Line 14 MUST seamlessly lead right back into Line 1 so the toddler doesn't know the video restarted.
 
-━━ VISUAL & SEO RULES ━━
-6. Protagonist: Describe in 12-15 English words as a premium 3D toy using Mango Yellow, Royal Blue, or Deep Turquoise. EVERY image_prompt MUST start with this exact description.
-7. TOY AESTHETIC: EVERY image_prompt MUST include "High-contrast, hyper-vibrant, bright lighting, plastic toy store aesthetic".
-8. TITLE: Create a SHORT, natural Hindi catchphrase (2 to 4 words). Format EXACTLY: "Short Hindi Catchphrase | English | 3D बालगीत 2026 | हिंदी राइम्स फॉर किड्स" (Note correct spelling of बालगीत).
-9. Generate 30 SEO tags and a 250-word description with [TIMESTAMPS] and [LYRICS] placeholders.
+━━ HINDI RULES ━━
+3. PERFECT HINDI GRAMMAR. Simple, catchy words for toddlers.
+4. PURE DEVANAGARI STRICT LOCK FOR ON-SCREEN LYRICS. NO emojis in the 'line' field.
+
+━━ VISUAL & METADATA RULES ━━
+5. Image Prompt: Start EVERY prompt with: "{archetype}. High-contrast, hyper-vibrant, bright lighting, plastic toy store aesthetic. [Action]"
+6. TITLE: Create a HIGH-CTR clickbait title. Format: "Short Catchy Hindi | English + 2 Emojis | 3D बालगीत 2026 | हिंदी राइम्स फॉर किड्स"
+   Example: "लाल ट्रैक्टर 🚜✨ | Red Tractor Ride | 3D बालगीत 2026 | हिंदी राइम्स फॉर किड्स"
 
 Output ONLY valid JSON:
 {{
-  "title": "Short Hindi | English | 3D बालगीत 2026 | हिंदी राइम्स फॉर किड्स",
+  "title": "Hindi | English [emojis] | 3D बालगीत 2026 | हिंदी राइम्स फॉर किड्स",
   "keyword": "searchable english word",
   "seo_tags": ["tag1","tag2"],
   "seo_description": "...",
-  "main_character": "12-15 word English description",
-  "scenes": [{{"line": "4-8 word pure Devanagari sentence", "image_prompt": "character description + toy aesthetic + action"}}]
+  "main_character": "archetype description",
+  "scenes": [{{"line": "Pure Devanagari sentence", "image_prompt": "character description + toy aesthetic + action"}}]
 }}"""
         for _ in range(4):
             raw = IntelligenceEngine.ask(prompt)
             data = IntelligenceEngine.extract_json(raw)
             if data and "scenes" in data and len(data["scenes"]) >= 12:
                 StorageEngine.save("used_topics.json", topic)
-                print(f"✅ Script Generated: {data['title']}")
+                print(f"✅ Viral Script Generated: {data['title']}")
                 return data
             time.sleep(4)
         return None
@@ -306,14 +291,15 @@ class AssetEngine:
         
         for _ in range(5):
             try:
-                subprocess.run(["edge-tts", "--voice", "hi-IN-SwaraNeural", "--rate=-10%", "--pitch=+10Hz", "--text", clean_speech, "--write-media", filepath], capture_output=True, timeout=15)
+                # VIRAL AUDIO HACK: Increased rate (+5%) and pitch (+20Hz) for high-energy toddler retention
+                subprocess.run(["edge-tts", "--voice", "hi-IN-SwaraNeural", "--rate=+5%", "--pitch=+20Hz", "--text", clean_speech, "--write-media", filepath], capture_output=True, timeout=15)
                 if os.path.exists(filepath) and os.path.getsize(filepath) > 1000: return True
             except Exception: pass
             time.sleep(random.uniform(1, 3))
         return False
 
 # ==========================================
-# CORE 4: VIDEO STUDIO
+# CORE 4: VIDEO STUDIO (WITH VISUAL SUGAR HOOK)
 # ==========================================
 class VideoStudio:
     @staticmethod
@@ -357,7 +343,7 @@ class VideoStudio:
 
     @staticmethod
     def render_short(script_data):
-        print("🎬 Assembling Studio Short...")
+        print("🎬 Assembling Studio Short with 3-Second Viral Hook...")
         master_seed = random.randint(1000, 999999)
         kw = script_data.get('keyword', 'kids')
         
@@ -391,12 +377,15 @@ class VideoStudio:
             bgm = AudioFileClip(bgm_path).volumex(0.085).audio_fadein(2.0)
             bg_looped = concatenate_audioclips([bgm] * int(math.ceil(dur/bgm.duration))).subclip(0, dur) if bgm.duration > 0 else bgm
             
+            # VIRAL VISUAL HACK: Aggressive 3-Second Hook on the first frame
             img = ImageClip(img_path).resize(1.15)
             ex_x, ex_y = img.w - w, img.h - h
             move = random.choice(['zoom_in','zoom_out','pan_left','pan_right','pan_up','pan_down'])
             
-            if move=='zoom_in': anim = img.resize(lambda t: 1.0 + 0.15*(t/dur)).set_position('center')
-            elif move=='zoom_out': anim = img.resize(lambda t: 1.15 - 0.15*(t/dur)).set_position('center')
+            speed = 0.25 if i == 0 else 0.12 
+            
+            if move=='zoom_in': anim = img.resize(lambda t: 1.0 + speed*(t/dur)).set_position('center')
+            elif move=='zoom_out': anim = img.resize(lambda t: 1.15 - speed*(t/dur)).set_position('center')
             elif move=='pan_left': anim = img.set_position(lambda t: (-ex_x*(t/dur), 'center'))
             elif move=='pan_right': anim = img.set_position(lambda t: (-ex_x + (ex_x*(t/dur)), 'center'))
             elif move=='pan_up': anim = img.set_position(lambda t: ('center', -ex_y*(t/dur)))
