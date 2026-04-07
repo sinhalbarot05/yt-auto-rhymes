@@ -115,6 +115,8 @@ class IntelligenceEngine:
                 text = text.split(marker + 'json')[1].split(marker)[0]
             elif marker in text:
                 text = text.split(marker)[1].split(marker)[0]
+            elif '```' in text:
+                text = text.split('```')[1].split('```')[0]
             text = text.strip()
             if text.startswith('['): return json.loads(text[text.find('['):text.rfind(']')+1])
             else: return json.loads(text[text.find('{'):text.rfind('}')+1])
@@ -203,21 +205,44 @@ Output ONLY valid JSON:
         return None
 
 # ==========================================
-# CORE 3: ASSET FACTORY (DIAGNOSTIC HYDRA)
+# CORE 3: ASSET FACTORY (KEY ROTATOR HYDRA)
 # ==========================================
 class AssetEngine:
     @staticmethod
-    def _download(url, filepath, headers=None, custom_timeout=60, type_label="Asset"):
+    def _get_pollinations_keys():
+        """Extracts and cleans all comma-separated keys from the environment."""
+        raw_keys = os.getenv('POLLINATIONS_API_KEY', '')
+        if not raw_keys: return []
+        return [k.strip() for k in raw_keys.split(',') if k.strip()]
+
+    @staticmethod
+    def _download_with_rotation(url, filepath, custom_timeout=60, type_label="Asset"):
+        keys = AssetEngine._get_pollinations_keys()
+        
+        if not keys:
+            print(f"   ↳ ⚠️ No keys found. Trying {type_label} on public tier...")
+            return AssetEngine._execute_download(url, filepath, None, custom_timeout, type_label)
+
+        for index, key in enumerate(keys):
+            headers = {"Authorization": f"Bearer {key}", "User-Agent": "Mozilla/5.0"}
+            print(f"   ↳ Attempting {type_label} with Key #{index + 1}...")
+            
+            success = AssetEngine._execute_download(url, filepath, headers, custom_timeout, type_label)
+            if success:
+                return True
+            else:
+                print(f"   ↳ ⚠️ Key #{index + 1} failed. Rotating...")
+        
+        print(f"   ↳ ❌ All available Pollinations keys failed for {type_label}.")
+        return False
+
+    @staticmethod
+    def _execute_download(url, filepath, headers, custom_timeout, type_label):
         session = requests.Session()
-        retry = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504], allowed_methods={"GET"})
+        retry = Retry(total=2, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
         session.mount('https://', HTTPAdapter(max_retries=retry))
         try:
-            req_headers = {"User-Agent": "Mozilla/5.0"}
-            if headers: req_headers.update(headers)
-            
-            r = session.get(url, headers=req_headers, timeout=custom_timeout)
-            
-            # DIAGNOSTIC CHECK: Is Pollinations giving us an error code?
+            r = session.get(url, headers=headers, timeout=custom_timeout)
             if r.status_code == 200:
                 content_type = r.headers.get('Content-Type', '').lower()
                 is_image = 'image' in content_type
@@ -232,58 +257,48 @@ class AssetEngine:
                 with open(filepath, 'wb') as f: f.write(r.content)
                 return True
             else:
-                # 🚨 ERROR LOGGING 🚨
-                print(f"   ↳ ❌ {type_label} API Error {r.status_code}: {r.text[:100]}")
+                print(f"      ↳ API Error {r.status_code}: {r.text[:50]}")
                 return False
-                
         except Exception as e:
-            print(f"   ↳ ❌ {type_label} Network Timeout: {str(e)[:50]}")
+            print(f"      ↳ Network Timeout: {str(e)[:40]}")
             return False
 
     @staticmethod
     def generate_pollinations_audio(text, filepath):
         encoded = urllib.parse.quote(text)
-        url = f"https://gen.pollinations.ai/audio/{encoded}?model=music"
-        api = os.getenv('POLLINATIONS_API_KEY')
-        headers = {"Authorization": f"Bearer {api}"} if api else {}
-        return AssetEngine._download(url, filepath, headers, custom_timeout=90, type_label="Audio")
+        url = f"[https://gen.pollinations.ai/audio/](https://gen.pollinations.ai/audio/){encoded}?model=music"
+        return AssetEngine._download_with_rotation(url, filepath, custom_timeout=90, type_label="Audio")
 
     @staticmethod
     def generate_pollinations_video(prompt, filepath):
         clean_prompt = urllib.parse.quote(f"{prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k")
-        url = f"https://gen.pollinations.ai/video/{clean_prompt}?duration=4&fps=24"
-        api = os.getenv('POLLINATIONS_API_KEY')
-        headers = {"Authorization": f"Bearer {api}"} if api else {}
-        return AssetEngine._download(url, filepath, headers, custom_timeout=150, type_label="Video")
+        url = f"[https://gen.pollinations.ai/video/](https://gen.pollinations.ai/video/){clean_prompt}?duration=4&fps=24"
+        return AssetEngine._download_with_rotation(url, filepath, custom_timeout=150, type_label="Video")
 
     @staticmethod
     def generate_image(prompt, filepath, fallback_kw, seed):
         w, h = 1080, 1920
         scene_seed = seed + random.randint(1, 100)
         clean_prompt = urllib.parse.quote(f"{prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k")
-        api = os.getenv('POLLINATIONS_API_KEY')
         
-        tasks = []
-        if api: tasks.append({"url": f"https://gen.pollinations.ai/image/{clean_prompt}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true", "headers": {"Authorization": f"Bearer {api}"}})
-        tasks.append({"url": f"https://image.pollinations.ai/prompt/{clean_prompt}?width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true", "headers": None})
-        tasks.append({"url": f"https://loremflickr.com/{w}/{h}/{urllib.parse.quote(fallback_kw or 'cartoon kids')}?lock={scene_seed}", "headers": None})
-
-        success = False
-        for task in tasks:
-            if AssetEngine._download(task["url"], filepath, task["headers"], custom_timeout=45, type_label="Image"):
-                success = True
-                break
+        url_premium = f"[https://gen.pollinations.ai/image/](https://gen.pollinations.ai/image/){clean_prompt}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
+        url_public = f"[https://image.pollinations.ai/prompt/](https://image.pollinations.ai/prompt/){clean_prompt}?width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
         
-        if success:
-            try:
-                with Image.open(filepath) as im:
-                    im = im.convert("RGB").resize((w, h), Image.LANCZOS)
-                    im = ImageEnhance.Color(im).enhance(1.15)
-                    im = ImageEnhance.Contrast(im).enhance(1.10)
-                    im.save(filepath, "JPEG", quality=98, optimize=True)
-            except Exception: pass
+        if AssetEngine._download_with_rotation(url_premium, filepath, custom_timeout=60, type_label="Image"):
+            pass 
+        elif AssetEngine._execute_download(url_public, filepath, None, 45, "Image Fallback"):
+            pass 
         else:
             Image.new('RGB', (w, h), random.choice(Config.BRAND_COLORS)).save(filepath)
+            return
+
+        try:
+            with Image.open(filepath) as im:
+                im = im.convert("RGB").resize((w, h), Image.LANCZOS)
+                im = ImageEnhance.Color(im).enhance(1.15)
+                im = ImageEnhance.Contrast(im).enhance(1.10)
+                im.save(filepath, "JPEG", quality=98, optimize=True)
+        except Exception: pass
 
     @staticmethod
     def generate_voice(text, filepath):
@@ -301,13 +316,13 @@ class AssetEngine:
     def fetch_dynamic_background_music(out_path):
         print("🎵 Fetching dynamic background track...")
         safe_audio_tracks = [
-            "https://ia800408.us.archive.org/27/items/UpbeatKidsMusic/Upbeat_Kids_Music.mp3",
-            "https://ia801402.us.archive.org/16/items/happy-upbeat-background-music/Happy%20Upbeat.mp3",
-            "https://ia600504.us.archive.org/33/items/bensound-music/bensound-ukulele.mp3",
-            "https://ia800504.us.archive.org/33/items/bensound-music/bensound-buddy.mp3",
-            "https://ia801509.us.archive.org/13/items/bensound-music/bensound-clearday.mp3",
-            "https://ia801509.us.archive.org/13/items/bensound-music/bensound-littleidea.mp3",
-            "https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3"
+            "[https://ia800408.us.archive.org/27/items/UpbeatKidsMusic/Upbeat_Kids_Music.mp3](https://ia800408.us.archive.org/27/items/UpbeatKidsMusic/Upbeat_Kids_Music.mp3)",
+            "[https://ia801402.us.archive.org/16/items/happy-upbeat-background-music/Happy%20Upbeat.mp3](https://ia801402.us.archive.org/16/items/happy-upbeat-background-music/Happy%20Upbeat.mp3)",
+            "[https://ia600504.us.archive.org/33/items/bensound-music/bensound-ukulele.mp3](https://ia600504.us.archive.org/33/items/bensound-music/bensound-ukulele.mp3)",
+            "[https://ia800504.us.archive.org/33/items/bensound-music/bensound-buddy.mp3](https://ia800504.us.archive.org/33/items/bensound-music/bensound-buddy.mp3)",
+            "[https://ia801509.us.archive.org/13/items/bensound-music/bensound-clearday.mp3](https://ia801509.us.archive.org/13/items/bensound-music/bensound-clearday.mp3)",
+            "[https://ia801509.us.archive.org/13/items/bensound-music/bensound-littleidea.mp3](https://ia801509.us.archive.org/13/items/bensound-music/bensound-littleidea.mp3)",
+            "[https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3](https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3)"
         ]
         try:
             r = requests.get(random.choice(safe_audio_tracks), timeout=30)
@@ -536,7 +551,7 @@ def system_cleanup():
 # MAIN EXECUTION
 # ==========================================
 if __name__=="__main__":
-    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY V4.3 (DIAGNOSTIC HYDRA) =====")
+    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY V4.5 (OMNI-HYDRA) =====")
     Config.initialize()
     
     script_data = ContentStrategist.create_script()
