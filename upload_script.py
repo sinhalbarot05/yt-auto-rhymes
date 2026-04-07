@@ -10,9 +10,10 @@ from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.LANCZOS
 
-from moviepy.editor import (AudioFileClip, ImageClip, CompositeVideoClip,
+from moviepy.editor import (AudioFileClip, ImageClip, VideoFileClip, CompositeVideoClip,
                             concatenate_videoclips, CompositeAudioClip, ColorClip,
                             concatenate_audioclips)
+import moviepy.video.fx.all as vfx
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
@@ -74,39 +75,29 @@ class IntelligenceEngine:
     @staticmethod
     def _call_api(name, url, key, model, prompt, max_tokens):
         if not key: 
-            print(f"   ↳ ⚠️ Skipping {name}: No API key found.")
             return None
         try:
             r = requests.post(url, headers={"Authorization": f"Bearer {key}"},
                               json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.9, "max_tokens": max_tokens}, timeout=45)
             if r.status_code == 200:
-                print(f"   ↳ ✅ {name} successfully generated response.")
                 return r.json()["choices"][0]["message"]["content"].strip()
-            else:
-                print(f"   ↳ ❌ {name} Error {r.status_code}: {r.text[:50]}")
         except Exception as e:
-            print(f"   ↳ ❌ {name} Timeout/Crash: {str(e)[:50]}")
+            pass
         return None
 
     @staticmethod
     def ask(prompt):
         print("🧠 Engaging Omni-Fallback Intelligence Engine...")
-        
-        # Layer 1: OpenAI
         res = IntelligenceEngine._call_api("OpenAI", "https://api.openai.com/v1/chat/completions", os.getenv('OPENAI_API_KEY'), "gpt-4o-mini", prompt, 2000)
         if res: return res
         
-        # Layer 2: Groq
         print("   ↳ 🔄 Falling back to Groq...")
         res = IntelligenceEngine._call_api("Groq", "https://api.groq.com/openai/v1/chat/completions", os.getenv('GROQ_API_KEY'), "llama-3.3-70b-versatile", prompt, 3000)
         if res: return res
         
-        # Layer 3: WaveSpeed
         print("   ↳ 🔄 Falling back to WaveSpeed...")
         res = IntelligenceEngine._call_api("WaveSpeed", "https://api.wavespeed.ai/v1/chat/completions", os.getenv('WAVESPEED_API_KEY'), "llama-3-70b", prompt, 3000) 
         if res: return res
-
-        print("🚨 ALL LLM LAYERS FAILED.")
         return None
 
     @staticmethod
@@ -118,16 +109,13 @@ class IntelligenceEngine:
                 text = text.split(marker + 'json')[1].split(marker)[0]
             elif marker in text:
                 text = text.split(marker)[1].split(marker)[0]
-            
             text = text.strip()
-            if text.startswith('['):
-                return json.loads(text[text.find('['):text.rfind(']')+1])
-            else:
-                return json.loads(text[text.find('{'):text.rfind('}')+1])
+            if text.startswith('['): return json.loads(text[text.find('['):text.rfind(']')+1])
+            else: return json.loads(text[text.find('{'):text.rfind('}')+1])
         except Exception: return None
 
 # ==========================================
-# DIGITAL TOY FACTORY PIVOT (VIRAL LOOP EDITION)
+# TOY FACTORY PIVOT (VIRAL LOOP EDITION)
 # ==========================================
 class ContentStrategist:
     VIRAL_THEMES = [
@@ -166,7 +154,6 @@ class ContentStrategist:
         used = StorageEngine.load("used_topics.json")
         theme = ContentStrategist.get_theme(used)
         archetype = random.choice(ContentStrategist.ARCHETYPES)
-        
         topic_prompt = f"Output ONLY a 3-to-4 word English topic for a Hindi kids rhyme about: {theme}. Focus on toys/vehicles. Avoid: {', '.join(used[-20:])}."
         topic = IntelligenceEngine.ask(topic_prompt) or f"Cute Toy {theme}"
         
@@ -176,7 +163,7 @@ Archetype: [{archetype}]
 
 ━━ VIRAL RETENTION RULE (THE INFINITE LOOP) ━━
 1. Write EXACTLY 14 scenes. 
-2. INFINITE LOOP: The rhyme must be a perfect loop. Line 14 MUST seamlessly lead right back into Line 1 so the toddler doesn't know the video restarted.
+2. INFINITE LOOP: The rhyme must be a perfect loop. Line 14 MUST seamlessly lead right back into Line 1.
 
 ━━ HINDI RULES ━━
 3. PERFECT HINDI GRAMMAR. Simple, catchy words for toddlers.
@@ -185,7 +172,6 @@ Archetype: [{archetype}]
 ━━ VISUAL & METADATA RULES ━━
 5. Image Prompt: Start EVERY prompt with: "{archetype}. High-contrast, hyper-vibrant, bright lighting, plastic toy store aesthetic. [Action]"
 6. TITLE: Create a HIGH-CTR clickbait title. Format: "Short Catchy Hindi | English + 2 Emojis | 3D बालगीत 2026 | हिंदी राइम्स फॉर किड्स"
-   Example: "लाल ट्रैक्टर 🚜✨ | Red Tractor Ride | 3D बालगीत 2026 | हिंदी राइम्स फॉर किड्स"
 
 Output ONLY valid JSON:
 {{
@@ -207,7 +193,7 @@ Output ONLY valid JSON:
         return None
 
 # ==========================================
-# CORE 3: ASSET FACTORY (4-TIER IMAGE HYDRA)
+# CORE 3: ASSET FACTORY (AUDIO & VIDEO HYDRA)
 # ==========================================
 class AssetEngine:
     @staticmethod
@@ -219,40 +205,43 @@ class AssetEngine:
             req_headers = {"User-Agent": "Mozilla/5.0"}
             if headers: req_headers.update(headers)
             
-            r = session.get(url, headers=req_headers, timeout=45)
+            r = session.get(url, headers=req_headers, timeout=60)
             r.raise_for_status()
             
-            if 'image' not in r.headers.get('Content-Type', '').lower():
+            content_type = r.headers.get('Content-Type', '').lower()
+            
+            # Check for Media Type
+            is_image = 'image' in content_type
+            is_media = 'video' in content_type or 'audio' in content_type or 'mpeg' in content_type or 'mp4' in content_type
+            
+            if not (is_image or is_media):
                 return False
                 
-            try: Image.open(io.BytesIO(r.content)).verify()
-            except Exception: return False
+            if is_image:
+                try: Image.open(io.BytesIO(r.content)).verify()
+                except Exception: return False
+            if is_media:
+                if len(r.content) < 5000: return False # Ignore empty/corrupted streams
                 
             with open(filepath, 'wb') as f: f.write(r.content)
             return True
         except Exception: return False
 
     @staticmethod
-    def fetch_dynamic_background_music(out_path):
-        print("🎵 Fetching dynamic background track...")
-        safe_audio_tracks = [
-            "https://ia800408.us.archive.org/27/items/UpbeatKidsMusic/Upbeat_Kids_Music.mp3",
-            "https://ia801402.us.archive.org/16/items/happy-upbeat-background-music/Happy%20Upbeat.mp3",
-            "https://ia600504.us.archive.org/33/items/bensound-music/bensound-ukulele.mp3",
-            "https://ia800504.us.archive.org/33/items/bensound-music/bensound-buddy.mp3",
-            "https://ia801509.us.archive.org/13/items/bensound-music/bensound-clearday.mp3",
-            "https://ia801509.us.archive.org/13/items/bensound-music/bensound-littleidea.mp3",
-            "https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3"
-        ]
-        try:
-            r = requests.get(random.choice(safe_audio_tracks), timeout=30)
-            r.raise_for_status()
-            with open(out_path, 'wb') as f:
-                f.write(r.content)
-            return True
-        except Exception:
-            shutil.copyfile(os.path.join(Config.ASSETS_DIR, "bg_music_default.mp3"), out_path)
-            return False
+    def generate_pollinations_audio(text, filepath):
+        encoded = urllib.parse.quote(text)
+        url = f"https://gen.pollinations.ai/audio/{encoded}"
+        api = os.getenv('POLLINATIONS_API_KEY')
+        headers = {"Authorization": f"Bearer {api}"} if api else {}
+        return AssetEngine._download(url, filepath, headers)
+
+    @staticmethod
+    def generate_pollinations_video(prompt, filepath):
+        clean_prompt = urllib.parse.quote(f"{prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k")
+        url = f"https://gen.pollinations.ai/video/{clean_prompt}"
+        api = os.getenv('POLLINATIONS_API_KEY')
+        headers = {"Authorization": f"Bearer {api}"} if api else {}
+        return AssetEngine._download(url, filepath, headers)
 
     @staticmethod
     def generate_image(prompt, filepath, fallback_kw, seed):
@@ -262,8 +251,7 @@ class AssetEngine:
         api = os.getenv('POLLINATIONS_API_KEY')
         
         tasks = []
-        if api: 
-            tasks.append({"url": f"https://gen.pollinations.ai/image/{clean_prompt}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true", "headers": {"Authorization": f"Bearer {api}"}})
+        if api: tasks.append({"url": f"https://gen.pollinations.ai/image/{clean_prompt}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true", "headers": {"Authorization": f"Bearer {api}"}})
         tasks.append({"url": f"https://image.pollinations.ai/prompt/{clean_prompt}?width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true", "headers": None})
         tasks.append({"url": f"https://loremflickr.com/{w}/{h}/{urllib.parse.quote(fallback_kw or 'cartoon kids')}?lock={scene_seed}", "headers": None})
 
@@ -288,10 +276,8 @@ class AssetEngine:
     def generate_voice(text, filepath):
         clean_speech = re.sub(r'[^\u0900-\u097F\s\,\.\!\?]', '', text).strip()
         if len(clean_speech) < 2: clean_speech = "मस्ती"
-        
         for _ in range(5):
             try:
-                # VIRAL AUDIO HACK: Increased rate (+5%) and pitch (+20Hz) for high-energy toddler retention
                 subprocess.run(["edge-tts", "--voice", "hi-IN-SwaraNeural", "--rate=+5%", "--pitch=+20Hz", "--text", clean_speech, "--write-media", filepath], capture_output=True, timeout=15)
                 if os.path.exists(filepath) and os.path.getsize(filepath) > 1000: return True
             except Exception: pass
@@ -308,7 +294,6 @@ class VideoStudio:
         img = Image.new('RGBA', (w, h), (0,0,0,0))
         draw = ImageDraw.Draw(img)
         font_path = Config.ENG_FONT_FILE if is_eng else Config.FONT_FILE
-        
         font = ImageFont.truetype(font_path, size) if os.path.exists(font_path) else ImageFont.load_default()
         
         max_w = w - 120
@@ -343,20 +328,27 @@ class VideoStudio:
 
     @staticmethod
     def render_short(script_data):
-        print("🎬 Assembling Studio Short with 3-Second Viral Hook...")
+        print("🎬 Assembling Studio Short with AI Audio/Video Fallbacks...")
         master_seed = random.randint(1000, 999999)
         kw = script_data.get('keyword', 'kids')
-        
-        bgm_path = os.path.join(Config.ASSETS_DIR, "bg_music_dynamic.mp3")
-        AssetEngine.fetch_dynamic_background_music(bgm_path)
+
+        def build_scene_assets(i, scene):
+            img_path = os.path.join(Config.ASSETS_DIR, f"img_{i}.jpg")
+            vid_path = os.path.join(Config.ASSETS_DIR, f"vid_{i}.mp4")
+            aud_path = os.path.join(Config.ASSETS_DIR, f"aud_{i}.mp3")
+            
+            # AUDIO: Try AI Song -> Fallback to TTS
+            if not AssetEngine.generate_pollinations_audio(scene['line'], aud_path):
+                print(f"   ↳ Scene {i}: Audio fallback to TTS")
+                AssetEngine.generate_voice(scene['line'], aud_path)
+                
+            # VIDEO: Try AI Video -> Fallback to Image
+            if not AssetEngine.generate_pollinations_video(scene.get('image_prompt', 'cartoon'), vid_path):
+                print(f"   ↳ Scene {i}: Video fallback to Image")
+                AssetEngine.generate_image(scene.get('image_prompt', 'cartoon'), img_path, kw, master_seed)
 
         with ThreadPoolExecutor(max_workers=3) as ex:
-            futures = []
-            for i, scene in enumerate(script_data['scenes']):
-                img_path = os.path.join(Config.ASSETS_DIR, f"img_{i}.jpg")
-                aud_path = os.path.join(Config.ASSETS_DIR, f"aud_{i}.mp3")
-                futures.append(ex.submit(AssetEngine.generate_image, scene.get('image_prompt', 'cartoon'), img_path, kw, master_seed))
-                futures.append(ex.submit(AssetEngine.generate_voice, scene['line'], aud_path))
+            futures = [ex.submit(build_scene_assets, i, scene) for i, scene in enumerate(script_data['scenes'])]
             for f in as_completed(futures): f.result()
 
         clips = []
@@ -366,7 +358,9 @@ class VideoStudio:
 
         for i, scene in enumerate(script_data['scenes']):
             img_path = os.path.join(Config.ASSETS_DIR, f"img_{i}.jpg")
+            vid_path = os.path.join(Config.ASSETS_DIR, f"vid_{i}.mp4")
             aud_path = os.path.join(Config.ASSETS_DIR, f"aud_{i}.mp3")
+            
             if not os.path.exists(aud_path): return None, None, None 
             
             voice = AudioFileClip(aud_path)
@@ -374,28 +368,36 @@ class VideoStudio:
             enhanced_voice = CompositeAudioClip([voice, echo]).set_duration(voice.duration + 0.3)
             dur = enhanced_voice.duration
             
-            bgm = AudioFileClip(bgm_path).volumex(0.085).audio_fadein(2.0)
-            bg_looped = concatenate_audioclips([bgm] * int(math.ceil(dur/bgm.duration))).subclip(0, dur) if bgm.duration > 0 else bgm
-            
-            # VIRAL VISUAL HACK: Aggressive 3-Second Hook on the first frame
-            img = ImageClip(img_path).resize(1.15)
-            ex_x, ex_y = img.w - w, img.h - h
-            move = random.choice(['zoom_in','zoom_out','pan_left','pan_right','pan_up','pan_down'])
-            
-            speed = 0.25 if i == 0 else 0.12 
-            
-            if move=='zoom_in': anim = img.resize(lambda t: 1.0 + speed*(t/dur)).set_position('center')
-            elif move=='zoom_out': anim = img.resize(lambda t: 1.15 - speed*(t/dur)).set_position('center')
-            elif move=='pan_left': anim = img.set_position(lambda t: (-ex_x*(t/dur), 'center'))
-            elif move=='pan_right': anim = img.set_position(lambda t: (-ex_x + (ex_x*(t/dur)), 'center'))
-            elif move=='pan_up': anim = img.set_position(lambda t: ('center', -ex_y*(t/dur)))
-            else: anim = img.set_position(lambda t: ('center', -ex_y + (ex_y*(t/dur))))
-            
-            anim = anim.set_duration(dur)
+            # Did we get an AI Video?
+            if os.path.exists(vid_path):
+                base_clip = VideoFileClip(vid_path)
+                # Ensure the video matches audio duration perfectly
+                if base_clip.duration < dur:
+                    base_clip = base_clip.fx(vfx.loop, duration=dur)
+                else:
+                    base_clip = base_clip.subclip(0, dur)
+                
+                # Crop and resize to Shorts format safely
+                anim = base_clip.resize(height=h).crop(x_center=base_clip.w/2, width=w).set_duration(dur)
+            else:
+                # Fallback to Zoomed Image
+                img = ImageClip(img_path).resize(1.15)
+                ex_x, ex_y = img.w - w, img.h - h
+                move = random.choice(['zoom_in','zoom_out','pan_left','pan_right','pan_up','pan_down'])
+                speed = 0.25 if i == 0 else 0.12 # Viral 3-second visual sugar hook
+                
+                if move=='zoom_in': anim = img.resize(lambda t: 1.0 + speed*(t/dur)).set_position('center')
+                elif move=='zoom_out': anim = img.resize(lambda t: 1.15 - speed*(t/dur)).set_position('center')
+                elif move=='pan_left': anim = img.set_position(lambda t: (-ex_x*(t/dur), 'center'))
+                elif move=='pan_right': anim = img.set_position(lambda t: (-ex_x + (ex_x*(t/dur)), 'center'))
+                elif move=='pan_up': anim = img.set_position(lambda t: ('center', -ex_y*(t/dur)))
+                else: anim = img.set_position(lambda t: ('center', -ex_y + (ex_y*(t/dur))))
+                anim = anim.set_duration(dur)
+
             txt = VideoStudio._create_text_overlay(scene['line'], w, h, 118, dur).crossfadein(0.4)
             wm = VideoStudio._create_text_overlay(Config.CHANNEL_HANDLE, w, h, 38, dur, color='white', y_pos=40, is_eng=True).set_opacity(0.6)
             
-            clip = CompositeVideoClip([anim, txt, wm], size=(w,h)).set_audio(CompositeAudioClip([enhanced_voice, bg_looped])).set_duration(dur)
+            clip = CompositeVideoClip([anim, txt, wm], size=(w,h)).set_audio(enhanced_voice).set_duration(dur)
             if i > 0: clip = clip.crossfadein(0.4)
             
             clips.append(clip)
@@ -492,7 +494,7 @@ def system_cleanup():
 # MAIN EXECUTION
 # ==========================================
 if __name__=="__main__":
-    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY OMNI-ENGINE =====")
+    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY V3.0 (A/V HYDRA) =====")
     Config.initialize()
     
     script_data = ContentStrategist.create_script()
