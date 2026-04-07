@@ -74,8 +74,7 @@ class StorageEngine:
 class IntelligenceEngine:
     @staticmethod
     def _call_api(name, url, key, model, prompt, max_tokens):
-        if not key: 
-            return None
+        if not key: return None
         try:
             payload = {
                 "model": model, 
@@ -87,8 +86,7 @@ class IntelligenceEngine:
             r = requests.post(url, headers={"Authorization": f"Bearer {key}"}, json=payload, timeout=45)
             if r.status_code == 200:
                 return r.json()["choices"][0]["message"]["content"].strip()
-        except Exception as e:
-            pass
+        except Exception: pass
         return None
 
     @staticmethod
@@ -203,23 +201,23 @@ Output ONLY valid JSON:
         return None
 
 # ==========================================
-# CORE 3: ASSET FACTORY (AUDIO & VIDEO HYDRA)
+# CORE 3: ASSET FACTORY (ANTI-EXHAUSTION KEY ROTATION)
 # ==========================================
 class AssetEngine:
     @staticmethod
     def _download(url, filepath, headers=None):
         session = requests.Session()
-        retry = Retry(total=4, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504], allowed_methods={"GET"})
+        # Removed 402 from total retries so it fails fast and jumps to the next key
+        retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504], allowed_methods={"GET"})
         session.mount('https://', HTTPAdapter(max_retries=retry))
         try:
             req_headers = {"User-Agent": "Mozilla/5.0"}
             if headers: req_headers.update(headers)
             
             r = session.get(url, headers=req_headers, timeout=60)
-            r.raise_for_status()
+            r.raise_for_status() # If it hits 402 Out of Credits, it safely errors out here
             
             content_type = r.headers.get('Content-Type', '').lower()
-            
             is_image = 'image' in content_type
             is_media = 'video' in content_type or 'audio' in content_type or 'mpeg' in content_type or 'mp4' in content_type
             
@@ -234,32 +232,50 @@ class AssetEngine:
         except Exception: return False
 
     @staticmethod
+    def _get_api_keys():
+        """Fetches multiple keys separated by commas for rotation."""
+        keys_env = os.getenv('POLLINATIONS_API_KEY', '')
+        return [k.strip() for k in keys_env.split(',') if k.strip()]
+
+    @staticmethod
     def generate_pollinations_audio(text, filepath):
         encoded = urllib.parse.quote(text)
         url = f"https://gen.pollinations.ai/audio/{encoded}"
-        api = os.getenv('POLLINATIONS_API_KEY')
-        headers = {"Authorization": f"Bearer {api}"} if api else {}
-        return AssetEngine._download(url, filepath, headers)
+        
+        # 🛡️ Layer 1: Rotate through all available API keys
+        for key in AssetEngine._get_api_keys():
+            if AssetEngine._download(url, filepath, {"Authorization": f"Bearer {key}"}):
+                return True
+                
+        # 🛡️ Layer 2: Attack Public Endpoint if all keys fail/exhausted
+        return AssetEngine._download(url, filepath, None)
 
     @staticmethod
     def generate_pollinations_video(prompt, filepath):
         clean_prompt = urllib.parse.quote(f"{prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k")
         url = f"https://gen.pollinations.ai/video/{clean_prompt}"
-        api = os.getenv('POLLINATIONS_API_KEY')
-        headers = {"Authorization": f"Bearer {api}"} if api else {}
-        return AssetEngine._download(url, filepath, headers)
+        
+        # 🛡️ Layer 1: Rotate through all available API keys
+        for key in AssetEngine._get_api_keys():
+            if AssetEngine._download(url, filepath, {"Authorization": f"Bearer {key}"}):
+                return True
+                
+        # 🛡️ Layer 2: Attack Public Endpoint
+        return AssetEngine._download(url, filepath, None)
 
     @staticmethod
-    def generate_image(prompt, filepath, fallback_kw, seed):
+    def generate_image(prompt, filepath, seed):
         w, h = 1080, 1920
         scene_seed = seed + random.randint(1, 100)
         clean_prompt = urllib.parse.quote(f"{prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k")
-        api = os.getenv('POLLINATIONS_API_KEY')
         
         tasks = []
-        if api: tasks.append({"url": f"https://gen.pollinations.ai/image/{clean_prompt}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true", "headers": {"Authorization": f"Bearer {api}"}})
+        # Add all keys to tasks
+        for key in AssetEngine._get_api_keys():
+            tasks.append({"url": f"https://gen.pollinations.ai/image/{clean_prompt}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true", "headers": {"Authorization": f"Bearer {key}"}})
+        
+        # Add public endpoints
         tasks.append({"url": f"https://image.pollinations.ai/prompt/{clean_prompt}?width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true", "headers": None})
-        tasks.append({"url": f"https://loremflickr.com/{w}/{h}/{urllib.parse.quote(fallback_kw or 'cartoon kids')}?lock={scene_seed}", "headers": None})
 
         success = False
         for task in tasks:
@@ -276,6 +292,7 @@ class AssetEngine:
                     im.save(filepath, "JPEG", quality=98, optimize=True)
             except Exception: pass
         else:
+            # 🛡️ Layer 3: No LoremFlickr! Only Brand Color block to preserve 3D vibe
             Image.new('RGB', (w, h), random.choice(Config.BRAND_COLORS)).save(filepath)
 
     @staticmethod
@@ -358,12 +375,14 @@ class VideoStudio:
     def render_short(script_data):
         print("🎬 Assembling Studio Short with AI Audio/Video Fallbacks...")
         master_seed = random.randint(1000, 999999)
-        kw = script_data.get('keyword', 'kids')
 
         def build_scene_assets(i, scene):
             img_path = os.path.join(Config.ASSETS_DIR, f"img_{i}.jpg")
             vid_path = os.path.join(Config.ASSETS_DIR, f"vid_{i}.mp4")
             aud_path = os.path.join(Config.ASSETS_DIR, f"aud_{i}.mp3")
+            
+            # Anti-DDoS Throttling to protect IP
+            time.sleep(1.5) 
             
             if not AssetEngine.generate_pollinations_audio(scene['line'], aud_path):
                 print(f"   ↳ Scene {i}: Audio fallback to TTS")
@@ -371,9 +390,10 @@ class VideoStudio:
                 
             if not AssetEngine.generate_pollinations_video(scene.get('image_prompt', 'cartoon'), vid_path):
                 print(f"   ↳ Scene {i}: Video fallback to Image")
-                AssetEngine.generate_image(scene.get('image_prompt', 'cartoon'), img_path, kw, master_seed)
+                AssetEngine.generate_image(scene.get('image_prompt', 'cartoon'), img_path, master_seed)
 
-        with ThreadPoolExecutor(max_workers=3) as ex:
+        # Reduced to 2 workers to strictly prevent rate limit bursts
+        with ThreadPoolExecutor(max_workers=2) as ex:
             futures = [ex.submit(build_scene_assets, i, scene) for i, scene in enumerate(script_data['scenes'])]
             for f in as_completed(futures): f.result()
 
@@ -393,8 +413,6 @@ class VideoStudio:
             if not os.path.exists(aud_path): return None, None, None 
             
             voice = AudioFileClip(aud_path)
-            
-            # YouTube Shorts length safety: prevent single scenes from dominating time
             if voice.duration > 4.5: voice = voice.subclip(0, 4.5)
             
             if voice.duration < 2.5:
@@ -416,7 +434,6 @@ class VideoStudio:
                 else:
                     base_clip = base_clip.subclip(0, dur)
                 
-                # BUGFIX: Resize first, THEN crop to prevent out-of-bounds geometry crash
                 resized_clip = base_clip.resize(height=h)
                 anim = resized_clip.crop(x_center=resized_clip.w/2, width=w).set_duration(dur)
             else:
@@ -532,7 +549,7 @@ def system_cleanup():
 # MAIN EXECUTION
 # ==========================================
 if __name__=="__main__":
-    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY V4.1 (A/V HYDRA) =====")
+    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY V4.2 (ANTI-EXHAUSTION HYDRA) =====")
     Config.initialize()
     
     script_data = ContentStrategist.create_script()
