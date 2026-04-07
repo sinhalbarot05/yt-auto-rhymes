@@ -28,7 +28,7 @@ class Config:
     TOKEN_FILE = "youtube_token.pickle"
     FONT_FILE = os.path.join(ASSETS_DIR, "HindiFont.ttf")
     ENG_FONT_FILE = os.path.join(ASSETS_DIR, "EngFont.ttf")
-    BRAND_COLORS = [(255, 204, 0), (65, 105, 225), (0, 139, 139)]
+    BRAND_COLORS = [(255, 204, 0), (65, 105, 225), (0, 139, 139)] # Mango Yellow, Royal Blue, Deep Turquoise
     CHANNEL_HANDLE = "@HindiMastiRhymes"
 
     @staticmethod
@@ -69,7 +69,7 @@ class StorageEngine:
                 json.dump(data[-1000:], f, ensure_ascii=False, indent=2)
 
 # ==========================================
-# CORE 2: THE INTELLIGENCE
+# CORE 2: THE INTELLIGENCE (HIT SONGWRITER)
 # ==========================================
 class IntelligenceEngine:
     @staticmethod
@@ -87,7 +87,7 @@ class IntelligenceEngine:
             r = requests.post(url, headers={"Authorization": f"Bearer {key}"}, json=payload, timeout=45)
             if r.status_code == 200:
                 return r.json()["choices"][0]["message"]["content"].strip()
-        except Exception:
+        except Exception as e:
             pass
         return None
 
@@ -169,7 +169,7 @@ Archetype: [{archetype}]
 2. MAKE IT MUSICAL: Use a highly repetitive, catchy chorus rhythm. It MUST be easy to sing-along for 2-5 year olds.
 3. THE INFINITE LOOP: The rhyme must be a perfect loop. Line 14 MUST seamlessly lead right back into Line 1.
 
-━━ HINDI RULES ━━
+━━ HINDI RULES (CRITICAL) ━━
 4. PERFECT HINDI GRAMMAR. Keep it to 5-7 simple words per line. AABB rhyme scheme.
 5. PURE DEVANAGARI STRICT LOCK FOR ON-SCREEN LYRICS. NO emojis in the 'line' field.
 
@@ -203,34 +203,42 @@ Output ONLY valid JSON:
         return None
 
 # ==========================================
-# CORE 3: ASSET FACTORY (AUDIO & VIDEO HYDRA)
+# CORE 3: ASSET FACTORY (DIAGNOSTIC HYDRA)
 # ==========================================
 class AssetEngine:
     @staticmethod
-    def _download(url, filepath, headers=None, custom_timeout=60):
+    def _download(url, filepath, headers=None, custom_timeout=60, type_label="Asset"):
         session = requests.Session()
-        retry = Retry(total=4, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504], allowed_methods={"GET"})
+        retry = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504], allowed_methods={"GET"})
         session.mount('https://', HTTPAdapter(max_retries=retry))
         try:
             req_headers = {"User-Agent": "Mozilla/5.0"}
             if headers: req_headers.update(headers)
             
             r = session.get(url, headers=req_headers, timeout=custom_timeout)
-            r.raise_for_status()
             
-            content_type = r.headers.get('Content-Type', '').lower()
-            is_image = 'image' in content_type
-            is_media = 'video' in content_type or 'audio' in content_type or 'mpeg' in content_type or 'mp4' in content_type
-            
-            if not (is_image or is_media): return False
-            if is_image:
-                try: Image.open(io.BytesIO(r.content)).verify()
-                except Exception: return False
-            if is_media and len(r.content) < 5000: return False
+            # DIAGNOSTIC CHECK: Is Pollinations giving us an error code?
+            if r.status_code == 200:
+                content_type = r.headers.get('Content-Type', '').lower()
+                is_image = 'image' in content_type
+                is_media = 'video' in content_type or 'audio' in content_type or 'mpeg' in content_type or 'mp4' in content_type
                 
-            with open(filepath, 'wb') as f: f.write(r.content)
-            return True
-        except Exception: return False
+                if not (is_image or is_media): return False
+                if is_image:
+                    try: Image.open(io.BytesIO(r.content)).verify()
+                    except Exception: return False
+                if is_media and len(r.content) < 5000: return False
+                    
+                with open(filepath, 'wb') as f: f.write(r.content)
+                return True
+            else:
+                # 🚨 ERROR LOGGING 🚨
+                print(f"   ↳ ❌ {type_label} API Error {r.status_code}: {r.text[:100]}")
+                return False
+                
+        except Exception as e:
+            print(f"   ↳ ❌ {type_label} Network Timeout: {str(e)[:50]}")
+            return False
 
     @staticmethod
     def generate_pollinations_audio(text, filepath):
@@ -238,8 +246,7 @@ class AssetEngine:
         url = f"https://gen.pollinations.ai/audio/{encoded}?model=music"
         api = os.getenv('POLLINATIONS_API_KEY')
         headers = {"Authorization": f"Bearer {api}"} if api else {}
-        # 90s timeout for audio to prevent exhaustion
-        return AssetEngine._download(url, filepath, headers, custom_timeout=90)
+        return AssetEngine._download(url, filepath, headers, custom_timeout=90, type_label="Audio")
 
     @staticmethod
     def generate_pollinations_video(prompt, filepath):
@@ -247,8 +254,7 @@ class AssetEngine:
         url = f"https://gen.pollinations.ai/video/{clean_prompt}?duration=4&fps=24"
         api = os.getenv('POLLINATIONS_API_KEY')
         headers = {"Authorization": f"Bearer {api}"} if api else {}
-        # 120s timeout for video rendering
-        return AssetEngine._download(url, filepath, headers, custom_timeout=120)
+        return AssetEngine._download(url, filepath, headers, custom_timeout=150, type_label="Video")
 
     @staticmethod
     def generate_image(prompt, filepath, fallback_kw, seed):
@@ -264,7 +270,7 @@ class AssetEngine:
 
         success = False
         for task in tasks:
-            if AssetEngine._download(task["url"], filepath, task["headers"], custom_timeout=45):
+            if AssetEngine._download(task["url"], filepath, task["headers"], custom_timeout=45, type_label="Image"):
                 success = True
                 break
         
@@ -449,7 +455,7 @@ class VideoStudio:
         return out_path, lyrics, timestamps
 
 # ==========================================
-# CORE 5: BROADCASTER
+# CORE 5: BROADCASTER (Weaponized Metadata)
 # ==========================================
 class Broadcaster:
     @staticmethod
@@ -530,7 +536,7 @@ def system_cleanup():
 # MAIN EXECUTION
 # ==========================================
 if __name__=="__main__":
-    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY V4.2 (ANTI-EXHAUSTION HYDRA) =====")
+    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY V4.3 (DIAGNOSTIC HYDRA) =====")
     Config.initialize()
     
     script_data = ContentStrategist.create_script()
