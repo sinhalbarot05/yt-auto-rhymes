@@ -69,7 +69,7 @@ class StorageEngine:
                 json.dump(data[-1000:], f, ensure_ascii=False, indent=2)
 
 # ==========================================
-# CORE 2: THE INTELLIGENCE (3-TIER LLM HYDRA)
+# CORE 2: THE INTELLIGENCE (HIT SONGWRITER EDITION)
 # ==========================================
 class IntelligenceEngine:
     @staticmethod
@@ -77,8 +77,15 @@ class IntelligenceEngine:
         if not key: 
             return None
         try:
-            r = requests.post(url, headers={"Authorization": f"Bearer {key}"},
-                              json={"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 0.9, "max_tokens": max_tokens}, timeout=45)
+            # VIRAL UPGRADE: High Temperature (0.95) & Top-P (0.95) for maximum creative rhyming
+            payload = {
+                "model": model, 
+                "messages": [{"role": "user", "content": prompt}], 
+                "temperature": 0.95, 
+                "top_p": 0.95,
+                "max_tokens": max_tokens
+            }
+            r = requests.post(url, headers={"Authorization": f"Bearer {key}"}, json=payload, timeout=45)
             if r.status_code == 200:
                 return r.json()["choices"][0]["message"]["content"].strip()
         except Exception as e:
@@ -87,7 +94,7 @@ class IntelligenceEngine:
 
     @staticmethod
     def ask(prompt):
-        print("🧠 Engaging Omni-Fallback Intelligence Engine...")
+        print("🧠 Engaging Omni-Fallback Intelligence Engine (Songwriter Mode)...")
         res = IntelligenceEngine._call_api("OpenAI", "https://api.openai.com/v1/chat/completions", os.getenv('OPENAI_API_KEY'), "gpt-4o-mini", prompt, 2000)
         if res: return res
         
@@ -114,9 +121,6 @@ class IntelligenceEngine:
             else: return json.loads(text[text.find('{'):text.rfind('}')+1])
         except Exception: return None
 
-# ==========================================
-# TOY FACTORY PIVOT (VIRAL LOOP EDITION)
-# ==========================================
 class ContentStrategist:
     VIRAL_THEMES = [
         "Chote Bachon Ka Khilona (Small Kids Colorful Toys) Playing",
@@ -157,21 +161,30 @@ class ContentStrategist:
         topic_prompt = f"Output ONLY a 3-to-4 word English topic for a Hindi kids rhyme about: {theme}. Focus on toys/vehicles. Avoid: {', '.join(used[-20:])}."
         topic = IntelligenceEngine.ask(topic_prompt) or f"Cute Toy {theme}"
         
-        prompt = f"""You are a top YouTube India Kids SEO expert and poet.
+        # VIRAL UPGRADE: Few-Shot Prompting & Musical Hooks
+        prompt = f"""You are a top YouTube India Kids SEO expert and a HIT CHILDREN'S SONGWRITER.
 Topic: "{topic}"
 Archetype: [{archetype}]
 
-━━ VIRAL RETENTION RULE (THE INFINITE LOOP) ━━
+━━ VIRAL SONG & RETENTION RULES ━━
 1. Write EXACTLY 14 scenes. 
-2. INFINITE LOOP: The rhyme must be a perfect loop. Line 14 MUST seamlessly lead right back into Line 1.
+2. MAKE IT MUSICAL: Use a highly repetitive, catchy chorus rhythm. It MUST be easy to sing-along for 2-5 year olds.
+3. THE INFINITE LOOP: The rhyme must be a perfect loop. Line 14 MUST seamlessly lead right back into Line 1.
 
-━━ HINDI RULES ━━
-3. PERFECT HINDI GRAMMAR. Simple, catchy words for toddlers.
-4. PURE DEVANAGARI STRICT LOCK FOR ON-SCREEN LYRICS. NO emojis in the 'line' field.
+━━ HINDI RULES (CRITICAL) ━━
+4. PERFECT HINDI GRAMMAR. Keep it to 5-7 simple words per line. AABB rhyme scheme.
+5. PURE DEVANAGARI STRICT LOCK FOR ON-SCREEN LYRICS. NO emojis in the 'line' field.
 
 ━━ VISUAL & METADATA RULES ━━
-5. Image Prompt: Start EVERY prompt with: "{archetype}. High-contrast, hyper-vibrant, bright lighting, plastic toy store aesthetic. [Action]"
-6. TITLE: Create a HIGH-CTR clickbait title. Format: "Short Catchy Hindi | English + 2 Emojis | 3D बालगीत 2026 | हिंदी राइम्स फॉर किड्स"
+6. Image Prompt: Start EVERY prompt with: "{archetype}. High-contrast, hyper-vibrant, bright lighting, plastic toy store aesthetic. [Action]"
+7. TITLE: Create a HIGH-CTR clickbait title. Format: "Short Catchy Hindi | English + 2 Emojis | 3D बालगीत 2026 | हिंदी राइम्स फॉर किड्स"
+
+━━ FEW-SHOT EXAMPLE OF A PERFECT MUSICAL RHYTHM ━━
+Scene 1: "लाल ट्रैक्टर चला भई चला"
+Scene 2: "गांव की सैर को यह निकला"
+Scene 3: "पीले पहिए घूमते जाएं"
+Scene 4: "सब बच्चों को यह हंसाएं"
+(Notice the short, bouncy, highly-singable rhythm. Replicate this energy!)
 
 Output ONLY valid JSON:
 {{
@@ -187,7 +200,7 @@ Output ONLY valid JSON:
             data = IntelligenceEngine.extract_json(raw)
             if data and "scenes" in data and len(data["scenes"]) >= 12:
                 StorageEngine.save("used_topics.json", topic)
-                print(f"✅ Viral Script Generated: {data['title']}")
+                print(f"✅ Hit Song Script Generated: {data['title']}")
                 return data
             time.sleep(4)
         return None
@@ -210,18 +223,14 @@ class AssetEngine:
             
             content_type = r.headers.get('Content-Type', '').lower()
             
-            # Check for Media Type
             is_image = 'image' in content_type
             is_media = 'video' in content_type or 'audio' in content_type or 'mpeg' in content_type or 'mp4' in content_type
             
-            if not (is_image or is_media):
-                return False
-                
+            if not (is_image or is_media): return False
             if is_image:
                 try: Image.open(io.BytesIO(r.content)).verify()
                 except Exception: return False
-            if is_media:
-                if len(r.content) < 5000: return False # Ignore empty/corrupted streams
+            if is_media and len(r.content) < 5000: return False
                 
             with open(filepath, 'wb') as f: f.write(r.content)
             return True
@@ -285,7 +294,7 @@ class AssetEngine:
         return False
 
 # ==========================================
-# CORE 4: VIDEO STUDIO (WITH VISUAL SUGAR HOOK)
+# CORE 4: VIDEO STUDIO 
 # ==========================================
 class VideoStudio:
     @staticmethod
@@ -337,12 +346,10 @@ class VideoStudio:
             vid_path = os.path.join(Config.ASSETS_DIR, f"vid_{i}.mp4")
             aud_path = os.path.join(Config.ASSETS_DIR, f"aud_{i}.mp3")
             
-            # AUDIO: Try AI Song -> Fallback to TTS
             if not AssetEngine.generate_pollinations_audio(scene['line'], aud_path):
                 print(f"   ↳ Scene {i}: Audio fallback to TTS")
                 AssetEngine.generate_voice(scene['line'], aud_path)
                 
-            # VIDEO: Try AI Video -> Fallback to Image
             if not AssetEngine.generate_pollinations_video(scene.get('image_prompt', 'cartoon'), vid_path):
                 print(f"   ↳ Scene {i}: Video fallback to Image")
                 AssetEngine.generate_image(scene.get('image_prompt', 'cartoon'), img_path, kw, master_seed)
@@ -355,6 +362,11 @@ class VideoStudio:
         timestamps = []
         current_time = 0.0
         w, h = 1080, 1920
+        
+        # We don't need the BGM track if Pollinations successfully sang the whole song with music
+        # But we'll load it as a fallback just in case
+        bgm_path = os.path.join(Config.ASSETS_DIR, "bg_music_dynamic.mp3")
+        AssetEngine.fetch_dynamic_background_music(bgm_path)
 
         for i, scene in enumerate(script_data['scenes']):
             img_path = os.path.join(Config.ASSETS_DIR, f"img_{i}.jpg")
@@ -364,27 +376,34 @@ class VideoStudio:
             if not os.path.exists(aud_path): return None, None, None 
             
             voice = AudioFileClip(aud_path)
-            echo = voice.volumex(0.25).set_start(0.18)
-            enhanced_voice = CompositeAudioClip([voice, echo]).set_duration(voice.duration + 0.3)
-            dur = enhanced_voice.duration
             
-            # Did we get an AI Video?
+            # If it's a TTS voice, it's short, so we pad it. If it's a real song, it's already paced.
+            if voice.duration < 2.5:
+                echo = voice.volumex(0.25).set_start(0.18)
+                enhanced_voice = CompositeAudioClip([voice, echo]).set_duration(voice.duration + 0.3)
+                
+                # Add background music since TTS is dry
+                bgm = AudioFileClip(bgm_path).volumex(0.085).audio_fadein(2.0)
+                bg_looped = concatenate_audioclips([bgm] * int(math.ceil(enhanced_voice.duration/bgm.duration))).subclip(0, enhanced_voice.duration) if bgm.duration > 0 else bgm
+                final_audio = CompositeAudioClip([enhanced_voice, bg_looped])
+                dur = enhanced_voice.duration
+            else:
+                # Pollinations Song - It already has music and pacing
+                final_audio = voice
+                dur = voice.duration
+            
             if os.path.exists(vid_path):
                 base_clip = VideoFileClip(vid_path)
-                # Ensure the video matches audio duration perfectly
                 if base_clip.duration < dur:
                     base_clip = base_clip.fx(vfx.loop, duration=dur)
                 else:
                     base_clip = base_clip.subclip(0, dur)
-                
-                # Crop and resize to Shorts format safely
                 anim = base_clip.resize(height=h).crop(x_center=base_clip.w/2, width=w).set_duration(dur)
             else:
-                # Fallback to Zoomed Image
                 img = ImageClip(img_path).resize(1.15)
                 ex_x, ex_y = img.w - w, img.h - h
                 move = random.choice(['zoom_in','zoom_out','pan_left','pan_right','pan_up','pan_down'])
-                speed = 0.25 if i == 0 else 0.12 # Viral 3-second visual sugar hook
+                speed = 0.25 if i == 0 else 0.12 
                 
                 if move=='zoom_in': anim = img.resize(lambda t: 1.0 + speed*(t/dur)).set_position('center')
                 elif move=='zoom_out': anim = img.resize(lambda t: 1.15 - speed*(t/dur)).set_position('center')
@@ -397,7 +416,7 @@ class VideoStudio:
             txt = VideoStudio._create_text_overlay(scene['line'], w, h, 118, dur).crossfadein(0.4)
             wm = VideoStudio._create_text_overlay(Config.CHANNEL_HANDLE, w, h, 38, dur, color='white', y_pos=40, is_eng=True).set_opacity(0.6)
             
-            clip = CompositeVideoClip([anim, txt, wm], size=(w,h)).set_audio(enhanced_voice).set_duration(dur)
+            clip = CompositeVideoClip([anim, txt, wm], size=(w,h)).set_audio(final_audio).set_duration(dur)
             if i > 0: clip = clip.crossfadein(0.4)
             
             clips.append(clip)
@@ -428,7 +447,6 @@ class Broadcaster:
             
             ai_tags = script_data.get('seo_tags', [])
             
-            # 🚨 HARDCODED WINNING SEO METADATA BASED ON ANALYTICS 🚨
             base_tags = [
                 "छोटे बच्चों का खिलौना", "dinosaur poem in hindi", "rems hindi", "reams hindi", 
                 "tractor cartoon", "khilona wala cartoon", "hindi nursery rhymes", "balgeet", 
@@ -494,7 +512,7 @@ def system_cleanup():
 # MAIN EXECUTION
 # ==========================================
 if __name__=="__main__":
-    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY V3.0 (A/V HYDRA) =====")
+    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY V4.0 (HIT SONGWRITER) =====")
     Config.initialize()
     
     script_data = ContentStrategist.create_script()
