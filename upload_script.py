@@ -28,7 +28,7 @@ class Config:
     TOKEN_FILE = "youtube_token.pickle"
     FONT_FILE = os.path.join(ASSETS_DIR, "HindiFont.ttf")
     ENG_FONT_FILE = os.path.join(ASSETS_DIR, "EngFont.ttf")
-    BRAND_COLORS = [(255, 204, 0), (65, 105, 225), (0, 139, 139)] # Mango Yellow, Royal Blue, Deep Turquoise
+    BRAND_COLORS = [(255, 204, 0), (65, 105, 225), (0, 139, 139)]
     CHANNEL_HANDLE = "@HindiMastiRhymes"
 
     @staticmethod
@@ -69,12 +69,13 @@ class StorageEngine:
                 json.dump(data[-1000:], f, ensure_ascii=False, indent=2)
 
 # ==========================================
-# CORE 2: THE INTELLIGENCE (HIT SONGWRITER EDITION)
+# CORE 2: THE INTELLIGENCE
 # ==========================================
 class IntelligenceEngine:
     @staticmethod
     def _call_api(name, url, key, model, prompt, max_tokens):
-        if not key: return None
+        if not key: 
+            return None
         try:
             payload = {
                 "model": model, 
@@ -86,7 +87,8 @@ class IntelligenceEngine:
             r = requests.post(url, headers={"Authorization": f"Bearer {key}"}, json=payload, timeout=45)
             if r.status_code == 200:
                 return r.json()["choices"][0]["message"]["content"].strip()
-        except Exception: pass
+        except Exception:
+            pass
         return None
 
     @staticmethod
@@ -167,7 +169,7 @@ Archetype: [{archetype}]
 2. MAKE IT MUSICAL: Use a highly repetitive, catchy chorus rhythm. It MUST be easy to sing-along for 2-5 year olds.
 3. THE INFINITE LOOP: The rhyme must be a perfect loop. Line 14 MUST seamlessly lead right back into Line 1.
 
-━━ HINDI RULES (CRITICAL) ━━
+━━ HINDI RULES ━━
 4. PERFECT HINDI GRAMMAR. Keep it to 5-7 simple words per line. AABB rhyme scheme.
 5. PURE DEVANAGARI STRICT LOCK FOR ON-SCREEN LYRICS. NO emojis in the 'line' field.
 
@@ -201,21 +203,20 @@ Output ONLY valid JSON:
         return None
 
 # ==========================================
-# CORE 3: ASSET FACTORY (ANTI-EXHAUSTION KEY ROTATION)
+# CORE 3: ASSET FACTORY (AUDIO & VIDEO HYDRA)
 # ==========================================
 class AssetEngine:
     @staticmethod
-    def _download(url, filepath, headers=None):
+    def _download(url, filepath, headers=None, custom_timeout=60):
         session = requests.Session()
-        # Removed 402 from total retries so it fails fast and jumps to the next key
-        retry = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504], allowed_methods={"GET"})
+        retry = Retry(total=4, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504], allowed_methods={"GET"})
         session.mount('https://', HTTPAdapter(max_retries=retry))
         try:
             req_headers = {"User-Agent": "Mozilla/5.0"}
             if headers: req_headers.update(headers)
             
-            r = session.get(url, headers=req_headers, timeout=60)
-            r.raise_for_status() # If it hits 402 Out of Credits, it safely errors out here
+            r = session.get(url, headers=req_headers, timeout=custom_timeout)
+            r.raise_for_status()
             
             content_type = r.headers.get('Content-Type', '').lower()
             is_image = 'image' in content_type
@@ -232,54 +233,38 @@ class AssetEngine:
         except Exception: return False
 
     @staticmethod
-    def _get_api_keys():
-        """Fetches multiple keys separated by commas for rotation."""
-        keys_env = os.getenv('POLLINATIONS_API_KEY', '')
-        return [k.strip() for k in keys_env.split(',') if k.strip()]
-
-    @staticmethod
     def generate_pollinations_audio(text, filepath):
         encoded = urllib.parse.quote(text)
-        url = f"https://gen.pollinations.ai/audio/{encoded}"
-        
-        # 🛡️ Layer 1: Rotate through all available API keys
-        for key in AssetEngine._get_api_keys():
-            if AssetEngine._download(url, filepath, {"Authorization": f"Bearer {key}"}):
-                return True
-                
-        # 🛡️ Layer 2: Attack Public Endpoint if all keys fail/exhausted
-        return AssetEngine._download(url, filepath, None)
+        url = f"https://gen.pollinations.ai/audio/{encoded}?model=music"
+        api = os.getenv('POLLINATIONS_API_KEY')
+        headers = {"Authorization": f"Bearer {api}"} if api else {}
+        # 90s timeout for audio to prevent exhaustion
+        return AssetEngine._download(url, filepath, headers, custom_timeout=90)
 
     @staticmethod
     def generate_pollinations_video(prompt, filepath):
         clean_prompt = urllib.parse.quote(f"{prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k")
-        url = f"https://gen.pollinations.ai/video/{clean_prompt}"
-        
-        # 🛡️ Layer 1: Rotate through all available API keys
-        for key in AssetEngine._get_api_keys():
-            if AssetEngine._download(url, filepath, {"Authorization": f"Bearer {key}"}):
-                return True
-                
-        # 🛡️ Layer 2: Attack Public Endpoint
-        return AssetEngine._download(url, filepath, None)
+        url = f"https://gen.pollinations.ai/video/{clean_prompt}?duration=4&fps=24"
+        api = os.getenv('POLLINATIONS_API_KEY')
+        headers = {"Authorization": f"Bearer {api}"} if api else {}
+        # 120s timeout for video rendering
+        return AssetEngine._download(url, filepath, headers, custom_timeout=120)
 
     @staticmethod
-    def generate_image(prompt, filepath, seed):
+    def generate_image(prompt, filepath, fallback_kw, seed):
         w, h = 1080, 1920
         scene_seed = seed + random.randint(1, 100)
         clean_prompt = urllib.parse.quote(f"{prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k")
+        api = os.getenv('POLLINATIONS_API_KEY')
         
         tasks = []
-        # Add all keys to tasks
-        for key in AssetEngine._get_api_keys():
-            tasks.append({"url": f"https://gen.pollinations.ai/image/{clean_prompt}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true", "headers": {"Authorization": f"Bearer {key}"}})
-        
-        # Add public endpoints
+        if api: tasks.append({"url": f"https://gen.pollinations.ai/image/{clean_prompt}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true", "headers": {"Authorization": f"Bearer {api}"}})
         tasks.append({"url": f"https://image.pollinations.ai/prompt/{clean_prompt}?width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true", "headers": None})
+        tasks.append({"url": f"https://loremflickr.com/{w}/{h}/{urllib.parse.quote(fallback_kw or 'cartoon kids')}?lock={scene_seed}", "headers": None})
 
         success = False
         for task in tasks:
-            if AssetEngine._download(task["url"], filepath, task["headers"]):
+            if AssetEngine._download(task["url"], filepath, task["headers"], custom_timeout=45):
                 success = True
                 break
         
@@ -292,7 +277,6 @@ class AssetEngine:
                     im.save(filepath, "JPEG", quality=98, optimize=True)
             except Exception: pass
         else:
-            # 🛡️ Layer 3: No LoremFlickr! Only Brand Color block to preserve 3D vibe
             Image.new('RGB', (w, h), random.choice(Config.BRAND_COLORS)).save(filepath)
 
     @staticmethod
@@ -375,14 +359,12 @@ class VideoStudio:
     def render_short(script_data):
         print("🎬 Assembling Studio Short with AI Audio/Video Fallbacks...")
         master_seed = random.randint(1000, 999999)
+        kw = script_data.get('keyword', 'kids')
 
         def build_scene_assets(i, scene):
             img_path = os.path.join(Config.ASSETS_DIR, f"img_{i}.jpg")
             vid_path = os.path.join(Config.ASSETS_DIR, f"vid_{i}.mp4")
             aud_path = os.path.join(Config.ASSETS_DIR, f"aud_{i}.mp3")
-            
-            # Anti-DDoS Throttling to protect IP
-            time.sleep(1.5) 
             
             if not AssetEngine.generate_pollinations_audio(scene['line'], aud_path):
                 print(f"   ↳ Scene {i}: Audio fallback to TTS")
@@ -390,10 +372,9 @@ class VideoStudio:
                 
             if not AssetEngine.generate_pollinations_video(scene.get('image_prompt', 'cartoon'), vid_path):
                 print(f"   ↳ Scene {i}: Video fallback to Image")
-                AssetEngine.generate_image(scene.get('image_prompt', 'cartoon'), img_path, master_seed)
+                AssetEngine.generate_image(scene.get('image_prompt', 'cartoon'), img_path, kw, master_seed)
 
-        # Reduced to 2 workers to strictly prevent rate limit bursts
-        with ThreadPoolExecutor(max_workers=2) as ex:
+        with ThreadPoolExecutor(max_workers=3) as ex:
             futures = [ex.submit(build_scene_assets, i, scene) for i, scene in enumerate(script_data['scenes'])]
             for f in as_completed(futures): f.result()
 
@@ -468,7 +449,7 @@ class VideoStudio:
         return out_path, lyrics, timestamps
 
 # ==========================================
-# CORE 5: BROADCASTER (Weaponized Metadata)
+# CORE 5: BROADCASTER
 # ==========================================
 class Broadcaster:
     @staticmethod
