@@ -6,6 +6,10 @@ on:
     - cron: '30 1,5,9,13 * * *'
   workflow_dispatch:
 
+# 🚨 FIX FOR GITHUB NODE.JS WARNING 🚨
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: broadcast-pipeline
 
@@ -25,7 +29,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: 'pip' # This single line replaces the massive caching block!
+          cache: 'pip' 
 
       - name: 📦 Install All Dependencies
         run: |
