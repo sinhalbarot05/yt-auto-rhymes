@@ -77,7 +77,6 @@ class IntelligenceEngine:
         if not key: 
             return None
         try:
-            # VIRAL UPGRADE: High Temperature (0.95) & Top-P (0.95) for maximum creative rhyming
             payload = {
                 "model": model, 
                 "messages": [{"role": "user", "content": prompt}], 
@@ -161,7 +160,6 @@ class ContentStrategist:
         topic_prompt = f"Output ONLY a 3-to-4 word English topic for a Hindi kids rhyme about: {theme}. Focus on toys/vehicles. Avoid: {', '.join(used[-20:])}."
         topic = IntelligenceEngine.ask(topic_prompt) or f"Cute Toy {theme}"
         
-        # VIRAL UPGRADE: Few-Shot Prompting & Musical Hooks
         prompt = f"""You are a top YouTube India Kids SEO expert and a HIT CHILDREN'S SONGWRITER.
 Topic: "{topic}"
 Archetype: [{archetype}]
@@ -184,7 +182,6 @@ Scene 1: "लाल ट्रैक्टर चला भई चला"
 Scene 2: "गांव की सैर को यह निकला"
 Scene 3: "पीले पहिए घूमते जाएं"
 Scene 4: "सब बच्चों को यह हंसाएं"
-(Notice the short, bouncy, highly-singable rhythm. Replicate this energy!)
 
 Output ONLY valid JSON:
 {{
@@ -293,6 +290,28 @@ class AssetEngine:
             time.sleep(random.uniform(1, 3))
         return False
 
+    @staticmethod
+    def fetch_dynamic_background_music(out_path):
+        print("🎵 Fetching dynamic background track...")
+        safe_audio_tracks = [
+            "https://ia800408.us.archive.org/27/items/UpbeatKidsMusic/Upbeat_Kids_Music.mp3",
+            "https://ia801402.us.archive.org/16/items/happy-upbeat-background-music/Happy%20Upbeat.mp3",
+            "https://ia600504.us.archive.org/33/items/bensound-music/bensound-ukulele.mp3",
+            "https://ia800504.us.archive.org/33/items/bensound-music/bensound-buddy.mp3",
+            "https://ia801509.us.archive.org/13/items/bensound-music/bensound-clearday.mp3",
+            "https://ia801509.us.archive.org/13/items/bensound-music/bensound-littleidea.mp3",
+            "https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3"
+        ]
+        try:
+            r = requests.get(random.choice(safe_audio_tracks), timeout=30)
+            r.raise_for_status()
+            with open(out_path, 'wb') as f:
+                f.write(r.content)
+            return True
+        except Exception:
+            shutil.copyfile(os.path.join(Config.ASSETS_DIR, "bg_music_default.mp3"), out_path)
+            return False
+
 # ==========================================
 # CORE 4: VIDEO STUDIO 
 # ==========================================
@@ -363,8 +382,6 @@ class VideoStudio:
         current_time = 0.0
         w, h = 1080, 1920
         
-        # We don't need the BGM track if Pollinations successfully sang the whole song with music
-        # But we'll load it as a fallback just in case
         bgm_path = os.path.join(Config.ASSETS_DIR, "bg_music_dynamic.mp3")
         AssetEngine.fetch_dynamic_background_music(bgm_path)
 
@@ -377,18 +394,18 @@ class VideoStudio:
             
             voice = AudioFileClip(aud_path)
             
-            # If it's a TTS voice, it's short, so we pad it. If it's a real song, it's already paced.
+            # YouTube Shorts length safety: prevent single scenes from dominating time
+            if voice.duration > 4.5: voice = voice.subclip(0, 4.5)
+            
             if voice.duration < 2.5:
                 echo = voice.volumex(0.25).set_start(0.18)
                 enhanced_voice = CompositeAudioClip([voice, echo]).set_duration(voice.duration + 0.3)
                 
-                # Add background music since TTS is dry
                 bgm = AudioFileClip(bgm_path).volumex(0.085).audio_fadein(2.0)
                 bg_looped = concatenate_audioclips([bgm] * int(math.ceil(enhanced_voice.duration/bgm.duration))).subclip(0, enhanced_voice.duration) if bgm.duration > 0 else bgm
                 final_audio = CompositeAudioClip([enhanced_voice, bg_looped])
                 dur = enhanced_voice.duration
             else:
-                # Pollinations Song - It already has music and pacing
                 final_audio = voice
                 dur = voice.duration
             
@@ -398,7 +415,10 @@ class VideoStudio:
                     base_clip = base_clip.fx(vfx.loop, duration=dur)
                 else:
                     base_clip = base_clip.subclip(0, dur)
-                anim = base_clip.resize(height=h).crop(x_center=base_clip.w/2, width=w).set_duration(dur)
+                
+                # BUGFIX: Resize first, THEN crop to prevent out-of-bounds geometry crash
+                resized_clip = base_clip.resize(height=h)
+                anim = resized_clip.crop(x_center=resized_clip.w/2, width=w).set_duration(dur)
             else:
                 img = ImageClip(img_path).resize(1.15)
                 ex_x, ex_y = img.w - w, img.h - h
@@ -512,7 +532,7 @@ def system_cleanup():
 # MAIN EXECUTION
 # ==========================================
 if __name__=="__main__":
-    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY V4.0 (HIT SONGWRITER) =====")
+    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY V4.1 (A/V HYDRA) =====")
     Config.initialize()
     
     script_data = ContentStrategist.create_script()
