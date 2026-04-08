@@ -43,13 +43,13 @@ class Config:
                     json.dump([], file)
 
         if not os.path.exists(Config.FONT_FILE):
-            open(Config.FONT_FILE, 'wb').write(requests.get("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf", timeout=20).content)
+            open(Config.FONT_FILE, 'wb').write(requests.get("[https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf](https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf)", timeout=20).content)
         if not os.path.exists(Config.ENG_FONT_FILE):
-            open(Config.ENG_FONT_FILE, 'wb').write(requests.get("https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf", timeout=20).content)
+            open(Config.ENG_FONT_FILE, 'wb').write(requests.get("[https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf](https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf)", timeout=20).content)
         
         bg_music = os.path.join(Config.ASSETS_DIR, "bg_music_default.mp3")
         if not os.path.exists(bg_music):
-            open(bg_music, 'wb').write(requests.get("https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3", timeout=30).content)
+            open(bg_music, 'wb').write(requests.get("[https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3](https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3)", timeout=30).content)
 
 class StorageEngine:
     @staticmethod
@@ -94,15 +94,15 @@ class IntelligenceEngine:
     @staticmethod
     def ask(prompt):
         print("🧠 Engaging Omni-Fallback Intelligence Engine (Songwriter Mode)...")
-        res = IntelligenceEngine._call_api("OpenAI", "https://api.openai.com/v1/chat/completions", os.getenv('OPENAI_API_KEY'), "gpt-4o-mini", prompt, 2000)
+        res = IntelligenceEngine._call_api("OpenAI", "[https://api.openai.com/v1/chat/completions](https://api.openai.com/v1/chat/completions)", os.getenv('OPENAI_API_KEY'), "gpt-4o-mini", prompt, 2000)
         if res: return res
         
         print("   ↳ 🔄 Falling back to Groq...")
-        res = IntelligenceEngine._call_api("Groq", "https://api.groq.com/openai/v1/chat/completions", os.getenv('GROQ_API_KEY'), "llama-3.3-70b-versatile", prompt, 3000)
+        res = IntelligenceEngine._call_api("Groq", "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)", os.getenv('GROQ_API_KEY'), "llama-3.3-70b-versatile", prompt, 3000)
         if res: return res
         
         print("   ↳ 🔄 Falling back to WaveSpeed...")
-        res = IntelligenceEngine._call_api("WaveSpeed", "https://api.wavespeed.ai/v1/chat/completions", os.getenv('WAVESPEED_API_KEY'), "llama-3-70b", prompt, 3000) 
+        res = IntelligenceEngine._call_api("WaveSpeed", "[https://api.wavespeed.ai/v1/chat/completions](https://api.wavespeed.ai/v1/chat/completions)", os.getenv('WAVESPEED_API_KEY'), "llama-3-70b", prompt, 3000) 
         if res: return res
         return None
 
@@ -110,13 +110,10 @@ class IntelligenceEngine:
     def extract_json(text):
         if not text: return None
         try:
-            marker = '`' * 3
-            if marker + 'json' in text:
-                text = text.split(marker + 'json')[1].split(marker)[0]
-            elif marker in text:
-                text = text.split(marker)[1].split(marker)[0]
-            elif '```' in text:
-                text = text.split('```')[1].split('```')[0]
+            # BUGFIX: Using chr(96) to generate backticks dynamically so it doesn't break the UI markdown
+            marker = chr(96) * 3 
+            if marker + 'json' in text: text = text.split(marker + 'json')[1].split(marker)[0]
+            elif marker in text: text = text.split(marker)[1].split(marker)[0]
             text = text.strip()
             if text.startswith('['): return json.loads(text[text.find('['):text.rfind(']')+1])
             else: return json.loads(text[text.find('{'):text.rfind('}')+1])
@@ -205,15 +202,20 @@ Output ONLY valid JSON:
         return None
 
 # ==========================================
-# CORE 3: ASSET FACTORY (KEY ROTATOR HYDRA)
+# CORE 3: ASSET FACTORY (ARMOR-PLATED HYDRA)
 # ==========================================
 class AssetEngine:
     @staticmethod
     def _get_pollinations_keys():
-        """Extracts and cleans all comma-separated keys from the environment."""
+        """ARMOR-PLATED KEY EXTRACTOR: Ignores brackets, quotes, and whitespace."""
         raw_keys = os.getenv('POLLINATIONS_API_KEY', '')
         if not raw_keys: return []
-        return [k.strip() for k in raw_keys.split(',') if k.strip()]
+        
+        valid_keys = re.findall(r'(sk_[a-zA-Z0-9_-]+)', raw_keys)
+        if valid_keys: return valid_keys
+        
+        cleaned = re.sub(r'[\[\]\"\'\s]', '', raw_keys)
+        return [k for k in cleaned.split(',') if k]
 
     @staticmethod
     def _download_with_rotation(url, filepath, custom_timeout=60, type_label="Asset"):
@@ -228,10 +230,8 @@ class AssetEngine:
             print(f"   ↳ Attempting {type_label} with Key #{index + 1}...")
             
             success = AssetEngine._execute_download(url, filepath, headers, custom_timeout, type_label)
-            if success:
-                return True
-            else:
-                print(f"   ↳ ⚠️ Key #{index + 1} failed. Rotating...")
+            if success: return True
+            else: print(f"   ↳ ⚠️ Key #{index + 1} failed. Rotating...")
         
         print(f"   ↳ ❌ All available Pollinations keys failed for {type_label}.")
         return False
@@ -242,7 +242,8 @@ class AssetEngine:
         retry = Retry(total=2, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
         session.mount('https://', HTTPAdapter(max_retries=retry))
         try:
-            r = session.get(url, headers=headers, timeout=custom_timeout)
+            r = session.get(url, headers=headers, timeout=custom_timeout, proxies={"http": None, "https": None})
+            
             if r.status_code == 200:
                 content_type = r.headers.get('Content-Type', '').lower()
                 is_image = 'image' in content_type
@@ -260,7 +261,7 @@ class AssetEngine:
                 print(f"      ↳ API Error {r.status_code}: {r.text[:50]}")
                 return False
         except Exception as e:
-            print(f"      ↳ Network Timeout: {str(e)[:40]}")
+            print(f"      ↳ Network Error: {str(e)[:40]}")
             return False
 
     @staticmethod
@@ -325,7 +326,7 @@ class AssetEngine:
             "[https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3](https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3)"
         ]
         try:
-            r = requests.get(random.choice(safe_audio_tracks), timeout=30)
+            r = requests.get(random.choice(safe_audio_tracks), timeout=30, proxies={"http": None, "https": None})
             r.raise_for_status()
             with open(out_path, 'wb') as f:
                 f.write(r.content)
@@ -551,7 +552,7 @@ def system_cleanup():
 # MAIN EXECUTION
 # ==========================================
 if __name__=="__main__":
-    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY V4.5 (OMNI-HYDRA) =====")
+    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY V4.6 (OMNI-HYDRA) =====")
     Config.initialize()
     
     script_data = ContentStrategist.create_script()
