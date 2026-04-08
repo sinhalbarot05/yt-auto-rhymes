@@ -43,13 +43,16 @@ class Config:
                     json.dump([], file)
 
         if not os.path.exists(Config.FONT_FILE):
-            open(Config.FONT_FILE, 'wb').write(requests.get("[https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf](https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf)", timeout=20).content)
+            url = "https://" + "github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansDevanagari/NotoSansDevanagari-Bold.ttf"
+            open(Config.FONT_FILE, 'wb').write(requests.get(url, timeout=20).content)
         if not os.path.exists(Config.ENG_FONT_FILE):
-            open(Config.ENG_FONT_FILE, 'wb').write(requests.get("[https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf](https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf)", timeout=20).content)
+            url = "https://" + "github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf"
+            open(Config.ENG_FONT_FILE, 'wb').write(requests.get(url, timeout=20).content)
         
         bg_music = os.path.join(Config.ASSETS_DIR, "bg_music_default.mp3")
         if not os.path.exists(bg_music):
-            open(bg_music, 'wb').write(requests.get("[https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3](https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3)", timeout=30).content)
+            url = "https://" + "github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3"
+            open(bg_music, 'wb').write(requests.get(url, timeout=30).content)
 
 class StorageEngine:
     @staticmethod
@@ -94,15 +97,18 @@ class IntelligenceEngine:
     @staticmethod
     def ask(prompt):
         print("🧠 Engaging Omni-Fallback Intelligence Engine (Songwriter Mode)...")
-        res = IntelligenceEngine._call_api("OpenAI", "[https://api.openai.com/v1/chat/completions](https://api.openai.com/v1/chat/completions)", os.getenv('OPENAI_API_KEY'), "gpt-4o-mini", prompt, 2000)
+        openai_url = "https://" + "api.openai.com/v1/chat/completions"
+        res = IntelligenceEngine._call_api("OpenAI", openai_url, os.getenv('OPENAI_API_KEY'), "gpt-4o-mini", prompt, 2000)
         if res: return res
         
         print("   ↳ 🔄 Falling back to Groq...")
-        res = IntelligenceEngine._call_api("Groq", "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)", os.getenv('GROQ_API_KEY'), "llama-3.3-70b-versatile", prompt, 3000)
+        groq_url = "https://" + "api.groq.com/openai/v1/chat/completions"
+        res = IntelligenceEngine._call_api("Groq", groq_url, os.getenv('GROQ_API_KEY'), "llama-3.3-70b-versatile", prompt, 3000)
         if res: return res
         
         print("   ↳ 🔄 Falling back to WaveSpeed...")
-        res = IntelligenceEngine._call_api("WaveSpeed", "[https://api.wavespeed.ai/v1/chat/completions](https://api.wavespeed.ai/v1/chat/completions)", os.getenv('WAVESPEED_API_KEY'), "llama-3-70b", prompt, 3000) 
+        wavespeed_url = "https://" + "api.wavespeed.ai/v1/chat/completions"
+        res = IntelligenceEngine._call_api("WaveSpeed", wavespeed_url, os.getenv('WAVESPEED_API_KEY'), "llama-3-70b", prompt, 3000) 
         if res: return res
         return None
 
@@ -110,8 +116,7 @@ class IntelligenceEngine:
     def extract_json(text):
         if not text: return None
         try:
-            # BUGFIX: Using chr(96) to generate backticks dynamically so it doesn't break the UI markdown
-            marker = chr(96) * 3 
+            marker = chr(96) * 3
             if marker + 'json' in text: text = text.split(marker + 'json')[1].split(marker)[0]
             elif marker in text: text = text.split(marker)[1].split(marker)[0]
             text = text.strip()
@@ -267,13 +272,13 @@ class AssetEngine:
     @staticmethod
     def generate_pollinations_audio(text, filepath):
         encoded = urllib.parse.quote(text)
-        url = f"[https://gen.pollinations.ai/audio/](https://gen.pollinations.ai/audio/){encoded}?model=music"
+        url = "https://" + f"gen.pollinations.ai/audio/{encoded}?model=music"
         return AssetEngine._download_with_rotation(url, filepath, custom_timeout=90, type_label="Audio")
 
     @staticmethod
     def generate_pollinations_video(prompt, filepath):
         clean_prompt = urllib.parse.quote(f"{prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k")
-        url = f"[https://gen.pollinations.ai/video/](https://gen.pollinations.ai/video/){clean_prompt}?duration=4&fps=24"
+        url = "https://" + f"gen.pollinations.ai/video/{clean_prompt}?duration=4&fps=24"
         return AssetEngine._download_with_rotation(url, filepath, custom_timeout=150, type_label="Video")
 
     @staticmethod
@@ -282,8 +287,8 @@ class AssetEngine:
         scene_seed = seed + random.randint(1, 100)
         clean_prompt = urllib.parse.quote(f"{prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k")
         
-        url_premium = f"[https://gen.pollinations.ai/image/](https://gen.pollinations.ai/image/){clean_prompt}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
-        url_public = f"[https://image.pollinations.ai/prompt/](https://image.pollinations.ai/prompt/){clean_prompt}?width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
+        url_premium = "https://" + f"gen.pollinations.ai/image/{clean_prompt}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
+        url_public = "https://" + f"image.pollinations.ai/prompt/{clean_prompt}?width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
         
         if AssetEngine._download_with_rotation(url_premium, filepath, custom_timeout=60, type_label="Image"):
             pass 
@@ -317,13 +322,12 @@ class AssetEngine:
     def fetch_dynamic_background_music(out_path):
         print("🎵 Fetching dynamic background track...")
         safe_audio_tracks = [
-            "[https://ia800408.us.archive.org/27/items/UpbeatKidsMusic/Upbeat_Kids_Music.mp3](https://ia800408.us.archive.org/27/items/UpbeatKidsMusic/Upbeat_Kids_Music.mp3)",
-            "[https://ia801402.us.archive.org/16/items/happy-upbeat-background-music/Happy%20Upbeat.mp3](https://ia801402.us.archive.org/16/items/happy-upbeat-background-music/Happy%20Upbeat.mp3)",
-            "[https://ia600504.us.archive.org/33/items/bensound-music/bensound-ukulele.mp3](https://ia600504.us.archive.org/33/items/bensound-music/bensound-ukulele.mp3)",
-            "[https://ia800504.us.archive.org/33/items/bensound-music/bensound-buddy.mp3](https://ia800504.us.archive.org/33/items/bensound-music/bensound-buddy.mp3)",
-            "[https://ia801509.us.archive.org/13/items/bensound-music/bensound-clearday.mp3](https://ia801509.us.archive.org/13/items/bensound-music/bensound-clearday.mp3)",
-            "[https://ia801509.us.archive.org/13/items/bensound-music/bensound-littleidea.mp3](https://ia801509.us.archive.org/13/items/bensound-music/bensound-littleidea.mp3)",
-            "[https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3](https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3)"
+            "https://" + "ia800408.us.archive.org/27/items/UpbeatKidsMusic/Upbeat_Kids_Music.mp3",
+            "https://" + "ia801402.us.archive.org/16/items/happy-upbeat-background-music/Happy%20Upbeat.mp3",
+            "https://" + "ia600504.us.archive.org/33/items/bensound-music/bensound-ukulele.mp3",
+            "https://" + "ia800504.us.archive.org/33/items/bensound-music/bensound-buddy.mp3",
+            "https://" + "ia801509.us.archive.org/13/items/bensound-music/bensound-clearday.mp3",
+            "https://" + "ia801509.us.archive.org/13/items/bensound-music/bensound-littleidea.mp3"
         ]
         try:
             r = requests.get(random.choice(safe_audio_tracks), timeout=30, proxies={"http": None, "https": None})
@@ -552,7 +556,7 @@ def system_cleanup():
 # MAIN EXECUTION
 # ==========================================
 if __name__=="__main__":
-    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY V4.6 (OMNI-HYDRA) =====")
+    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY V4.7 (OMNI-HYDRA) =====")
     Config.initialize()
     
     script_data = ContentStrategist.create_script()
