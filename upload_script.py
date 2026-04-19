@@ -72,7 +72,7 @@ class StorageEngine:
                 json.dump(data[-1000:], f, ensure_ascii=False, indent=2)
 
 # ==========================================
-# CORE 2: THE INTELLIGENCE (HIT SONGWRITER)
+# CORE 2: THE INTELLIGENCE (GROK OPTIMIZED)
 # ==========================================
 class IntelligenceEngine:
     @staticmethod
@@ -90,7 +90,7 @@ class IntelligenceEngine:
             r = requests.post(url, headers={"Authorization": f"Bearer {key}"}, json=payload, timeout=45)
             if r.status_code == 200:
                 return r.json()["choices"][0]["message"]["content"].strip()
-        except Exception as e:
+        except Exception:
             pass
         return None
 
@@ -144,9 +144,9 @@ class ContentStrategist:
     ]
 
     ARCHETYPES = [
-        "premium 3D plastic Mango Yellow toy robot with glowing eyes", 
+        "premium 3D plastic Mango Yellow toy robot", 
         "cute plush Deep Turquoise baby dinosaur toy",
-        "glossy Royal Blue plastic toy tractor with big wheels", 
+        "glossy Royal Blue plastic toy tractor", 
         "vibrant 3D plastic toy train engine",
         "cute chunky Mango Yellow toy JCB excavator"
     ]
@@ -161,7 +161,7 @@ class ContentStrategist:
         used = StorageEngine.load("used_topics.json")
         theme = ContentStrategist.get_theme(used)
         archetype = random.choice(ContentStrategist.ARCHETYPES)
-        topic_prompt = f"Output ONLY a 3-to-4 word English topic for a Hindi kids rhyme about: {theme}. Focus on toys/vehicles. Avoid: {', '.join(used[-20:])}."
+        topic_prompt = f"Output ONLY a 3-to-4 word English topic for a Hindi kids rhyme about: {theme}. Avoid: {', '.join(used[-20:])}."
         topic = IntelligenceEngine.ask(topic_prompt) or f"Cute Toy {theme}"
         
         prompt = f"""You are a top YouTube India Kids SEO expert and a HIT CHILDREN'S SONGWRITER.
@@ -170,26 +170,20 @@ Archetype: [{archetype}]
 
 ━━ VIRAL SONG & RETENTION RULES ━━
 1. Write EXACTLY 14 scenes. 
-2. MAKE IT MUSICAL: Use a highly repetitive, catchy chorus rhythm. It MUST be easy to sing-along for 2-5 year olds.
-3. THE INFINITE LOOP: The rhyme must be a perfect loop. Line 14 MUST seamlessly lead right back into Line 1.
+2. CHORUS FIRST: Scenes 1 and 2 MUST be a high-energy, catchy chorus to hook toddlers instantly.
+3. THE PERFECT LOOP: Scene 14 MUST seamlessly lead right back into Scene 1.
 
 ━━ HINDI RULES (CRITICAL) ━━
 4. PERFECT HINDI GRAMMAR. Keep it to 5-7 simple words per line. AABB rhyme scheme.
 5. PURE DEVANAGARI STRICT LOCK FOR ON-SCREEN LYRICS. NO emojis in the 'line' field.
 
-━━ VISUAL & METADATA RULES ━━
-6. Image Prompt: Start EVERY prompt with: "{archetype}. High-contrast, hyper-vibrant, bright lighting, plastic toy store aesthetic. [Action]"
-7. TITLE: Create a HIGH-CTR clickbait title. Format: "Short Catchy Hindi | English + 2 Emojis | 3D बालगीत 2026 | हिंदी राइम्स फॉर किड्स"
-
-━━ FEW-SHOT EXAMPLE OF A PERFECT MUSICAL RHYTHM ━━
-Scene 1: "लाल ट्रैक्टर चला भई चला"
-Scene 2: "गांव की सैर को यह निकला"
-Scene 3: "पीले पहिए घूमते जाएं"
-Scene 4: "सब बच्चों को यह हंसाएं"
+━━ VISUAL & METADATA RULES (GROK OPTIMIZED) ━━
+6. Image Prompt: Start EVERY prompt with: "{archetype}. Cute toy with big sparkling eyes looking directly at camera, happy reaction. High-contrast, hyper-vibrant, [Action]"
+7. TITLE: Create a SHORT, emotional clickbait title. Format: "English Action Hook! [Emojis] | Hindi Name | 3D Balgeet for Kids"
 
 Output ONLY valid JSON:
 {{
-  "title": "Hindi | English [emojis] | 3D बालगीत 2026 | हिंदी राइम्स फॉर किड्स",
+  "title": "Fire Truck Rescue! 🚒🔥 | लाल आग की गाड़ी | 3D Balgeet for Kids",
   "keyword": "searchable english word",
   "seo_tags": ["tag1","tag2"],
   "seo_description": "...",
@@ -207,18 +201,15 @@ Output ONLY valid JSON:
         return None
 
 # ==========================================
-# CORE 3: ASSET FACTORY (ARMOR-PLATED HYDRA)
+# CORE 3: ASSET FACTORY (SANITIZED HYDRA)
 # ==========================================
 class AssetEngine:
     @staticmethod
     def _get_pollinations_keys():
-        """ARMOR-PLATED KEY EXTRACTOR: Ignores brackets, quotes, and whitespace."""
         raw_keys = os.getenv('POLLINATIONS_API_KEY', '')
         if not raw_keys: return []
-        
         valid_keys = re.findall(r'(sk_[a-zA-Z0-9_-]+)', raw_keys)
         if valid_keys: return valid_keys
-        
         cleaned = re.sub(r'[\[\]\"\'\s]', '', raw_keys)
         return [k for k in cleaned.split(',') if k]
 
@@ -233,7 +224,6 @@ class AssetEngine:
         for index, key in enumerate(keys):
             headers = {"Authorization": f"Bearer {key}", "User-Agent": "Mozilla/5.0"}
             print(f"   ↳ Attempting {type_label} with Key #{index + 1}...")
-            
             success = AssetEngine._execute_download(url, filepath, headers, custom_timeout, type_label)
             if success: return True
             else: print(f"   ↳ ⚠️ Key #{index + 1} failed. Rotating...")
@@ -248,7 +238,6 @@ class AssetEngine:
         session.mount('https://', HTTPAdapter(max_retries=retry))
         try:
             r = session.get(url, headers=headers, timeout=custom_timeout, proxies={"http": None, "https": None})
-            
             if r.status_code == 200:
                 content_type = r.headers.get('Content-Type', '').lower()
                 is_image = 'image' in content_type
@@ -277,7 +266,9 @@ class AssetEngine:
 
     @staticmethod
     def generate_pollinations_video(prompt, filepath):
-        clean_prompt = urllib.parse.quote(f"{prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k")
+        # 🚨 BUGFIX: Grok identified 400 Bad Request. We must sanitize & truncate the prompt!
+        safe_prompt = re.sub(r'[^a-zA-Z0-9\s\,]', '', prompt)[:100]
+        clean_prompt = urllib.parse.quote(f"{safe_prompt}, 3D Pixar Cocomelon style, cute face looking at camera")
         url = "https://" + f"gen.pollinations.ai/video/{clean_prompt}?duration=4&fps=24"
         return AssetEngine._download_with_rotation(url, filepath, custom_timeout=150, type_label="Video")
 
@@ -285,7 +276,8 @@ class AssetEngine:
     def generate_image(prompt, filepath, fallback_kw, seed):
         w, h = 1080, 1920
         scene_seed = seed + random.randint(1, 100)
-        clean_prompt = urllib.parse.quote(f"{prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style kids cartoon vibrant masterpiece 8k")
+        # Apply the Face/Reaction rule to images as well
+        clean_prompt = urllib.parse.quote(f"{prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style, cute face looking at camera")
         
         url_premium = "https://" + f"gen.pollinations.ai/image/{clean_prompt}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
         url_public = "https://" + f"image.pollinations.ai/prompt/{clean_prompt}?width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
@@ -324,10 +316,7 @@ class AssetEngine:
         safe_audio_tracks = [
             "https://" + "ia800408.us.archive.org/27/items/UpbeatKidsMusic/Upbeat_Kids_Music.mp3",
             "https://" + "ia801402.us.archive.org/16/items/happy-upbeat-background-music/Happy%20Upbeat.mp3",
-            "https://" + "ia600504.us.archive.org/33/items/bensound-music/bensound-ukulele.mp3",
-            "https://" + "ia800504.us.archive.org/33/items/bensound-music/bensound-buddy.mp3",
-            "https://" + "ia801509.us.archive.org/13/items/bensound-music/bensound-clearday.mp3",
-            "https://" + "ia801509.us.archive.org/13/items/bensound-music/bensound-littleidea.mp3"
+            "https://" + "ia801509.us.archive.org/13/items/bensound-music/bensound-buddy.mp3"
         ]
         try:
             r = requests.get(random.choice(safe_audio_tracks), timeout=30, proxies={"http": None, "https": None})
@@ -340,7 +329,7 @@ class AssetEngine:
             return False
 
 # ==========================================
-# CORE 4: VIDEO STUDIO 
+# CORE 4: VIDEO STUDIO (REPLAY HOOK ADDED)
 # ==========================================
 class VideoStudio:
     @staticmethod
@@ -383,9 +372,10 @@ class VideoStudio:
 
     @staticmethod
     def render_short(script_data):
-        print("🎬 Assembling Studio Short with AI Audio/Video Fallbacks...")
+        print("🎬 Assembling Studio Short with Grok AVD Optimizations...")
         master_seed = random.randint(1000, 999999)
         kw = script_data.get('keyword', 'kids')
+        total_scenes = len(script_data['scenes'])
 
         def build_scene_assets(i, scene):
             img_path = os.path.join(Config.ASSETS_DIR, f"img_{i}.jpg")
@@ -440,7 +430,6 @@ class VideoStudio:
                     base_clip = base_clip.fx(vfx.loop, duration=dur)
                 else:
                     base_clip = base_clip.subclip(0, dur)
-                
                 resized_clip = base_clip.resize(height=h)
                 anim = resized_clip.crop(x_center=resized_clip.w/2, width=w).set_duration(dur)
             else:
@@ -448,7 +437,6 @@ class VideoStudio:
                 ex_x, ex_y = img.w - w, img.h - h
                 move = random.choice(['zoom_in','zoom_out','pan_left','pan_right','pan_up','pan_down'])
                 speed = 0.25 if i == 0 else 0.12 
-                
                 if move=='zoom_in': anim = img.resize(lambda t: 1.0 + speed*(t/dur)).set_position('center')
                 elif move=='zoom_out': anim = img.resize(lambda t: 1.15 - speed*(t/dur)).set_position('center')
                 elif move=='pan_left': anim = img.set_position(lambda t: (-ex_x*(t/dur), 'center'))
@@ -460,7 +448,13 @@ class VideoStudio:
             txt = VideoStudio._create_text_overlay(scene['line'], w, h, 118, dur).crossfadein(0.4)
             wm = VideoStudio._create_text_overlay(Config.CHANNEL_HANDLE, w, h, 38, dur, color='white', y_pos=40, is_eng=True).set_opacity(0.6)
             
-            clip = CompositeVideoClip([anim, txt, wm], size=(w,h)).set_audio(final_audio).set_duration(dur)
+            # GROK OPTIMIZATION: Loopable 8-Second Hook ending
+            layers = [anim, txt, wm]
+            if i == total_scenes - 1:
+                replay_txt = VideoStudio._create_text_overlay("Replay! 🔄", w, h, 80, dur, color='#00FFFF', y_pos=h//2 - 100, is_eng=True).crossfadein(0.5)
+                layers.append(replay_txt)
+
+            clip = CompositeVideoClip(layers, size=(w,h)).set_audio(final_audio).set_duration(dur)
             if i > 0: clip = clip.crossfadein(0.4)
             
             clips.append(clip)
@@ -486,15 +480,17 @@ class Broadcaster:
                 creds = pickle.load(f)
             service = build('youtube', 'v3', credentials=creds)
 
-            title = script_data.get('title', "Hindi Nursery Rhymes for Kids 2026")
+            # GROK OPTIMIZATION: Shorter, punchier titles
+            title = script_data.get('title', "Awesome 3D Toys! 🚒 | 3D Balgeet for Kids")
             if len(title) > 97: title = title[:97] + "..."
             
             ai_tags = script_data.get('seo_tags', [])
             
+            # GROK OPTIMIZATION: Highly relevant tags
             base_tags = [
-                "छोटे बच्चों का खिलौना", "dinosaur poem in hindi", "rems hindi", "reams hindi", 
-                "tractor cartoon", "khilona wala cartoon", "hindi nursery rhymes", "balgeet", 
-                "bachon ke geet", "3d hindi rhymes", "shorts"
+                "JCB", "FireTruck", "Balgeet", "TractorWala", "3DToys2026",
+                "छोटे बच्चों का खिलौना", "dinosaur poem in hindi",
+                "tractor cartoon", "hindi nursery rhymes"
             ]
             
             valid_tags, char_count = [], 0
@@ -507,14 +503,10 @@ class Broadcaster:
             lyrics_block = lyrics[:3500] + "\n... [Truncated]" if len(lyrics) > 3500 else lyrics
             time_block = "\n".join(timestamps)
             
-            desc_template = script_data.get('seo_description', '')
-            desc_body = desc_template.replace('[TIMESTAMPS]', time_block).replace('[LYRICS]', lyrics_block)
-            
-            desc = (f"{title}\n\n{desc_body}\n\n"
-                    f"📌 TIMESTAMPS:\n{time_block}\n\n"
+            desc = (f"{title}\n\nFull timestamps below 👇\n{time_block}\n\n"
                     f"📝 LYRICS:\n{lyrics_block}\n\n"
-                    f"👍 LIKE | SUBSCRIBE | SHARE ↗️\n"
-                    f"#HindiRhymes #छोटेबच्चोंकाखिलौना #TractorCartoon #Balgeet #Shorts #KidsToys")
+                    f"Like karo aur subscribe karo for more 3D Hindi rhymes every day! 🛻🚜\n"
+                    f"#JCB #FireTruck #Balgeet #TractorWala #Shorts")
 
             body = {
                 'snippet': {
@@ -556,7 +548,7 @@ def system_cleanup():
 # MAIN EXECUTION
 # ==========================================
 if __name__=="__main__":
-    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY V4.7 (OMNI-HYDRA) =====")
+    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY V5.0 (ALGORITHM UPDATE) =====")
     Config.initialize()
     
     script_data = ContentStrategist.create_script()
