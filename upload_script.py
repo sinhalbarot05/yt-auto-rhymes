@@ -201,7 +201,7 @@ Output ONLY valid JSON:
         return None
 
 # ==========================================
-# CORE 3: ASSET FACTORY (SANITIZED HYDRA)
+# CORE 3: ASSET FACTORY (STRICT TYPE HYDRA)
 # ==========================================
 class AssetEngine:
     @staticmethod
@@ -238,8 +238,19 @@ class AssetEngine:
         session.mount('https://', HTTPAdapter(max_retries=retry))
         try:
             r = session.get(url, headers=headers, timeout=custom_timeout, proxies={"http": None, "https": None})
+            
             if r.status_code == 200:
                 content_type = r.headers.get('Content-Type', '').lower()
+                
+                # STRICT TYPE VALIDATOR: Stop servers from sneaking JPEGs as Videos
+                if type_label == "Video" and not ('video' in content_type or 'mp4' in content_type):
+                    print(f"      ↳ API Error: Expected Video, but server returned {content_type}")
+                    return False
+                if type_label == "Audio" and not ('audio' in content_type or 'mpeg' in content_type):
+                    return False
+                if "Image" in type_label and not 'image' in content_type:
+                    return False
+
                 is_image = 'image' in content_type
                 is_media = 'video' in content_type or 'audio' in content_type or 'mpeg' in content_type or 'mp4' in content_type
                 
@@ -266,7 +277,6 @@ class AssetEngine:
 
     @staticmethod
     def generate_pollinations_video(prompt, filepath):
-        # 🚨 BUGFIX: Grok identified 400 Bad Request. We must sanitize & truncate the prompt!
         safe_prompt = re.sub(r'[^a-zA-Z0-9\s\,]', '', prompt)[:100]
         clean_prompt = urllib.parse.quote(f"{safe_prompt}, 3D Pixar Cocomelon style, cute face looking at camera")
         url = "https://" + f"gen.pollinations.ai/video/{clean_prompt}?duration=4&fps=24"
@@ -276,7 +286,6 @@ class AssetEngine:
     def generate_image(prompt, filepath, fallback_kw, seed):
         w, h = 1080, 1920
         scene_seed = seed + random.randint(1, 100)
-        # Apply the Face/Reaction rule to images as well
         clean_prompt = urllib.parse.quote(f"{prompt}, Mango Yellow, Royal Blue, Deep Turquoise, 3D Pixar Cocomelon style, cute face looking at camera")
         
         url_premium = "https://" + f"gen.pollinations.ai/image/{clean_prompt}?model=flux&width={w}&height={h}&nologo=true&seed={scene_seed}&enhance=true"
@@ -424,15 +433,26 @@ class VideoStudio:
                 final_audio = voice
                 dur = voice.duration
             
+            anim = None
             if os.path.exists(vid_path):
-                base_clip = VideoFileClip(vid_path)
-                if base_clip.duration < dur:
-                    base_clip = base_clip.fx(vfx.loop, duration=dur)
-                else:
-                    base_clip = base_clip.subclip(0, dur)
-                resized_clip = base_clip.resize(height=h)
-                anim = resized_clip.crop(x_center=resized_clip.w/2, width=w).set_duration(dur)
-            else:
+                try:
+                    # MOVIEPY ARMOR: Catch Sneaky JPEGs and Corrupt Files instantly
+                    base_clip = VideoFileClip(vid_path)
+                    if base_clip.duration < dur:
+                        base_clip = base_clip.fx(vfx.loop, duration=dur)
+                    else:
+                        base_clip = base_clip.subclip(0, dur)
+                    resized_clip = base_clip.resize(height=h)
+                    anim = resized_clip.crop(x_center=resized_clip.w/2, width=w).set_duration(dur)
+                except Exception as e:
+                    print(f"   ↳ ⚠️ Corrupted video {i} rejected by MoviePy. Forcing Image Fallback.")
+                    anim = None
+            
+            if anim is None:
+                # Just-In-Time Image Generation if Video Failed
+                if not os.path.exists(img_path):
+                    AssetEngine.generate_image(scene.get('image_prompt', 'cartoon'), img_path, kw, master_seed)
+                    
                 img = ImageClip(img_path).resize(1.15)
                 ex_x, ex_y = img.w - w, img.h - h
                 move = random.choice(['zoom_in','zoom_out','pan_left','pan_right','pan_up','pan_down'])
@@ -448,7 +468,6 @@ class VideoStudio:
             txt = VideoStudio._create_text_overlay(scene['line'], w, h, 118, dur).crossfadein(0.4)
             wm = VideoStudio._create_text_overlay(Config.CHANNEL_HANDLE, w, h, 38, dur, color='white', y_pos=40, is_eng=True).set_opacity(0.6)
             
-            # GROK OPTIMIZATION: Loopable 8-Second Hook ending
             layers = [anim, txt, wm]
             if i == total_scenes - 1:
                 replay_txt = VideoStudio._create_text_overlay("Replay! 🔄", w, h, 80, dur, color='#00FFFF', y_pos=h//2 - 100, is_eng=True).crossfadein(0.5)
@@ -480,13 +499,11 @@ class Broadcaster:
                 creds = pickle.load(f)
             service = build('youtube', 'v3', credentials=creds)
 
-            # GROK OPTIMIZATION: Shorter, punchier titles
             title = script_data.get('title', "Awesome 3D Toys! 🚒 | 3D Balgeet for Kids")
             if len(title) > 97: title = title[:97] + "..."
             
             ai_tags = script_data.get('seo_tags', [])
             
-            # GROK OPTIMIZATION: Highly relevant tags
             base_tags = [
                 "JCB", "FireTruck", "Balgeet", "TractorWala", "3DToys2026",
                 "छोटे बच्चों का खिलौना", "dinosaur poem in hindi",
@@ -548,7 +565,7 @@ def system_cleanup():
 # MAIN EXECUTION
 # ==========================================
 if __name__=="__main__":
-    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY V5.0 (ALGORITHM UPDATE) =====")
+    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY V5.1 (STRICT VALIDATOR) =====")
     Config.initialize()
     
     script_data = ContentStrategist.create_script()
