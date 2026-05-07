@@ -72,7 +72,7 @@ class StorageEngine:
                 json.dump(data[-1000:], f, ensure_ascii=False, indent=2)
 
 # ==========================================
-# CORE 2: THE INTELLIGENCE (GROK OPTIMIZED)
+# CORE 2: THE INTELLIGENCE (PERFORMANCE TUNED)
 # ==========================================
 class IntelligenceEngine:
     @staticmethod
@@ -97,13 +97,16 @@ class IntelligenceEngine:
     @staticmethod
     def ask(prompt):
         print("🧠 Engaging Omni-Fallback Intelligence Engine (Songwriter Mode)...")
-        openai_url = "https://" + "api.openai.com/v1/chat/completions"
-        res = IntelligenceEngine._call_api("OpenAI", openai_url, os.getenv('OPENAI_API_KEY'), "gpt-4o-mini", prompt, 2000)
-        if res: return res
         
-        print("   ↳ 🔄 Falling back to Groq...")
+        # PERFORMANCE UPDATE: Groq is 10x faster than OpenAI. We try it FIRST to save runtime.
+        print("   ↳ ⚡ Trying Groq (Ultra-Fast LPU)...")
         groq_url = "https://" + "api.groq.com/openai/v1/chat/completions"
         res = IntelligenceEngine._call_api("Groq", groq_url, os.getenv('GROQ_API_KEY'), "llama-3.3-70b-versatile", prompt, 3000)
+        if res: return res
+
+        print("   ↳ 🔄 Falling back to OpenAI...")
+        openai_url = "https://" + "api.openai.com/v1/chat/completions"
+        res = IntelligenceEngine._call_api("OpenAI", openai_url, os.getenv('OPENAI_API_KEY'), "gpt-4o-mini", prompt, 2000)
         if res: return res
         
         print("   ↳ 🔄 Falling back to WaveSpeed...")
@@ -242,7 +245,7 @@ class AssetEngine:
             if r.status_code == 200:
                 content_type = r.headers.get('Content-Type', '').lower()
                 
-                # STRICT TYPE VALIDATOR: Stop servers from sneaking JPEGs as Videos
+                # STRICT TYPE VALIDATOR
                 if type_label == "Video" and not ('video' in content_type or 'mp4' in content_type):
                     print(f"      ↳ API Error: Expected Video, but server returned {content_type}")
                     return False
@@ -338,7 +341,7 @@ class AssetEngine:
             return False
 
 # ==========================================
-# CORE 4: VIDEO STUDIO (REPLAY HOOK ADDED)
+# CORE 4: VIDEO STUDIO (SPEED ENCODING OPTIMIZED)
 # ==========================================
 class VideoStudio:
     @staticmethod
@@ -381,7 +384,7 @@ class VideoStudio:
 
     @staticmethod
     def render_short(script_data):
-        print("🎬 Assembling Studio Short with Grok AVD Optimizations...")
+        print("🎬 Assembling Studio Short with High-Speed Optimizations...")
         master_seed = random.randint(1000, 999999)
         kw = script_data.get('keyword', 'kids')
         total_scenes = len(script_data['scenes'])
@@ -399,7 +402,8 @@ class VideoStudio:
                 print(f"   ↳ Scene {i}: Video fallback to Image")
                 AssetEngine.generate_image(scene.get('image_prompt', 'cartoon'), img_path, kw, master_seed)
 
-        with ThreadPoolExecutor(max_workers=3) as ex:
+        # PERFORMANCE UPDATE: Increased parallelism to 5 threads for faster downloads
+        with ThreadPoolExecutor(max_workers=5) as ex:
             futures = [ex.submit(build_scene_assets, i, scene) for i, scene in enumerate(script_data['scenes'])]
             for f in as_completed(futures): f.result()
 
@@ -436,7 +440,6 @@ class VideoStudio:
             anim = None
             if os.path.exists(vid_path):
                 try:
-                    # MOVIEPY ARMOR: Catch Sneaky JPEGs and Corrupt Files instantly
                     base_clip = VideoFileClip(vid_path)
                     if base_clip.duration < dur:
                         base_clip = base_clip.fx(vfx.loop, duration=dur)
@@ -449,7 +452,6 @@ class VideoStudio:
                     anim = None
             
             if anim is None:
-                # Just-In-Time Image Generation if Video Failed
                 if not os.path.exists(img_path):
                     AssetEngine.generate_image(scene.get('image_prompt', 'cartoon'), img_path, kw, master_seed)
                     
@@ -482,7 +484,9 @@ class VideoStudio:
 
         out_path = os.path.join(Config.OUTPUT_DIR, "final_short.mp4")
         final = concatenate_videoclips(clips, method="compose")
-        final.write_videofile(out_path, fps=24, codec='libx264', audio_codec='aac', threads=2, preset='medium', ffmpeg_params=['-crf','19','-pix_fmt','yuv420p'])
+        
+        # PERFORMANCE UPDATE: Ultrafast encoding, multi-threading, optimized frame rate
+        final.write_videofile(out_path, fps=20, codec='libx264', audio_codec='aac', threads=4, preset='ultrafast', ffmpeg_params=['-crf','23','-pix_fmt','yuv420p'])
         
         lyrics = "\n".join([s['line'] for s in script_data['scenes']])
         return out_path, lyrics, timestamps
@@ -565,7 +569,7 @@ def system_cleanup():
 # MAIN EXECUTION
 # ==========================================
 if __name__=="__main__":
-    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY V5.1 (STRICT VALIDATOR) =====")
+    print(f"===== {Config.CHANNEL_HANDLE} - TOY FACTORY V5.2 (PERFORMANCE TUNED) =====")
     Config.initialize()
     
     script_data = ContentStrategist.create_script()
