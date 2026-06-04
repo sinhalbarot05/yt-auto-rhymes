@@ -17,6 +17,19 @@ def test_google_vids_login():
         print(f"❌ CRITICAL ERROR: Failed to parse cookie JSON string: {e}")
         return False
 
+    # 🛠️ COOKIE CLEANING: Bypassing Playwright's strict sameSite validation rules
+    print("[SECURITY] Sanitizing cookie data for Playwright compliance...")
+    for cookie in cookies:
+        if "sameSite" in cookie:
+            val = str(cookie["sameSite"]).lower()
+            if val == "strict":
+                cookie["sameSite"] = "Strict"
+            elif val == "lax":
+                cookie["sameSite"] = "Lax"
+            else:
+                # Automatically maps "unspecified" or "no_restriction" straight to "None"
+                cookie["sameSite"] = "None"
+
     with sync_playwright() as p:
         print("[BROWSER] Launching headless browser instance...")
         browser = p.chromium.launch(headless=True)
@@ -27,7 +40,7 @@ def test_google_vids_login():
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
         
-        # Inject our digital passport
+        # Inject our cleaned passport
         print("[SECURITY] Injecting session cookies into browser memory...")
         context.add_cookies(cookies)
         
