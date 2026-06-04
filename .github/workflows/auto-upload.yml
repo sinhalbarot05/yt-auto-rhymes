@@ -18,7 +18,9 @@ jobs:
 
     - name: Install High Quality Video Render Modules
       run: |
-        pip install requests moviepy
+        pip install requests
+        # Forcing a stable version below 2.0 ensures moviepy.editor works perfectly
+        pip install "moviepy<2.0" Pillow==9.5.0
 
     - name: Run Premium Factory Engine
       env:
