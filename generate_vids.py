@@ -33,33 +33,45 @@ def test_google_vids_login():
         json.dump(state_data, f)
 
     with sync_playwright() as p:
-        print("[BROWSER] Launching headless browser instance...")
-        browser = p.chromium.launch(headless=True)
+        print("[BROWSER] Launching stealth headless browser instance...")
         
-        # Launch browser context utilizing the saved human state profile
-        print("[SECURITY] Injecting secure authentication profile state...")
+        # 🛡️ STEALTH LAUNCH: Stripping all default automation fingerprints
+        browser = p.chromium.launch(
+            headless=True,
+            ignore_default_args=["--enable-automation"],
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-infobars",
+                "--window-position=0,0",
+                "--ignore-certificate-errors"
+            ]
+        )
+        
+        # Emulate a highly authentic Windows Desktop user profile
         context = browser.new_context(
             storage_state="auth_state.json",
             viewport={"width": 1920, "height": 1080},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
         )
         
         page = context.new_page()
         
-        # 🚶‍♂️ HUMAN WARMUP STEP: Hit the main Google landing page first to anchor the session
+        # Warmup Step: Hit the main Google domain
         print("[NAVIGATION] Loading base Google domain to anchor session tokens...")
         page.goto("https://www.google.com", wait_until="networkidle")
-        time.sleep(3)
+        time.sleep(5)
         
-        # Now steer the anchored browser to the real workspace destination
+        # Head directly to the target canvas workspace
         target_url = "https://docs.google.com/videos/u/0/create?usp=vids_home"
-        print(f"[NAVIGATION] Session established. Steering to target: {target_url}")
+        print(f"[NAVIGATION] Session anchored. Steering to target: {target_url}")
         page.goto(target_url, wait_until="networkidle")
         
         print("[WAIT] Allowing workspace canvas components to fully render...")
-        time.sleep(12)
+        time.sleep(15)
         
-        # Capture a fresh visual snapshot
+        # Capture the snapshot file
         screenshot_path = "vids_canvas_snapshot.png"
         page.screenshot(path=screenshot_path)
         print(f"📸 SNAPSHOT: Captured updated look at screen state.")
@@ -68,14 +80,13 @@ def test_google_vids_login():
         print(f"[VERIFY] Current Page Title: '{page_title}'")
         
         if "Sign-in" in page_title or "sign in" in page_title.lower():
-            print("❌ FAIL: Google rejected the session cookies and demanded a password.")
+            print("❌ FAIL: Google still detected the automated server environment.")
         else:
-            print("🎉 SUCCESS: We are past the security gate and inside the design studio canvas!")
+            print("🎉 SUCCESS: Stealth engine working. We are completely inside the design studio!")
             
         context.close()
         browser.close()
         
-        # Clean up temporary state profile file
         if os.path.exists("auth_state.json"):
             os.remove("auth_state.json")
             
