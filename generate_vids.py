@@ -8,41 +8,50 @@ def generate_free_voice(text, output_path):
     """Generates speech completely free using Google's TTS engine without any API keys."""
     print("[VOICE-STUDIO] Generating free narration track...")
     try:
-        # Using the standard English engine
         tts = gTTS(text=text, lang='en', tld='com')
         tts.save(output_path)
-        print(f"✅ Free Voice Track Saved: {output_path}")
+        print(f"✅ Voice Track Saved: {output_path}")
         return True
     except Exception as e:
         print(f"❌ Voice Engine Failed: {e}")
         return False
 
-def generate_free_image(prompt, output_path):
-    """Pulls high-res images from the free tier of Pollinations, completely bypassing key checks."""
-    print(f"[IMAGE-FACTORY] Generating scene asset via public free array...")
+def generate_premium_image(prompt, output_path):
+    """Generates premium, high-fidelity scenes using your brand new Pollinations API key."""
+    print(f"[IMAGE-FACTORY] Activating premium engine with fresh Pollinations key...")
+    api_key = os.getenv("POLLINATIONS_API_KEY")
+    
+    if not api_key:
+        print("⚠️ WARNING: POLLINATIONS_API_KEY is missing in environment. Falling back to public tier.")
     
     # Premium corporate noir style lock to guarantee professional visual output
     style_lock = ", flat 2D vector art, minimalist corporate noir style, high contrast, cinematic shadow lighting, dark charcoal background"
     full_prompt = prompt + style_lock
     
-    url = f"https://image.pollinations.ai/p/{requests.utils.quote(full_prompt)}?width=1920&height=1080&nologo=true"
+    # Pass the fresh key securely inside the Authorization headers
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+        
+    # Appending enhance=true and specialized dimension parameters for crisp 1080p
+    url = f"https://image.pollinations.ai/p/{requests.utils.quote(full_prompt)}?width=1920&height=1080&nologo=true&enhance=true"
     
     try:
-        response = requests.get(url, timeout=45)
+        response = requests.get(url, headers=headers, timeout=45)
         if response.status_code == 200:
             with open(output_path, "wb") as f:
                 f.write(response.content)
-            print(f"✅ Image Asset Secured: {output_path}")
+            print(f"✅ Premium Image Asset Secured: {output_path}")
             return True
         else:
-            print(f"❌ Image Factory Failed: Status {response.status_code}")
+            print(f"❌ Image Factory Failed: Status {response.status_code} - {response.text}")
             return False
     except Exception as e:
         print(f"❌ Image Factory Connection Error: {e}")
         return False
 
-def build_free_short():
-    print("=== STARTING 100% FREE DARK LEDGER PRODUCTION ===")
+def build_production_short():
+    print("=== STARTING DUAL-ENGINE DARK LEDGER PRODUCTION ===")
     os.makedirs("workspace", exist_ok=True)
     os.makedirs("videos", exist_ok=True)
     
@@ -67,14 +76,14 @@ def build_free_short():
     clips = []
     
     # 1. Generate Intro Media Assets
-    intro_img = "workspace/free_intro.jpg"
-    intro_audio = "workspace/free_intro.mp3"
+    intro_img = "workspace/premium_intro.jpg"
+    intro_audio = "workspace/premium_intro.mp3"
     
-    img_success = generate_free_image(video_chapters["intro"]["prompt"], intro_img)
+    img_success = generate_premium_image(video_chapters["intro"]["prompt"], intro_img)
     voice_success = generate_free_voice(video_chapters["intro"]["text"], intro_audio)
     
     if not img_success or not voice_success:
-        print("\n❌ STOPPING PRODUCTION: Core assets could not be downloaded.")
+        print("\n❌ STOPPING PRODUCTION: Core assets could not be compiled.")
         return False
     
     intro_clip = ImageClip(intro_img).set_duration(10)
@@ -83,9 +92,9 @@ def build_free_short():
     
     # 2. Generate Chapter Scene Cuts
     for index, scene in enumerate(video_chapters["scenes"]):
-        img_path = f"workspace/free_scene_{index}.jpg"
+        img_path = f"workspace/premium_scene_{index}.jpg"
         
-        if not generate_free_image(scene["prompt"], img_path):
+        if not generate_premium_image(scene["prompt"], img_path):
             print(f"❌ STOPPING PRODUCTION: Failed to generate scene slide {index}.")
             return False
         
@@ -101,7 +110,7 @@ def build_free_short():
     print("[STUDIO] Compiling video timeline matrix...")
     final_movie = concatenate_videoclips(clips, method="compose")
     
-    print("[RENDER] Exporting master MP4...")
+    print("[RENDER] Exporting premium master MP4...")
     final_movie.write_videofile(
         "videos/final_premium_short.mp4",
         fps=24,
@@ -112,4 +121,4 @@ def build_free_short():
     return True
 
 if __name__ == "__main__":
-    build_free_short()
+    build_production_short()
