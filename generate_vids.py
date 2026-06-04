@@ -1,8 +1,15 @@
 import os
 import time
 import requests
+import socket
 from gtts import gTTS
 from moviepy.editor import ImageClip, concatenate_videoclips
+
+# 🛡️ NETWORK SHIELD: Override socket mapping to force IPv4 connections exclusively
+import urllib3.util.connection as urllib3_connection
+def allowed_gai_family():
+    return socket.AF_INET
+urllib3_connection.allowed_gai_family = allowed_gai_family
 
 def generate_free_voice(text, output_path):
     """Generates speech completely free using Google's TTS engine without any API keys."""
@@ -16,64 +23,68 @@ def generate_free_voice(text, output_path):
         print(f"❌ Voice Engine Failed: {e}")
         return False
 
+def fetch_lexica_fallback(prompt, output_path):
+    """Searches Lexica's curated database to pull a flawless pre-rendered AI cinematic image."""
+    print(f"🚀 [VAULT-FALLBACK] Searching Lexica Premium AI Vault for matching assets...")
+    try:
+        search_url = f"https://lexica.art/api/v1/search?q={requests.utils.quote(prompt)}"
+        response = requests.get(search_url, timeout=20)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("images") and len(data["images"]) > 0:
+                # Grab the highest resolution direct source image link
+                img_url = data["images"][0]["src"]
+                print(f"[VAULT-FALLBACK] Found elite match. Downloading direct asset stream...")
+                img_res = requests.get(img_url, timeout=30)
+                if img_res.status_code == 200:
+                    with open(output_path, "wb") as f:
+                        f.write(img_res.content)
+                    print(f"✅ Vault Asset Secured: {output_path}")
+                    return True
+        print("⚠️ Vault search returned no immediate layout matches.")
+        return False
+    except Exception as e:
+        print(f"⚠️ Vault network connection skipped: {e}")
+        return False
+
 def generate_premium_image(prompt, output_path):
-    """Generates crisp scenes using an image-dedicated proxy to safeguard binary file streams."""
+    """Generates images using Pollinations IPv4 tunnel with automatic Lexica fallback backup."""
     api_key = os.getenv("POLLINATIONS_API_KEY")
-    
     style_lock = ", flat 2D vector art, minimalist corporate noir style, high contrast, cinematic shadow lighting, dark charcoal background"
     full_prompt = prompt + style_lock
     
-    # Base target URL
-    base_url = f"https://image.pollinations.ai/p/{requests.utils.quote(full_prompt)}?width=1920&height=1080&nologo=true"
-    
-    # 🌟 UPGRADE: Using a dedicated high-performance image cache/proxy (weserv) 
-    # This prevents binary file corruption across cloud data centers.
-    proxy_gateways = [
-        f"https://images.weserv.nl/?url={base_url}",
-        base_url
-    ]
-    
+    url = f"https://image.pollinations.ai/p/{requests.utils.quote(full_prompt)}?width=1920&height=1080&nologo=true"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
         
-    for index, url in enumerate(proxy_gateways):
-        gateway_name = "WESERV IMAGE PROXY" if index == 0 else "RAW POLLINATIONS LINK"
-        print(f"[IMAGE-FACTORY] Routing prompt via {gateway_name}...")
+    print(f"[IMAGE-FACTORY] Routing prompt via forced IPv4 Tunnel...")
+    try:
+        response = requests.get(url, headers=headers, timeout=30)
+        content_type = response.headers.get("Content-Type", "").lower()
         
-        try:
-            # Add a unique seed identifier on the raw fallback to push a clean render
-            target_url = f"{url}&seed={int(time.time())}" if index == 1 else url
-            response = requests.get(target_url, headers=headers, timeout=45)
-            
-            # 🛡️ CONTENT-TYPE SHIELD: Verify the stream is a real image before writing to disk
-            content_type = response.headers.get("Content-Type", "").lower()
-            
-            if response.status_code == 200 and "image" in content_type:
-                with open(output_path, "wb") as f:
-                    f.write(response.content)
-                print(f"✅ Real Image Binary Secured Successfully via {gateway_name}!")
-                return True
-            else:
-                print(f"⚠️ {gateway_name} rejected. Status: {response.status_code}, Content-Type: {content_type}. Swapping routes...")
-                
-        except Exception as e:
-            print(f"⚠️ {gateway_name} connection variance: {e}. Rotating network route...")
-            
-        time.sleep(2)
+        if response.status_code == 200 and "image" in content_type:
+            with open(output_path, "wb") as f:
+                f.write(response.content)
+            print(f"✅ Image Asset Secured via Core Engine!")
+            return True
+        else:
+            print(f"⚠️ Core Engine restricted by cloud traffic (Status {response.status_code}). Engaging backup protocols...")
+    except Exception as e:
+        print(f"⚠️ Core Engine network timeout: {e}. Engaging backup protocols...")
         
-    print("❌ Image Factory completely blocked across all network delivery streams.")
-    return False
+    # Trigger the unbreakable fallback engine if the main server is blocked
+    return fetch_lexica_fallback(prompt, output_path)
 
 def build_production_short():
-    print("=== STARTING DUAL-ENGINE DARK LEDGER PRODUCTION ===")
+    print("=== STARTING RESILIENT DUAL-ENGINE PRODUCTION ===")
     os.makedirs("workspace", exist_ok=True)
     os.makedirs("videos", exist_ok=True)
     
     video_chapters = {
         "intro": {
             "text": "When you walk into a bank with zero dollars... you aren't a customer. You are a liability.",
-            "prompt": "An empty, cold, dark bank lobby with dramatic sharp lighting, minimalist charcoal corporate noir style"
+            "prompt": "An empty cold dark bank lobby with dramatic sharp lighting, minimalist charcoal corporate noir style"
         },
         "scenes": [
             {
