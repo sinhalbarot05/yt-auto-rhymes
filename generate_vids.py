@@ -1,52 +1,30 @@
 import os
-import json
 import time
 import requests
-from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
+from gtts import gTTS
+from moviepy.editor import ImageClip, concatenate_videoclips
 
-def generate_premium_voice(text, output_path):
-    """Generates deep, human-like dramatic narration using your OpenAI key."""
-    print("[VOICE-STUDIO] Calling neural speech engine...")
-    api_key = os.getenv("OPENAI_API_KEY")
-    
-    if not api_key:
-        print("❌ ERROR: OPENAI_API_KEY is empty in GitHub Secrets.")
-        return False
-        
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": "tts-1-hd",
-        "voice": "onyx",
-        "input": text
-    }
-    
+def generate_free_voice(text, output_path):
+    """Generates speech completely free using Google's TTS engine without any API keys."""
+    print("[VOICE-STUDIO] Generating free narration track...")
     try:
-        response = requests.post("https://api.openai.com/v1/audio/speech", headers=headers, json=payload, timeout=30)
-        if response.status_code == 200:
-            with open(output_path, "wb") as f:
-                f.write(response.content)
-            print(f"✅ Voice Track Saved: {output_path}")
-            return True
-        else:
-            print(f"❌ OpenAI Voice Engine Failed (Status {response.status_code}). Please verify your OPENAI_API_KEY secret.")
-            print(f"   Response details: {response.text}")
-            return False
+        # Using the standard English engine
+        tts = gTTS(text=text, lang='en', tld='com')
+        tts.save(output_path)
+        print(f"✅ Free Voice Track Saved: {output_path}")
+        return True
     except Exception as e:
-        print(f"❌ Voice Engine Network Error: {e}")
+        print(f"❌ Voice Engine Failed: {e}")
         return False
 
-def generate_free_tier_image(prompt, output_path):
-    """Pulls high-res images from the free tier of Pollinations, completely bypassing key verification and 402 errors."""
-    print(f"[IMAGE-FACTORY] Generating high-end scene asset via public free array...")
+def generate_free_image(prompt, output_path):
+    """Pulls high-res images from the free tier of Pollinations, completely bypassing key checks."""
+    print(f"[IMAGE-FACTORY] Generating scene asset via public free array...")
     
     # Premium corporate noir style lock to guarantee professional visual output
     style_lock = ", flat 2D vector art, minimalist corporate noir style, high contrast, cinematic shadow lighting, dark charcoal background"
     full_prompt = prompt + style_lock
     
-    # Using the clean public endpoint without authorization headers or paid parameters
     url = f"https://image.pollinations.ai/p/{requests.utils.quote(full_prompt)}?width=1920&height=1080&nologo=true"
     
     try:
@@ -63,11 +41,12 @@ def generate_free_tier_image(prompt, output_path):
         print(f"❌ Image Factory Connection Error: {e}")
         return False
 
-def build_premium_short():
-    print("=== STARTING FRESH PREMIUM DARK LEDGER RENDER ===")
+def build_free_short():
+    print("=== STARTING 100% FREE DARK LEDGER PRODUCTION ===")
     os.makedirs("workspace", exist_ok=True)
     os.makedirs("videos", exist_ok=True)
     
+    # The 10-5-5-5 pacing matrix layout
     video_chapters = {
         "intro": {
             "text": "When you walk into a bank with zero dollars... you aren't a customer. You are a liability.",
@@ -88,15 +67,14 @@ def build_premium_short():
     clips = []
     
     # 1. Generate Intro Media Assets
-    intro_img = "workspace/premium_intro.jpg"
-    intro_audio = "workspace/premium_intro.mp3"
+    intro_img = "workspace/free_intro.jpg"
+    intro_audio = "workspace/free_intro.mp3"
     
-    img_success = generate_free_tier_image(video_chapters["intro"]["prompt"], intro_img)
-    voice_success = generate_premium_voice(video_chapters["intro"]["text"], intro_audio)
+    img_success = generate_free_image(video_chapters["intro"]["prompt"], intro_img)
+    voice_success = generate_free_voice(video_chapters["intro"]["text"], intro_audio)
     
-    # Guard clause to stop execution gracefully if assets failed to generate
     if not img_success or not voice_success:
-        print("\n❌ STOPPING PRODUCTION: Core assets could not be downloaded due to the API errors above. Fix the keys before running again.")
+        print("\n❌ STOPPING PRODUCTION: Core assets could not be downloaded.")
         return False
     
     intro_clip = ImageClip(intro_img).set_duration(10)
@@ -105,9 +83,9 @@ def build_premium_short():
     
     # 2. Generate Chapter Scene Cuts
     for index, scene in enumerate(video_chapters["scenes"]):
-        img_path = f"workspace/premium_scene_{index}.jpg"
+        img_path = f"workspace/free_scene_{index}.jpg"
         
-        if not generate_free_tier_image(scene["prompt"], img_path):
+        if not generate_free_image(scene["prompt"], img_path):
             print(f"❌ STOPPING PRODUCTION: Failed to generate scene slide {index}.")
             return False
         
@@ -123,16 +101,15 @@ def build_premium_short():
     print("[STUDIO] Compiling video timeline matrix...")
     final_movie = concatenate_videoclips(clips, method="compose")
     
-    print("[RENDER] Exporting high-bitrate master MP4...")
+    print("[RENDER] Exporting master MP4...")
     final_movie.write_videofile(
         "videos/final_premium_short.mp4",
         fps=24,
         codec="libx264",
-        audio_codec="aac",
         preset="ultrafast"
     )
-    print("🎉 MASTER PRODUCTION COMPLETE: videos/final_premium_short.mp4 is ready!")
+    print("🎉 PRODUCTION COMPLETE: videos/final_premium_short.mp4 is ready!")
     return True
 
 if __name__ == "__main__":
-    build_premium_short()
+    build_free_short()
