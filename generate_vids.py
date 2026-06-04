@@ -17,45 +17,53 @@ def generate_free_voice(text, output_path):
         return False
 
 def generate_premium_image(prompt, output_path):
-    """Generates premium, high-fidelity scenes using your brand new Pollinations API key."""
-    print(f"[IMAGE-FACTORY] Activating premium engine with fresh Pollinations key...")
+    """Generates scenes using your Pollinations key with built-in cloud retry safety layers."""
     api_key = os.getenv("POLLINATIONS_API_KEY")
     
-    if not api_key:
-        print("⚠️ WARNING: POLLINATIONS_API_KEY is missing in environment. Falling back to public tier.")
-    
-    # Premium corporate noir style lock to guarantee professional visual output
     style_lock = ", flat 2D vector art, minimalist corporate noir style, high contrast, cinematic shadow lighting, dark charcoal background"
     full_prompt = prompt + style_lock
     
-    # Pass the fresh key securely inside the Authorization headers
     headers = {}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
         
-    # Appending enhance=true and specialized dimension parameters for crisp 1080p
-    url = f"https://image.pollinations.ai/p/{requests.utils.quote(full_prompt)}?width=1920&height=1080&nologo=true&enhance=true"
+    # 🌟 FIX: Removed '&enhance=true' to skip the heavily locked cloud upscaler queue
+    url = f"https://image.pollinations.ai/p/{requests.utils.quote(full_prompt)}?width=1920&height=1080&nologo=true"
     
-    try:
-        response = requests.get(url, headers=headers, timeout=45)
-        if response.status_code == 200:
-            with open(output_path, "wb") as f:
-                f.write(response.content)
-            print(f"✅ Premium Image Asset Secured: {output_path}")
-            return True
-        else:
-            print(f"❌ Image Factory Failed: Status {response.status_code} - {response.text}")
-            return False
-    except Exception as e:
-        print(f"❌ Image Factory Connection Error: {e}")
-        return False
+    max_retries = 5
+    backoff_delay = 5  # Seconds to wait between crowded queue attempts
+    
+    for attempt in range(max_retries):
+        print(f"[IMAGE-FACTORY] Generating asset (Attempt {attempt + 1}/{max_retries})...")
+        try:
+            response = requests.get(url, headers=headers, timeout=45)
+            
+            if response.status_code == 200:
+                with open(output_path, "wb") as f:
+                    f.write(response.content)
+                print(f"✅ Image Asset Secured: {output_path}")
+                return True
+                
+            elif response.status_code == 402 or "Queue full" in response.text:
+                print(f"⚠️ [QUEUE BUSY] Shared cloud IP collision detected. Retrying in {backoff_delay}s...")
+                time.sleep(backoff_delay)
+                
+            else:
+                print(f"❌ Image Factory Failed with Status {response.status_code}")
+                return False
+                
+        except Exception as e:
+            print(f"⚠️ Network glitch encountered: {e}. Retrying...")
+            time.sleep(backoff_delay)
+            
+    print("❌ Image Factory completely timed out after maximum cloud retries.")
+    return False
 
 def build_production_short():
-    print("=== STARTING DUAL-ENGINE DARK LEDGER PRODUCTION ===")
+    print("=== STARTING RESILIENT DUAL-ENGINE PRODUCTION ===")
     os.makedirs("workspace", exist_ok=True)
     os.makedirs("videos", exist_ok=True)
     
-    # The 10-5-5-5 pacing matrix layout
     video_chapters = {
         "intro": {
             "text": "When you walk into a bank with zero dollars... you aren't a customer. You are a liability.",
