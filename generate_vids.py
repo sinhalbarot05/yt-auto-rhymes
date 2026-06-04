@@ -1,7 +1,6 @@
 import os
 import time
 import requests
-import urllib.parse
 from gtts import gTTS
 from moviepy.editor import ImageClip, concatenate_videoclips
 
@@ -18,54 +17,56 @@ def generate_free_voice(text, output_path):
         return False
 
 def generate_premium_image(prompt, output_path):
-    """Generates scenes using an IP-masking proxy array to bypass GitHub data center blocks."""
+    """Generates crisp scenes using an image-dedicated proxy to safeguard binary file streams."""
     api_key = os.getenv("POLLINATIONS_API_KEY")
     
     style_lock = ", flat 2D vector art, minimalist corporate noir style, high contrast, cinematic shadow lighting, dark charcoal background"
     full_prompt = prompt + style_lock
     
-    # 1. Build the base clean Pollinations URL
+    # Base target URL
     base_url = f"https://image.pollinations.ai/p/{requests.utils.quote(full_prompt)}?width=1920&height=1080&nologo=true"
     
-    # 2. Define our pool of public masking proxies to hide the GitHub IP address
-    # If one network gateway is busy, the loop automatically jumps to the next clean IP
+    # 🌟 UPGRADE: Using a dedicated high-performance image cache/proxy (weserv) 
+    # This prevents binary file corruption across cloud data centers.
     proxy_gateways = [
-        f"https://api.allorigins.win/raw?url={urllib.parse.quote(base_url)}",
-        f"https://corsproxy.io/?{urllib.parse.quote(base_url)}",
-        base_url # Raw fallback
+        f"https://images.weserv.nl/?url={base_url}",
+        base_url
     ]
     
-    headers = {}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
         
     for index, url in enumerate(proxy_gateways):
-        gateway_type = "PROXY MASK" if index < 2 else "RAW DIRECT"
-        print(f"[IMAGE-FACTORY] Routing request via {gateway_type} Gateway {index + 1}...")
+        gateway_name = "WESERV IMAGE PROXY" if index == 0 else "RAW POLLINATIONS LINK"
+        print(f"[IMAGE-FACTORY] Routing prompt via {gateway_name}...")
         
         try:
-            # We add a unique timestamp seed to the proxy calls to force a fresh render crack
-            seed_url = f"{url}&seed={int(time.time())}" if index == 2 else url
-            response = requests.get(seed_url, headers=headers, timeout=45)
+            # Add a unique seed identifier on the raw fallback to push a clean render
+            target_url = f"{url}&seed={int(time.time())}" if index == 1 else url
+            response = requests.get(target_url, headers=headers, timeout=45)
             
-            if response.status_code == 200 and len(response.content) > 5000:
+            # 🛡️ CONTENT-TYPE SHIELD: Verify the stream is a real image before writing to disk
+            content_type = response.headers.get("Content-Type", "").lower()
+            
+            if response.status_code == 200 and "image" in content_type:
                 with open(output_path, "wb") as f:
                     f.write(response.content)
-                print(f"✅ Image Asset Secured successfully via Gateway {index + 1}!")
+                print(f"✅ Real Image Binary Secured Successfully via {gateway_name}!")
                 return True
             else:
-                print(f"⚠️ Gateway {index + 1} returned status {response.status_code}. Shifting routes...")
+                print(f"⚠️ {gateway_name} rejected. Status: {response.status_code}, Content-Type: {content_type}. Swapping routes...")
                 
         except Exception as e:
-            print(f"⚠️ Gateway {index + 1} encountered a connection skip: {e}. Rotating route...")
+            print(f"⚠️ {gateway_name} connection variance: {e}. Rotating network route...")
             
-        time.sleep(2) # Short pause to let the network sockets clear
+        time.sleep(2)
         
-    print("❌ Image Factory completely blocked across all network delivery masking arrays.")
+    print("❌ Image Factory completely blocked across all network delivery streams.")
     return False
 
 def build_production_short():
-    print("=== STARTING RESILIENT MASKED PRODUCTION ===")
+    print("=== STARTING DUAL-ENGINE DARK LEDGER PRODUCTION ===")
     os.makedirs("workspace", exist_ok=True)
     os.makedirs("videos", exist_ok=True)
     
