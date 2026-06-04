@@ -1,65 +1,35 @@
-name: Hindi Masti Rhymes Engine
+name: Google Vids Cookie Test
 
 on:
-  schedule:
-    # First Principles Cron: Runs at 7 AM, 11 AM, 3 PM, 7 PM IST in a single line
-    - cron: '30 1,5,9,13 * * *'
-  workflow_dispatch:
-
-# 🚨 FIX FOR GITHUB NODE.JS WARNING 🚨
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
-concurrency:
-  group: broadcast-pipeline
-
-permissions:
-  contents: write
+  workflow_dispatch: # This adds a manual "Run workflow" button in GitHub!
 
 jobs:
-  broadcast:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 15 # Reduced to 15m since Shorts take <5 mins
+  run-test:
+    runs-on: ubuntu-latest
 
     steps:
-      - name: 📥 Checkout Code
-        uses: actions/checkout@v4
+    - name: Checkout Repository Code
+      uses: actions/checkout@v4
 
-      - name: ⚙️ Setup Python & Native Cache
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip' 
+    - name: Set up Python Runtime
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
 
-      - name: 📦 Install All Dependencies
-        run: |
-          # 1. System packages
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends ffmpeg imagemagick ghostscript fonts-noto fonts-noto-cjk
-          
-          # 2. Fix ImageMagick security policy for MoviePy
-          sudo sed -i 's/rights="none"/rights="read|write"/g' /etc/ImageMagick-6/policy.xml || true
-          
-          # 3. Python packages
-          pip install requests urllib3 google-api-python-client google-auth-oauthlib google-auth-httplib2 edge-tts "moviepy==1.0.3" "numpy==1.26.4" "Pillow>=10.0.0"
+    - name: Install System and Playwright Dependencies
+      run: |
+        pip install playwright
+        playwright install chromium
 
-      - name: 🔐 Prepare YouTube Auth
-        run: |
-          echo "${{ secrets.YOUTUBE_TOKEN_JSON_B64 }}" | base64 -d > youtube_token.pickle
-          test -s youtube_token.pickle || (echo "FATAL: Token pickle is empty!" && exit 1)
+    - name: Execute Google Vids Login Test
+      env:
+        GOOGLE_SESSION_COOKIES: ${{ secrets.GOOGLE_SESSION_COOKIES }}
+      run: |
+        python generate_vids.py
 
-      - name: 🚀 Run Broadcast Omni-Engine
-        env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
-          WAVESPEED_API_KEY: ${{ secrets.WAVESPEED_API_KEY }}
-        run: python upload_script.py
-
-      - name: 💾 Save Memory State
-        if: success()
-        run: |
-          git config user.name "AutoBroadcaster"
-          git config user.email "bot@hindimastrhymes.auto"
-          git add memory/*.json
-          git diff --quiet --staged || (git commit -m "chore: update memory [skip ci]" && git pull --rebase origin main && git push)
+    - name: Upload Workspace Screenshot Artifact
+      if: always() # This forces GitHub to give you the screenshot even if the code errors out
+      uses: actions/upload-artifact@v4
+      with:
+        name: vids-login-snapshot
+        path: vids_canvas_snapshot.png
