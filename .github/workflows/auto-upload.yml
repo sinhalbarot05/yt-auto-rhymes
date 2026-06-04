@@ -1,14 +1,14 @@
-name: Google Vids Cookie Test
+name: Premium Channel Automation Pipeline
 
 on:
-  workflow_dispatch: # This adds a manual "Run workflow" button in GitHub!
+  workflow_dispatch:
 
 jobs:
-  run-test:
+  generate-hq-content:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Repository Code
+    - name: Checkout Code Repository
       uses: actions/checkout@v4
 
     - name: Set up Python Runtime
@@ -16,20 +16,14 @@ jobs:
       with:
         python-version: '3.10'
 
-    - name: Install System and Playwright Dependencies
+    - name: Install High Quality Video Render Modules
       run: |
-        pip install playwright
-        playwright install chromium
+        pip install requests moviepy
 
-    - name: Execute Google Vids Login Test
+    - name: Run Premium Factory Engine
       env:
-        GOOGLE_SESSION_COOKIES: ${{ secrets.GOOGLE_SESSION_COOKIES }}
+        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
       run: |
         python generate_vids.py
-
-    - name: Upload Workspace Screenshot Artifact
-      if: always() # This forces GitHub to give you the screenshot even if the code errors out
-      uses: actions/upload-artifact@v4
-      with:
-        name: vids-login-snapshot
-        path: vids_canvas_snapshot.png
