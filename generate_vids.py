@@ -1,117 +1,161 @@
 import os
+import json
 import time
 import requests
-from gtts import gTTS
-from moviepy.editor import ImageClip, concatenate_videoclips
+import urllib.parse
+from groq import Groq
+from moviepy.editor import ImageClip, TextClip, CompositeVideoClip, concatenate_videoclips
 
-def generate_free_voice(text, output_path):
-    """Generates speech completely free using Google's TTS engine without any API keys."""
-    print("[VOICE-STUDIO] Generating free narration track...")
-    try:
-        tts = gTTS(text=text, lang='en', tld='com')
-        tts.save(output_path)
-        print(f"✅ Voice Track Saved: {output_path}")
-        return True
-    except Exception as e:
-        print(f"❌ Voice Engine Failed: {e}")
-        return False
-
-def generate_stealth_image(prompt, output_path):
-    """Pulls standard images using the default endpoint to glide completely under the firewall radar."""
-    print(f"[IMAGE-FACTORY] Fetching stealth asset...")
-    
-    # Simple, high-impact style lock
-    style_lock = ", flat 2D vector art, minimalist corporate noir style, high contrast, dark charcoal background"
-    full_prompt = prompt + style_lock
-    
-    # 🌟 THE TRICK: No widths, no heights, no parameters. This looks like standard safe traffic.
-    url = f"https://image.pollinations.ai/p/{requests.utils.quote(full_prompt)}"
-    
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-    
-    try:
-        response = requests.get(url, headers=headers, timeout=30)
-        content_type = response.headers.get("Content-Type", "").lower()
+def generate_manhwa_script():
+    """Uses Groq to generate a viral dramatic romance timeline."""
+    print("[SCRIPT] Calling Groq for viral manhwa storyline...")
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        print("❌ GROQ_API_KEY missing! Using built-in dramatic storyline template.")
+        return [
+            {"age_male": "25", "age_female": "14", "dialogue": "Hey kid, time to study.", "prompt": "Korean manhwa webtoon style, handsome older male tutor looking down gently at a cute young girl studying with books, pastel lighting, soft manhwa illustration, 9:16 vertical"},
+            {"age_male": "26", "age_female": "15", "dialogue": "Don't call me kid.", "prompt": "Korean manhwa style, handsome college guy smiling, cute teenage girl with pigtails blushing, modern living room, warm aesthetic, 9:16 vertical"},
+            {"age_male": "27", "age_female": "16", "dialogue": "I love you. / You're out of your mind.", "prompt": "Dramatic manhwa webtoon scene, handsome man with surprised serious expression pointing at teenage girl forehead, night bench, emotional angst, 9:16 vertical"},
+            {"age_male": "", "age_female": "18", "dialogue": "Finally 18. I can tell him now.", "prompt": "Beautiful anime manhwa girl at 18, smiling wearing casual stylish outfit, cherry blossoms falling, hopeful romantic expression, 9:16 vertical"},
+            {"age_male": "29", "age_female": "18", "dialogue": "Who is she? / My girlfriend.", "prompt": "Heartbreak scene, handsome man in suit holding hands with glamorous woman, young girl looking shocked with teary eyes, luxury hotel lobby, high drama, 9:16 vertical"},
+            {"age_male": "", "age_female": "18", "dialogue": "How could you do this to me...?", "prompt": "Sad manhwa girl crying in rainy street, crouching down, shattered heart atmosphere, cinematic emotional lighting, 9:16 vertical"}
+        ]
         
-        if response.status_code == 200 and "image" in content_type:
-            with open(output_path, "wb") as f:
-                f.write(response.content)
-            print(f"✅ Stealth Image Asset Secured!")
-            return True
-        else:
-            print(f"❌ Firewall Flagged Request: Status {response.status_code}. Content-Type: {content_type}")
-            return False
-    except Exception as e:
-        print(f"❌ Network Timeout: {e}")
-        return False
+    client = Groq(api_key=groq_key)
+    prompt = """Generate a 6-scene viral romantic angst manhwa script in JSON format.
+Each scene must have:
+- "age_male": male character's age (or empty string if not in scene)
+- "age_female": female character's age
+- "dialogue": punchy emotional subtitle (under 10 words)
+- "prompt": highly descriptive prompt for Korean manhwa / anime webtoon style art, ending with "9:16 vertical"
 
-def build_production_short():
-    print("=== STARTING STEALTH RESIZING VIDEOPRODUCTION ===")
+Return ONLY raw valid JSON array, no markdown backticks."""
+
+    try:
+        response = client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama-3.3-70b-versatile"
+        )
+        content = response.choices[0].message.content.strip()
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+        return json.loads(content)
+    except Exception as e:
+        print(f"⚠️ Groq parsing failed: {e}. Falling back to default script.")
+        return generate_manhwa_script()
+
+def generate_vertical_image(prompt, output_path):
+    """Generates crisp 9:16 Manhwa art using your Pollinations key on gen.pollinations.ai."""
+    api_key = os.getenv("POLLINATIONS_API_KEY")
+    encoded_prompt = urllib.parse.quote(prompt + ", webtoon art, digital illustration, highly detailed, manhwa aesthetic")
+    
+    # Official authenticated Pollinations URL
+    if api_key:
+        url = f"https://gen.pollinations.ai/image/{encoded_prompt}?key={api_key}&model=flux&width=1080&height=1920&nologo=true"
+    else:
+        url = f"https://gen.pollinations.ai/image/{encoded_prompt}?model=flux&width=1080&height=1920&nologo=true"
+        
+    headers = {"User-Agent": "Mozilla/5.0"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    print(f"[IMAGE] Fetching 9:16 vertical frame...")
+    for attempt in range(3):
+        try:
+            res = requests.get(url, headers=headers, timeout=60)
+            if res.status_code == 200 and "image" in res.headers.get("Content-Type", ""):
+                with open(output_path, "wb") as f:
+                    f.write(res.content)
+                print(f"✅ Saved: {output_path}")
+                return True
+            else:
+                print(f"⚠️ Status {res.status_code}. Retrying in 4s...")
+                time.sleep(4)
+        except Exception as e:
+            print(f"⚠️ Network error: {e}. Retrying...")
+            time.sleep(4)
+    return False
+
+def build_manhwa_short():
+    print("=== STARTING VOICELESS ROMANTIC MANHWA SHORT ===")
     os.makedirs("workspace", exist_ok=True)
     os.makedirs("videos", exist_ok=True)
     
-    video_chapters = {
-        "intro": {
-            "text": "When you walk into a bank with zero dollars... you aren't a customer. You are a liability.",
-            "prompt": "An empty cold dark bank lobby, dramatic sharp lighting, minimalist corporate noir"
-        },
-        "scenes": [
-            {
-                "text": "At the ten-thousand dollar barrier, the system charges you money... just to hold your money.",
-                "prompt": "A stoic man in a sharp suit looking down at a screen, high contrast shadow"
-            },
-            {
-                "text": "But cross the seven-figure mark? The rules completely bend. The fees vanish.",
-                "prompt": "The same stoic man sitting in a luxury boardroom chair, minimalist lighting"
-            }
-        ]
-    }
-    
+    story = generate_manhwa_script()
     clips = []
     
-    # 1. Generate Intro Media Assets
-    intro_img = "workspace/stealth_intro.jpg"
-    intro_audio = "workspace/stealth_intro.mp3"
-    
-    if not generate_stealth_image(video_chapters["intro"]["prompt"], intro_img) or not generate_free_voice(video_chapters["intro"]["text"], intro_audio):
-        print("\n❌ STOPPING PRODUCTION: Core assets could not be compiled.")
-        return False
-    
-    # 🌟 INTERNAL UPSCALING: We explicitly command MoviePy to force the image to 1920x1080 screen size
-    intro_clip = ImageClip(intro_img).set_duration(10).resize(newsize=(1920, 1080))
-    intro_clip = intro_clip.resize(lambda t: 1.0 + (0.03 * t))
-    clips.append(intro_clip)
-    
-    # 2. Generate Chapter Scene Cuts
-    for index, scene in enumerate(video_chapters["scenes"]):
-        img_path = f"workspace/stealth_scene_{index}.jpg"
-        
-        if not generate_stealth_image(scene["prompt"], img_path):
-            print(f"❌ STOPPING PRODUCTION: Failed to generate scene slide {index}.")
-            return False
-        
-        # Force 1920x1080 sizing inside the runner context memory
-        slide_clip = ImageClip(img_path).set_duration(5).resize(newsize=(1920, 1080))
-        if index % 2 == 0:
-            slide_clip = slide_clip.resize(lambda t: 1.06 - (0.02 * t))
-        else:
-            slide_clip = slide_clip.resize(lambda t: 1.0 + (0.04 * t))
+    for i, scene in enumerate(story):
+        img_path = f"workspace/scene_{i}.jpg"
+        if not generate_vertical_image(scene["prompt"], img_path):
+            print(f"❌ Skipping scene {i} due to download failure.")
+            continue
             
-        clips.append(slide_clip)
+        # 1. Base Image Clip with subtle zoom
+        base_clip = ImageClip(img_path).set_duration(4.5).resize((1080, 1920))
+        base_clip = base_clip.resize(lambda t: 1.0 + (0.02 * t))
         
-    # 3. Compile Master Timeline
-    print("[STUDIO] Compiling video timeline matrix...")
-    final_movie = concatenate_videoclips(clips, method="compose")
+        composite_layers = [base_clip]
+        
+        # 2. Add Age Tags (Top of Screen)
+        age_str = ""
+        if scene.get("age_male"):
+            age_str += f"{scene['age_male']}           "
+        if scene.get("age_female"):
+            age_str += f"{scene['age_female']}"
+            
+        if age_str.strip():
+            try:
+                age_clip = TextClip(
+                    age_str,
+                    fontsize=75,
+                    font="Liberation-Sans-Bold",
+                    color="white",
+                    stroke_color="black",
+                    stroke_width=4
+                ).set_position(("center", 180)).set_duration(4.5)
+                composite_layers.append(age_clip)
+            except Exception as e:
+                print(f"⚠️ Age text overlay skipped: {e}")
+
+        # 3. Add Dialogue Subtitle (Lower Center)
+        dialogue = scene.get("dialogue", "")
+        if dialogue:
+            try:
+                txt_clip = TextClip(
+                    dialogue,
+                    fontsize=52,
+                    font="Liberation-Sans-Bold",
+                    color="white",
+                    stroke_color="black",
+                    stroke_width=3,
+                    method="caption",
+                    size=(900, None)
+                ).set_position(("center", 1350)).set_duration(4.5)
+                composite_layers.append(txt_clip)
+            except Exception as e:
+                print(f"⚠️ Dialogue overlay skipped: {e}")
+                
+        scene_composite = CompositeVideoClip(composite_layers, size=(1080, 1920))
+        clips.append(scene_composite)
+
+    if not clips:
+        print("❌ No scenes were generated!")
+        return False
+        
+    print("[RENDER] Assembling full 9:16 short...")
+    final_video = concatenate_videoclips(clips, method="compose")
     
-    print("[RENDER] Exporting master full-HD MP4...")
-    final_movie.write_videofile(
-        "videos/final_premium_short.mp4",
+    final_path = "videos/final_manhwa_short.mp4"
+    final_video.write_videofile(
+        final_path,
         fps=24,
         codec="libx264",
         preset="ultrafast"
     )
-    print("🎉 PRODUCTION COMPLETE: videos/final_premium_short.mp4 is ready!")
+    print(f"🎉 SUCCESS: {final_path} is ready for YouTube!")
     return True
 
 if __name__ == "__main__":
-    build_production_short()
+    build_manhwa_short()
