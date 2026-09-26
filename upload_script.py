@@ -2,28 +2,48 @@ import os
 import glob
 import json
 import base64
+import pickle
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 def get_authenticated_service():
-    """Decodes GitHub Secret token and refreshes credentials automatically."""
-    token_b64 = os.getenv("YOUTUBE_TOKEN_JSON_B64")
-    if not token_b64:
+    """Universally decodes Base64-encoded Pickle OR JSON credentials."""
+    token_str = os.getenv("YOUTUBE_TOKEN_JSON_B64")
+    if not token_str:
         raise ValueError("❌ Missing YOUTUBE_TOKEN_JSON_B64 secret in environment.")
 
-    token_json = json.loads(base64.b64decode(token_b64).decode("utf-8"))
-    
-    credentials = Credentials(
-        token=token_json.get("token"),
-        refresh_token=token_json.get("refresh_token"),
-        token_uri=token_json.get("token_uri", "https://oauth2.googleapis.com/token"),
-        client_id=token_json.get("client_id"),
-        client_secret=token_json.get("client_secret"),
-        scopes=token_json.get("scopes", ["https://www.googleapis.com/auth/youtube.upload"])
-    )
+    # 1. Decode base64 bytes
+    try:
+        raw_bytes = base64.b64decode(token_str)
+    except Exception:
+        raw_bytes = token_str.encode("utf-8")
 
+    credentials = None
+
+    # 2. Check if the payload is a pickled object (starts with opcode \x80)
+    if raw_bytes.startswith(b"\x80"):
+        print("[AUTH] Detected base64-encoded Python pickle credentials.")
+        credentials = pickle.loads(raw_bytes)
+    else:
+        # Fallback to JSON parsing
+        print("[AUTH] Detected JSON credentials payload.")
+        try:
+            data = json.loads(raw_bytes.decode("utf-8"))
+        except Exception:
+            data = json.loads(token_str)
+
+        credentials = Credentials(
+            token=data.get("token"),
+            refresh_token=data.get("refresh_token"),
+            token_uri=data.get("token_uri", "https://oauth2.googleapis.com/token"),
+            client_id=data.get("client_id"),
+            client_secret=data.get("client_secret"),
+            scopes=data.get("scopes", ["https://www.googleapis.com/auth/youtube.upload"])
+        )
+
+    # 3. Refresh expired tokens automatically
     if credentials.expired and credentials.refresh_token:
         print("[AUTH] Access token expired. Refreshing token via Google OAuth...")
         credentials.refresh(Request())
@@ -37,7 +57,6 @@ def find_target_video():
     if not video_files:
         raise FileNotFoundError("❌ No .mp4 files found in videos/ directory to upload.")
     
-    # Select the newest file
     latest_video = max(video_files, key=os.path.getctime)
     print(f"[DISCOVERY] Found target video to upload: {latest_video}")
     return latest_video
@@ -47,7 +66,6 @@ def upload_short():
     youtube = get_authenticated_service()
     video_path = find_target_video()
 
-    # Dynamic viral metadata tailored for romance manhwa shorts
     body = {
         "snippet": {
             "title": "When you love someone you can't have... 💔 #Shorts #manhwa #lovestory",
@@ -56,18 +74,18 @@ def upload_short():
                 "#Shorts #manhwa #webtoon #romance #animestory #viralshort"
             ),
             "tags": ["Shorts", "manhwa", "webtoon", "romance", "anime", "love story", "angst"],
-            "categoryId": "1"  # 1 = Film & Animation, 24 = Entertainment
+            "categoryId": "1"  # 1 = Film & Animation
         },
         "status": {
-            "privacyStatus": "public",  # Use "unlisted" or "private" if you want to inspect first
-            "selfDeclaredMadeForKids": False,  # CRITICAL: Must be False for non-nursery content
+            "privacyStatus": "public",
+            "selfDeclaredMadeForKids": False,
             "embeddable": True
         }
     }
 
     media = MediaFileUpload(
         video_path,
-        chunksize=1024*1024*4,  # 4MB chunks
+        chunksize=1024*1024*4,
         resumable=True,
         mimetype="video/mp4"
     )
