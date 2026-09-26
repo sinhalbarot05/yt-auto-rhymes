@@ -6,20 +6,53 @@ import urllib.parse
 from groq import Groq
 from moviepy.editor import ImageClip, TextClip, CompositeVideoClip, concatenate_videoclips
 
+# Permanent fallback storyline if Groq fails or rate limits
+DEFAULT_STORYLINE = [
+    {
+        "age_male": "25",
+        "age_female": "14",
+        "dialogue": "Hey kid, time to study.",
+        "prompt": "Korean manhwa webtoon style, handsome older male tutor looking down gently at a cute young girl studying with books, pastel lighting, soft manhwa illustration, 9:16 vertical"
+    },
+    {
+        "age_male": "26",
+        "age_female": "15",
+        "dialogue": "Don't call me kid.",
+        "prompt": "Korean manhwa style, handsome college guy smiling, cute teenage girl with pigtails blushing, modern living room, warm aesthetic, 9:16 vertical"
+    },
+    {
+        "age_male": "27",
+        "age_female": "16",
+        "dialogue": "I love you. / You're out of your mind.",
+        "prompt": "Dramatic manhwa webtoon scene, handsome man with surprised serious expression pointing at teenage girl forehead, night bench, emotional angst, 9:16 vertical"
+    },
+    {
+        "age_male": "",
+        "age_female": "18",
+        "dialogue": "Finally 18. I can tell him now.",
+        "prompt": "Beautiful anime manhwa girl at 18, smiling wearing casual stylish outfit, cherry blossoms falling, hopeful romantic expression, 9:16 vertical"
+    },
+    {
+        "age_male": "29",
+        "age_female": "18",
+        "dialogue": "Who is she? / My girlfriend.",
+        "prompt": "Heartbreak scene, handsome man in suit holding hands with glamorous woman, young girl looking shocked with teary eyes, luxury hotel lobby, high drama, 9:16 vertical"
+    },
+    {
+        "age_male": "",
+        "age_female": "18",
+        "dialogue": "How could you do this to me...?",
+        "prompt": "Sad manhwa girl crying in rainy street, crouching down, shattered heart atmosphere, cinematic emotional lighting, 9:16 vertical"
+    }
+]
+
 def generate_manhwa_script():
     """Uses Groq to generate a viral dramatic romance timeline."""
     print("[SCRIPT] Calling Groq for viral manhwa storyline...")
     groq_key = os.getenv("GROQ_API_KEY")
     if not groq_key:
-        print("❌ GROQ_API_KEY missing! Using built-in dramatic storyline template.")
-        return [
-            {"age_male": "25", "age_female": "14", "dialogue": "Hey kid, time to study.", "prompt": "Korean manhwa webtoon style, handsome older male tutor looking down gently at a cute young girl studying with books, pastel lighting, soft manhwa illustration, 9:16 vertical"},
-            {"age_male": "26", "age_female": "15", "dialogue": "Don't call me kid.", "prompt": "Korean manhwa style, handsome college guy smiling, cute teenage girl with pigtails blushing, modern living room, warm aesthetic, 9:16 vertical"},
-            {"age_male": "27", "age_female": "16", "dialogue": "I love you. / You're out of your mind.", "prompt": "Dramatic manhwa webtoon scene, handsome man with surprised serious expression pointing at teenage girl forehead, night bench, emotional angst, 9:16 vertical"},
-            {"age_male": "", "age_female": "18", "dialogue": "Finally 18. I can tell him now.", "prompt": "Beautiful anime manhwa girl at 18, smiling wearing casual stylish outfit, cherry blossoms falling, hopeful romantic expression, 9:16 vertical"},
-            {"age_male": "29", "age_female": "18", "dialogue": "Who is she? / My girlfriend.", "prompt": "Heartbreak scene, handsome man in suit holding hands with glamorous woman, young girl looking shocked with teary eyes, luxury hotel lobby, high drama, 9:16 vertical"},
-            {"age_male": "", "age_female": "18", "dialogue": "How could you do this to me...?", "prompt": "Sad manhwa girl crying in rainy street, crouching down, shattered heart atmosphere, cinematic emotional lighting, 9:16 vertical"}
-        ]
+        print("⚠️ GROQ_API_KEY missing. Using built-in storyline.")
+        return DEFAULT_STORYLINE
         
     client = Groq(api_key=groq_key)
     prompt = """Generate a 6-scene viral romantic angst manhwa script in JSON format.
@@ -29,29 +62,36 @@ Each scene must have:
 - "dialogue": punchy emotional subtitle (under 10 words)
 - "prompt": highly descriptive prompt for Korean manhwa / anime webtoon style art, ending with "9:16 vertical"
 
-Return ONLY raw valid JSON array, no markdown backticks."""
+Return ONLY raw valid JSON array, no markdown formatting or backticks."""
 
     try:
+        # llama-3.1-8b-instant is universally available on all Groq tiers
         response = client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
-            model="llama-3.3-70b-versatile"
+            model="llama-3.1-8b-instant",
+            temperature=0.7
         )
         content = response.choices[0].message.content.strip()
+        
+        # Clean markdown code blocks if present
         if content.startswith("```"):
             content = content.split("```")[1]
             if content.startswith("json"):
                 content = content[4:]
-        return json.loads(content)
+        
+        parsed = json.loads(content.strip())
+        print(f"✅ Generated dynamic storyline with {len(parsed)} scenes via Groq.")
+        return parsed
+        
     except Exception as e:
-        print(f"⚠️ Groq parsing failed: {e}. Falling back to default script.")
-        return generate_manhwa_script()
+        print(f"⚠️ Groq call failed ({e}). Returning fallback storyline directly.")
+        return DEFAULT_STORYLINE
 
 def generate_vertical_image(prompt, output_path):
-    """Generates crisp 9:16 Manhwa art using your Pollinations key on gen.pollinations.ai."""
+    """Generates 9:16 Manhwa art using the authenticated Pollinations endpoint."""
     api_key = os.getenv("POLLINATIONS_API_KEY")
     encoded_prompt = urllib.parse.quote(prompt + ", webtoon art, digital illustration, highly detailed, manhwa aesthetic")
     
-    # Official authenticated Pollinations URL
     if api_key:
         url = f"https://gen.pollinations.ai/image/{encoded_prompt}?key={api_key}&model=flux&width=1080&height=1920&nologo=true"
     else:
@@ -92,13 +132,12 @@ def build_manhwa_short():
             print(f"❌ Skipping scene {i} due to download failure.")
             continue
             
-        # 1. Base Image Clip with subtle zoom
         base_clip = ImageClip(img_path).set_duration(4.5).resize((1080, 1920))
         base_clip = base_clip.resize(lambda t: 1.0 + (0.02 * t))
         
         composite_layers = [base_clip]
         
-        # 2. Add Age Tags (Top of Screen)
+        # 1. Age Tags (Top of Screen)
         age_str = ""
         if scene.get("age_male"):
             age_str += f"{scene['age_male']}           "
@@ -119,7 +158,7 @@ def build_manhwa_short():
             except Exception as e:
                 print(f"⚠️ Age text overlay skipped: {e}")
 
-        # 3. Add Dialogue Subtitle (Lower Center)
+        # 2. Dialogue Subtitle (Lower Center)
         dialogue = scene.get("dialogue", "")
         if dialogue:
             try:
