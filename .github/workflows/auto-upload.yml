@@ -1,27 +1,34 @@
-name: Premium Channel Automation Pipeline
+name: Romantic Manhwa Shorts Pipeline
 
 on:
   workflow_dispatch:
 
 jobs:
-  generate-hq-content:
+  build-short:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Code Repository
+    - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Set up Python Runtime
+    - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
-    - name: Install High Quality Video Render Modules
+    - name: Install System Dependencies & Fonts
       run: |
-        pip install requests gtts
+        sudo apt-get update
+        sudo apt-get install -y imagemagick fonts-liberation
+        # Fix ImageMagick security policy for MoviePy text rendering
+        sudo sed -i 's/<policy domain="path" rights="none" pattern="@\*"/<!-- <policy domain="path" rights="none" pattern="@\*" -->/' /etc/ImageMagick-6/policy.xml
+
+    - name: Install Python Video Modules
+      run: |
+        pip install requests groq
         pip install "moviepy<2.0" Pillow==9.5.0
 
-    - name: Run Premium Factory Engine
+    - name: Run Manhwa Generator
       env:
         GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
