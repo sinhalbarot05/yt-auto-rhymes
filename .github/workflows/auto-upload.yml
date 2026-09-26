@@ -1,10 +1,11 @@
 name: Romantic Manhwa Shorts Pipeline
 
 on:
-  workflow_dispatch: # Allows manual trigger anytime
-  schedule:
-    # Optional: Automatically runs daily at 12:00 PM UTC (Uncomment below to enable)
-    # - cron: '0 12 * * *'
+  workflow_dispatch:
+
+  # To enable scheduled daily runs, uncomment the lines below:
+  # schedule:
+  #   - cron: '0 12 * * *'
 
 jobs:
   build-and-upload:
