@@ -1,36 +1,56 @@
 name: Romantic Manhwa Shorts Pipeline
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Allows manual trigger anytime
+  schedule:
+    # Optional: Automatically runs daily at 12:00 PM UTC (Uncomment below to enable)
+    # - cron: '0 12 * * *'
 
 jobs:
-  build-short:
+  build-and-upload:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Set up Python
+    - name: Set up Python 3.10
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
+        cache: 'pip'
 
-    - name: Install System Dependencies & Fonts
+    - name: Install System Dependencies & Setup Fonts
       run: |
         sudo apt-get update
-        sudo apt-get install -y imagemagick fonts-liberation
-        # Fix ImageMagick security policy for MoviePy text rendering
-        sudo sed -i 's/<policy domain="path" rights="none" pattern="@\*"/<!-- <policy domain="path" rights="none" pattern="@\*" -->/' /etc/ImageMagick-6/policy.xml
+        sudo apt-get install -y imagemagick fonts-liberation ffmpeg
+        # Fix ImageMagick security policy so MoviePy TextClip can render text overlays
+        sudo sed -i 's/<policy domain="path" rights="none" pattern="@\*"/<!-- <policy domain="path" rights="none" pattern="@\*" -->/' /etc/ImageMagick-6/policy.xml || true
 
-    - name: Install Python Video Modules
+    - name: Install Python Video & Upload Modules
       run: |
         pip install requests groq
         pip install "moviepy<2.0" Pillow==9.5.0
+        pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
 
-    - name: Run Manhwa Generator
+    - name: Generate Manhwa Short Video
       env:
         GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
       run: |
         python generate_vids.py
+
+    - name: Upload Video to YouTube Shorts
+      env:
+        YOUTUBE_TOKEN_JSON_B64: ${{ secrets.YOUTUBE_TOKEN_JSON_B64 }}
+      run: |
+        python upload_script.py
+
+    - name: Save Video as Action Artifact (Backup)
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: generated-manhwa-shorts
+        path: videos/*.mp4
+        retention-days: 3
