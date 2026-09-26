@@ -6,7 +6,6 @@ import urllib.parse
 from groq import Groq
 from moviepy.editor import ImageClip, TextClip, CompositeVideoClip, concatenate_videoclips
 
-# Permanent fallback storyline if Groq fails or rate limits
 DEFAULT_STORYLINE = [
     {
         "age_male": "25",
@@ -47,11 +46,11 @@ DEFAULT_STORYLINE = [
 ]
 
 def generate_manhwa_script():
-    """Uses Groq to generate a viral dramatic romance timeline."""
+    """Dynamically queries Groq for active models and generates a viral script."""
     print("[SCRIPT] Calling Groq for viral manhwa storyline...")
     groq_key = os.getenv("GROQ_API_KEY")
     if not groq_key:
-        print("⚠️ GROQ_API_KEY missing. Using built-in storyline.")
+        print("⚠️ GROQ_API_KEY missing. Using fallback storyline.")
         return DEFAULT_STORYLINE
         
     client = Groq(api_key=groq_key)
@@ -62,33 +61,47 @@ Each scene must have:
 - "dialogue": punchy emotional subtitle (under 10 words)
 - "prompt": highly descriptive prompt for Korean manhwa / anime webtoon style art, ending with "9:16 vertical"
 
-Return ONLY raw valid JSON array, no markdown formatting or backticks."""
+Return ONLY raw valid JSON array, no markdown backticks."""
 
     try:
-        # llama-3.1-8b-instant is universally available on all Groq tiers
+        # Auto-discover active models on your account
+        active_models = [m.id for m in client.models.list().data]
+        print(f"[GROQ] Active models available: {active_models[:4]}...")
+
+        # Pick the best active model available
+        preferred_models = [
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant",
+            "llama3-8b-8192",
+            "llama3-70b-8192",
+            "gemma2-9b-it",
+            "mixtral-8x7b-32768"
+        ]
+        chosen_model = next((m for m in preferred_models if m in active_models), active_models[0])
+        print(f"[GROQ] Selected active model: {chosen_model}")
+
         response = client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
-            model="llama-3.1-8b-instant",
+            model=chosen_model,
             temperature=0.7
         )
         content = response.choices[0].message.content.strip()
         
-        # Clean markdown code blocks if present
         if content.startswith("```"):
             content = content.split("```")[1]
             if content.startswith("json"):
                 content = content[4:]
         
         parsed = json.loads(content.strip())
-        print(f"✅ Generated dynamic storyline with {len(parsed)} scenes via Groq.")
+        print(f"✅ Generated script ({len(parsed)} scenes) via Groq [{chosen_model}].")
         return parsed
         
     except Exception as e:
-        print(f"⚠️ Groq call failed ({e}). Returning fallback storyline directly.")
+        print(f"⚠️ Groq generation skipped ({e}). Using default storyline.")
         return DEFAULT_STORYLINE
 
 def generate_vertical_image(prompt, output_path):
-    """Generates 9:16 Manhwa art using the authenticated Pollinations endpoint."""
+    """Generates 9:16 Manhwa art using your authenticated Pollinations endpoint."""
     api_key = os.getenv("POLLINATIONS_API_KEY")
     encoded_prompt = urllib.parse.quote(prompt + ", webtoon art, digital illustration, highly detailed, manhwa aesthetic")
     
@@ -137,7 +150,7 @@ def build_manhwa_short():
         
         composite_layers = [base_clip]
         
-        # 1. Age Tags (Top of Screen)
+        # Age Tags (Top Center)
         age_str = ""
         if scene.get("age_male"):
             age_str += f"{scene['age_male']}           "
@@ -158,7 +171,7 @@ def build_manhwa_short():
             except Exception as e:
                 print(f"⚠️ Age text overlay skipped: {e}")
 
-        # 2. Dialogue Subtitle (Lower Center)
+        # Dialogue Subtitle (Lower Center)
         dialogue = scene.get("dialogue", "")
         if dialogue:
             try:
