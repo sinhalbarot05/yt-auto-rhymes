@@ -1,199 +1,217 @@
 import os
 import json
 import time
+import math
 import requests
+import textwrap
 import urllib.parse
 from groq import Groq
 from PIL import Image, ImageDraw, ImageFont
-from moviepy.editor import ImageClip, AudioFileClip, CompositeVideoClip, concatenate_videoclips
+from moviepy.editor import ImageClip, CompositeVideoClip, concatenate_videoclips
 
-# Permanent fallback storyline with 1st-person POV and changing ages
-DEFAULT_STORYLINE = [
-    {
-        "male_age": "25",
-        "female_age": "14",
-        "speaker_name": "Him",
-        "speaker_type": "chat",
-        "dialogue": "Stop daydreaming and finish your math equations, kid.",
-        "prompt": "Korean manhwa webtoon style, handsome older male college tutor smiling gently at a cute young teenage girl studying at desk, soft pastel anime lighting, 9:16 vertical"
-    },
-    {
-        "male_age": "26",
-        "female_age": "15",
-        "speaker_name": "Her",
-        "speaker_type": "thought",
-        "dialogue": "I made homemade chocolates for you... but my hands won't stop shaking.",
-        "prompt": "Cute anime girl with pigtails blushing nervously holding a small gift box behind her back, modern hallway, warm manhwa aesthetic, 9:16 vertical"
-    },
-    {
-        "male_age": "27",
-        "female_age": "16",
-        "speaker_name": "Her",
-        "speaker_type": "chat",
-        "dialogue": "I don't care about the age gap. I love you.",
-        "prompt": "Emotional dramatic anime scene, teenage girl with intense teary eyes confessing under streetlamp, handsome older man looking startled, night, 9:16 vertical"
-    },
-    {
-        "male_age": "27",
-        "female_age": "16",
-        "speaker_name": "Him",
-        "speaker_type": "chat",
-        "dialogue": "Never say that again. You're just my student.",
-        "prompt": "Handsome anime man with cold serious expression, turning his face away in shadows, emotional distance, dark blue night aesthetic, 9:16 vertical"
-    },
-    {
-        "male_age": "29",
-        "female_age": "18",
-        "speaker_name": "Him",
-        "speaker_type": "chat",
-        "dialogue": "Meet Claire. She's my fiancée.",
-        "prompt": "Heartbreak scene, handsome man in tailored suit holding hands with glamorous woman, 18 year old girl standing frozen in shock, tears welling up, luxury lobby, 9:16 vertical"
-    },
-    {
-        "male_age": "",
-        "female_age": "18",
-        "speaker_name": "Her",
-        "speaker_type": "thought",
-        "dialogue": "You told me to wait until I grew up... but you never intended to wait for me.",
-        "prompt": "Heartbroken anime girl crying heavily in the rain, mascara running, shattered expression, cinematic dramatic lighting, rainy city background, 9:16 vertical"
-    }
-]
+DEFAULT_DATA = {
+    "recommended_yt_song": "Moral of the Story - Ashe (Shorts Trending)",
+    "yt_music_search_query": "Moral of the Story Ashe",
+    "video_title": "When you love someone you can't have... 💔 #Shorts #manhwa #lovestory",
+    "scenes": [
+        {
+            "male_age": "25",
+            "female_age": "14",
+            "bubble_type": "speech",
+            "speaker_label": "HIM",
+            "dialogue": "Focus on your books, kid. Stop looking at me.",
+            "prompt": "Korean manhwa style, handsome 25 year old male tutor looking down gently at cute 14 year old student, clean anime webtoon, no chinese text, no hanzi, no kanji, no subtitles, no watermark, 9:16 vertical"
+        },
+        {
+            "male_age": "26",
+            "female_age": "15",
+            "bubble_type": "thought",
+            "speaker_label": "HER THOUGHTS",
+            "dialogue": "I made these chocolates for you... why is my heart racing?",
+            "prompt": "Korean manhwa style, cute 15 year old anime girl blushing holding small gift behind back, soft pastel lighting, clean anime webtoon, no chinese text, no hanzi, no subtitles, 9:16 vertical"
+        },
+        {
+            "male_age": "27",
+            "female_age": "16",
+            "bubble_type": "speech",
+            "speaker_label": "HER",
+            "dialogue": "I don't care about the age gap! I love you!",
+            "prompt": "Dramatic manhwa scene, tearful 16 year old girl confessing under rain, handsome 27 year old man stunned, clean anime webtoon, no chinese text, no kanji, no watermark, 9:16 vertical"
+        },
+        {
+            "male_age": "27",
+            "female_age": "16",
+            "bubble_type": "speech",
+            "speaker_label": "HIM",
+            "dialogue": "You are just a child to me. Forget it.",
+            "prompt": "Cold anime man turning face away in dark shadows, painful heartbreak, clean anime webtoon, no chinese text, no hanzi, no subtitles, 9:16 vertical"
+        },
+        {
+            "male_age": "29",
+            "female_age": "18",
+            "bubble_type": "speech",
+            "speaker_label": "HIM",
+            "dialogue": "Meet Claire. We are getting married in June.",
+            "prompt": "Heartbreak scene, handsome man holding hands with elegant woman, 18 year old girl standing frozen in shock, clean anime webtoon, no chinese text, no subtitles, 9:16 vertical"
+        },
+        {
+            "male_age": "",
+            "female_age": "18",
+            "bubble_type": "thought",
+            "speaker_label": "HER THOUGHTS",
+            "dialogue": "You told me to wait till I grew up... but you never waited for me.",
+            "prompt": "Heartbroken anime girl crying in heavy rain, shattered expression, dramatic cinematic lighting, clean anime webtoon, no chinese text, no hanzi, no subtitles, 9:16 vertical"
+        }
+    ]
+}
 
-def fetch_romantic_music(output_path="workspace/romantic_bg.mp3"):
-    """Downloads a royalty-free emotional romantic piano loop for the video soundtrack."""
-    if os.path.exists(output_path):
-        return output_path
-    print("[AUDIO] Fetching romantic piano background track...")
-    # Clean CC0 romantic piano theme
-    music_url = "https://raw.githubusercontent.com/sinhalbarot05/yt-auto-rhymes/main/assets/romantic_piano.mp3"
-    fallback_url = "https://cdn.freesound.org/previews/612/612642_11861866-lq.mp3"
-    
-    for url in [music_url, fallback_url]:
-        try:
-            res = requests.get(url, timeout=20)
-            if res.status_code == 200 and len(res.content) > 10000:
-                with open(output_path, "wb") as f:
-                    f.write(res.content)
-                print(f"✅ Secured romantic soundtrack: {output_path}")
-                return output_path
-        except Exception:
-            continue
-    print("⚠️ Music download skipped. Video will render voiceless.")
-    return None
+def get_font(size):
+    """Loads clean sans-serif font from Ubuntu system path with safe fallback."""
+    paths = [
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    ]
+    for p in paths:
+        if os.path.exists(p):
+            return ImageFont.truetype(p, size)
+    return ImageFont.load_default()
 
-def create_top_age_badge(male_age, female_age, output_path="workspace/age_badge.png"):
-    """Creates a modern frosted glass header card displaying both character ages."""
-    width, height = 1080, 240
-    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+def draw_top_age_bar(male_age, female_age, output_path):
+    """Draws a clean top UI bar tracking character ages."""
+    img = Image.new("RGBA", (1080, 220), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
+    font_val = get_font(44)
+    font_lbl = get_font(24)
 
-    try:
-        font_large = ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf", 46)
-        font_small = ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf", 26)
-    except Exception:
-        font_large = ImageFont.load_default()
-        font_small = ImageFont.load_default()
+    # Frosted header pill
+    draw.rounded_rectangle([150, 40, 930, 160], radius=35, fill=(15, 20, 32, 220), outline=(255, 255, 255, 90), width=3)
 
-    # Glass container pill
-    draw.rounded_rectangle([140, 50, 940, 170], radius=40, fill=(15, 18, 30, 210), outline=(255, 255, 255, 80), width=2)
-
-    # Male Age (Left)
     if male_age:
-        draw.text((220, 70), "HIM 👨", fill=(130, 180, 255), font=font_small)
-        draw.text((235, 102), str(male_age), fill=(255, 255, 255), font=font_large)
+        draw.text((220, 60), "HIM 👨", font=font_lbl, fill=(140, 190, 255))
+        draw.text((235, 92), str(male_age), font=font_val, fill=(255, 255, 255))
     else:
-        draw.text((220, 90), "SOLO 👤", fill=(160, 160, 160), font=font_small)
+        draw.text((220, 80), "SOLO 👤", font=font_lbl, fill=(180, 180, 180))
 
-    # Center Heart Icon
-    draw.text((515, 85), "💔", fill=(255, 100, 130), font=font_large)
+    draw.text((515, 75), "💔", font=font_val, fill=(255, 100, 140))
 
-    # Female Age (Right)
     if female_age:
-        draw.text((760, 70), "HER 👩", fill=(255, 160, 200), font=font_small)
-        draw.text((775, 102), str(female_age), fill=(255, 255, 255), font=font_large)
+        draw.text((750, 60), "HER 👩", font=font_lbl, fill=(255, 160, 210))
+        draw.text((765, 92), str(female_age), font=font_val, fill=(255, 255, 255))
 
     img.save(output_path, "PNG")
     return output_path
 
-def create_webtoon_chat_bubble(speaker_name, speaker_type, dialogue, output_path):
-    """Generates an authentic Korean Webtoon chat or thought bubble."""
-    width, height = 1080, 480
-    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+def draw_manga_bubble(text, speaker_label, bubble_type, output_path):
+    """Draws genuine Manga speech and thought bubbles with zero boxy edges."""
+    canvas_w, canvas_h = 960, 460
+    img = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    try:
-        font_tag = ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf", 28)
-        font_text = ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf", 40)
-    except Exception:
-        font_tag = ImageFont.load_default()
-        font_text = ImageFont.load_default()
+    font_text = get_font(34)
+    font_badge = get_font(22)
 
-    # Stylize based on speech vs inner monologue
-    if speaker_type == "thought":
-        badge_text = f"💭 {speaker_name.upper()}'S INNER THOUGHTS"
-        card_fill = (22, 18, 32, 230)      # Deep soft purple frosted glass
-        border_col = (255, 150, 200, 150)  # Rose gold glow
-        tag_bg = (210, 60, 120, 230)
+    wrapped_lines = textwrap.wrap(text, width=28)[:4]
+    formatted_text = "\n".join(wrapped_lines)
+
+    bbox = draw.multiline_textbbox((0, 0), formatted_text, font=font_text, align="center")
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+    bw = min(canvas_w - 60, max(460, tw + 90))
+    bh = max(180, th + 80)
+    bx0 = (canvas_w - bw) // 2
+    by0 = 40
+    bx1 = bx0 + bw
+    by1 = by0 + bh
+
+    if bubble_type == "thought":
+        # 1. Thought Bubble (Puffy cloud lobes + descending thought circles)
+        cx, cy = (bx0 + bx1) // 2, (by0 + by1) // 2
+        rx, ry = bw // 2, bh // 2
+        num_lobes = 14
+        lobe_r = 38
+
+        # Draw cloud puff perimeter
+        for i in range(num_lobes):
+            theta = 2 * math.pi * i / num_lobes
+            lx = int(cx + (rx - 15) * math.cos(theta))
+            ly = int(cy + (ry - 10) * math.sin(theta))
+            draw.ellipse([lx - lobe_r, ly - lobe_r, lx + lobe_r, ly + lobe_r], fill="white", outline="black", width=4)
+
+        # Fill center core to hide internal outlines
+        draw.ellipse([bx0 + 20, by0 + 15, bx1 - 20, by1 - 15], fill="white")
+
+        # Trailing thought dots pointing to character's head
+        tail_x = cx - 40
+        draw.ellipse([tail_x - 16, by1 + 18, tail_x + 16, by1 + 50], fill="white", outline="black", width=3)
+        draw.ellipse([tail_x - 30, by1 + 58, tail_x - 6, by1 + 82], fill="white", outline="black", width=3)
+        draw.ellipse([tail_x - 42, by1 + 90, tail_x - 24, by1 + 108], fill="white", outline="black", width=2)
+
+        # Monologue pill
+        draw.rounded_rectangle([cx - 120, by0 - 18, cx + 120, by0 + 18], radius=12, fill=(240, 80, 140))
+        draw.text((cx, by0), f"💭 {speaker_label}", font=font_badge, fill="white", anchor="mm")
+
     else:
-        badge_text = f"💬 {speaker_name.upper()} SPEAKS"
-        card_fill = (15, 22, 35, 230)      # Midnight navy frosted glass
-        border_col = (120, 180, 255, 150)  # Electric blue accent
-        tag_bg = (30, 110, 220, 230)
+        # 2. Dialogue Speech Bubble (Oval body with directional speech tail)
+        draw.rounded_rectangle([bx0, by0, bx1, by1], radius=45, fill="white", outline="black", width=5)
 
-    # Rounded dialog box
-    draw.rounded_rectangle([70, 70, 1010, 420], radius=32, fill=card_fill, outline=border_col, width=3)
+        # Downward speech pointer tail
+        tail_x = (bx0 + bx1) // 2 - 20
+        tail = [
+            (tail_x - 25, by1 - 2),
+            (tail_x - 45, by1 + 55),
+            (tail_x + 10, by1 - 2)
+        ]
+        draw.polygon(tail, fill="white", outline="black")
+        draw.line([(tail_x - 23, by1 - 1), (tail_x + 8, by1 - 1)], fill="white", width=7)
 
-    # Header tag pill
-    draw.rounded_rectangle([110, 42, 560, 96], radius=16, fill=tag_bg)
-    draw.text((130, 52), badge_text, fill=(255, 255, 255), font=font_tag)
+        # Dialogue pill
+        cx = (bx0 + bx1) // 2
+        draw.rounded_rectangle([cx - 90, by0 - 18, cx + 90, by0 + 18], radius=12, fill=(35, 120, 240))
+        draw.text((cx, by0), f"💬 {speaker_label}", font=font_badge, fill="white", anchor="mm")
 
-    # Word wrapping for dialog text
-    words = dialogue.split()
-    lines = []
-    current_line = []
-    for word in words:
-        current_line.append(word)
-        test_line = " ".join(current_line)
-        bbox = draw.textbbox((0, 0), test_line, font=font_text)
-        if (bbox[2] - bbox[0]) > 840:
-            current_line.pop()
-            lines.append(" ".join(current_line))
-            current_line = [word]
-    if current_line:
-        lines.append(" ".join(current_line))
-
-    # Render wrapped text
-    y_text = 135
-    for line in lines[:4]:
-        draw.text((115, y_text), line, fill=(255, 255, 255), font=font_text)
-        y_text += 58
+    # Centered black manga dialogue
+    text_x = (bx0 + bx1) // 2
+    text_y = (by0 + by1) // 2
+    draw.multiline_text((text_x, text_y), formatted_text, font=font_text, fill="black", align="center", anchor="mm")
 
     img.save(output_path, "PNG")
     return output_path
 
-def generate_manhwa_script():
-    """Dynamically queries Groq for 1st-person POV dramatic storylines."""
-    print("[SCRIPT] Calling Groq for 1st-person manhwa dialogue...")
+def generate_story_and_metadata():
+    """Asks Groq to create dramatic 1st-person romance script + pick trending YouTube Library song."""
+    print("[GROQ] Calling AI to write script and select matching YouTube Audio...")
     groq_key = os.getenv("GROQ_API_KEY")
     if not groq_key:
-        return DEFAULT_STORYLINE
+        print("⚠️ GROQ_API_KEY missing. Using default manhwa storyline.")
+        return DEFAULT_DATA
 
     client = Groq(api_key=groq_key)
-    prompt = """Write a 6-scene emotional romance drama between a male mentor/college guy and a younger female student in JSON format.
+    prompt = """Create a 6-scene viral first-person romantic angst manhwa script in JSON format.
+Also choose one emotional, trending song from the YouTube Shorts Audio Library that matches this mood.
+
+Return ONLY raw JSON with this exact structure:
+{
+  "recommended_yt_song": "Song Title - Artist Name (Shorts Trending)",
+  "yt_music_search_query": "Search query for YouTube audio picker",
+  "video_title": "Catchy Shorts Title with #Shorts #manhwa #lovestory",
+  "scenes": [
+    {
+      "male_age": "25",
+      "female_age": "14",
+      "bubble_type": "speech",
+      "speaker_label": "HIM",
+      "dialogue": "Short first-person text under 12 words",
+      "prompt": "Clean Korean manhwa style, [character action], clean anime webtoon, no chinese text, no hanzi, no kanji, no subtitles, no watermark, 9:16 vertical"
+    }
+  ]
+}
+
 Rules:
-- NEVER use third-person narrator descriptions (no 'She walks', 'His heart flutters').
-- Use ONLY direct first-person dialogue ('chat') or inner thoughts ('thought').
-- Ages must change progressively (e.g. 25 & 14 -> 26 & 15 -> 27 & 16 -> 29 & 18).
-- Each scene must have:
-  "male_age": string (e.g. "25", or "" if absent)
-  "female_age": string (e.g. "14")
-  "speaker_name": "Him" or "Her"
-  "speaker_type": "chat" or "thought"
-  "dialogue": maximum 15 emotional, punchy words
-  "prompt": high-detail Korean manhwa/webtoon illustration prompt ending with "9:16 vertical"
-
-Return ONLY a raw JSON array."""
-
+- bubble_type must be either 'speech' or 'thought'
+- NEVER write in third person (no 'she looks away'). Use only direct dialogue or inner thoughts.
+- Age gap must progress over the 6 scenes.
+- Every prompt MUST contain 'no chinese text, no hanzi, no kanji, no subtitles, 9:16 vertical'.
+"""
     try:
         active_models = [m.id for m in client.models.list().data]
         preferred = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama3-8b-8192", "gemma2-9b-it"]
@@ -209,17 +227,20 @@ Return ONLY a raw JSON array."""
             content = content.split("```")[1]
             if content.startswith("json"):
                 content = content[4:]
-        return json.loads(content.strip())
+        data = json.loads(content.strip())
+        print(f"✅ Groq generated script. Recommended YT Library Song: {data.get('recommended_yt_song')}")
+        return data
     except Exception as e:
-        print(f"⚠️ Groq parse error: {e}. Using permanent dramatic storyline.")
-        return DEFAULT_STORYLINE
+        print(f"⚠️ Groq API skipped ({e}). Using default storyline.")
+        return DEFAULT_DATA
 
-def generate_vertical_image(prompt, output_path):
-    """Generates crisp 9:16 vertical art via Pollinations."""
+def fetch_vertical_image(prompt, output_path):
+    """Fetches vertical 9:16 art from Pollinations with sanitized anti-text parameters."""
     api_key = os.getenv("POLLINATIONS_API_KEY")
-    encoded_prompt = urllib.parse.quote(prompt + ", webtoon art, digital illustration, manhwa aesthetic")
-    
-    url = f"https://gen.pollinations.ai/image/{encoded_prompt}?width=1080&height=1920&nologo=true&model=flux"
+    sanitized_prompt = prompt + ", masterpiece manhwa, beautiful clean digital anime art, 9:16 vertical"
+    encoded = urllib.parse.quote(sanitized_prompt)
+
+    url = f"https://gen.pollinations.ai/image/{encoded}?width=1080&height=1920&model=flux&nologo=true"
     if api_key:
         url += f"&key={api_key}"
 
@@ -227,81 +248,78 @@ def generate_vertical_image(prompt, output_path):
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
-    print(f"[IMAGE] Fetching 9:16 vertical frame...")
     for attempt in range(3):
         try:
             res = requests.get(url, headers=headers, timeout=60)
             if res.status_code == 200 and "image" in res.headers.get("Content-Type", ""):
                 with open(output_path, "wb") as f:
                     f.write(res.content)
-                print(f"✅ Image saved: {output_path}")
+                print(f"✅ Secured clean scene: {output_path}")
                 return True
         except Exception:
             time.sleep(3)
     return False
 
-def build_manhwa_short():
-    print("=== STARTING ADVANCED MANHWA WEBTOON PRODUCTION ===")
+def build_soundless_short():
+    print("=== STARTING VOICELESS MANHWA SHORTS PRODUCTION ===")
     os.makedirs("workspace", exist_ok=True)
     os.makedirs("videos", exist_ok=True)
 
-    story = generate_manhwa_script()
-    bg_music_file = fetch_romantic_music()
+    data = generate_story_and_metadata()
+
+    # Save metadata for upload_script.py
+    with open("workspace/video_metadata.json", "w") as f:
+        json.dump(data, f, indent=2)
+
+    scenes = data.get("scenes", DEFAULT_DATA["scenes"])
     clips = []
 
-    for i, scene in enumerate(story):
+    for i, sc in enumerate(scenes):
         img_path = f"workspace/scene_{i}.jpg"
-        if not generate_vertical_image(scene["prompt"], img_path):
+        if not fetch_vertical_image(sc["prompt"], img_path):
             continue
 
-        # 1. Base Image with slow zoom
-        base_clip = ImageClip(img_path).set_duration(4.5).resize((1080, 1920))
-        base_clip = base_clip.resize(lambda t: 1.0 + (0.02 * t))
+        # 1. Base Image with slow dramatic zoom
+        base = ImageClip(img_path).set_duration(4.5).resize((1080, 1920))
+        base = base.resize(lambda t: 1.0 + (0.025 * t))
 
-        # 2. Dynamic Age Header Badge
-        age_badge_path = f"workspace/age_{i}.png"
-        create_top_age_badge(scene.get("male_age", ""), scene.get("female_age", ""), age_badge_path)
-        age_clip = ImageClip(age_badge_path).set_position(("center", 40)).set_duration(4.5)
+        # 2. Dynamic Age Header Bar
+        age_bar_path = f"workspace/age_{i}.png"
+        draw_top_age_bar(sc.get("male_age", ""), sc.get("female_age", ""), age_bar_path)
+        age_clip = ImageClip(age_bar_path).set_position(("center", 40)).set_duration(4.5)
 
-        # 3. Webtoon Chat/Thought Card (Lower third)
+        # 3. Manga Speech/Thought Bubble (Positioned over character head)
         bubble_path = f"workspace/bubble_{i}.png"
-        create_webtoon_chat_bubble(
-            scene.get("speaker_name", "Her"),
-            scene.get("speaker_type", "thought"),
-            scene.get("dialogue", "..."),
+        draw_manga_bubble(
+            sc.get("dialogue", "..."),
+            sc.get("speaker_label", "TALK"),
+            sc.get("bubble_type", "speech"),
             bubble_path
         )
-        bubble_clip = ImageClip(bubble_path).set_position(("center", 1320)).set_duration(4.5)
+        bubble_clip = ImageClip(bubble_path).set_position(("center", 260)).set_duration(4.5)
 
-        composite = CompositeVideoClip([base_clip, age_clip, bubble_clip], size=(1080, 1920))
+        composite = CompositeVideoClip([base, age_clip, bubble_clip], size=(1080, 1920))
         clips.append(composite)
 
     if not clips:
-        print("❌ No scenes generated!")
+        print("❌ No scenes rendered successfully.")
         return False
 
-    print("[RENDER] Assembling full 9:16 video...")
+    print("[RENDER] Assembling 100% SOUNDLESS master video...")
     final_video = concatenate_videoclips(clips, method="compose")
 
-    # Attach romantic music if available
-    if bg_music_file and os.path.exists(bg_music_file):
-        try:
-            audio = AudioFileClip(bg_music_file).subclip(0, final_video.duration)
-            final_video = final_video.set_audio(audio)
-            print("🎵 Mixed romantic audio soundtrack into master video.")
-        except Exception as e:
-            print(f"⚠️ Audio mixing skipped: {e}")
-
+    # Strictly soundless output: audio=False removes any empty audio container
     final_path = "videos/final_manhwa_short.mp4"
     final_video.write_videofile(
         final_path,
         fps=24,
         codec="libx264",
-        audio_codec="aac" if final_video.audio else None,
+        audio=False,
         preset="ultrafast"
     )
-    print(f"🎉 MASTER COMPLETE: {final_path} ready with chat bubbles & music!")
+    print(f"🎉 MASTER COMPLETE (SOUNDLESS): {final_path}")
+    print(f"🎵 Recommended YouTube Shorts Sound: {data.get('recommended_yt_song')}")
     return True
 
 if __name__ == "__main__":
-    build_manhwa_short()
+    build_soundless_short()
