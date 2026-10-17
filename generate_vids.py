@@ -6,40 +6,40 @@ import math
 import wave
 import struct
 import random
+import textwrap
 import subprocess
 import urllib.parse
 import requests
 
-# Auto-ensure yt-dlp is installed even if the GitHub workflow YAML wasn't updated
+# Auto-ensure yt-dlp is installed
 try:
     import yt_dlp
 except ImportError:
-    print("[SETUP] Installing yt-dlp automatically...")
     subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-U", "yt-dlp"], check=False)
 
 from groq import Groq
-from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips, afx
+from PIL import Image, ImageDraw, ImageFont
+from moviepy.editor import ImageClip, AudioFileClip, CompositeVideoClip, concatenate_videoclips, afx
 
 HISTORY_FILE = "story_history.json"
-LOCKED_SONG_PATH = "assets/indila_love_story_magical_cut.mp3"
+# Using v2 filename so the workflow replaces the old vocal track with the pure instrumental cut
+LOCKED_SONG_PATH = "assets/indila_love_story_instrumental_v2.mp3"
 LOCKED_SONG_TITLE = "Love Story (Instrumental Slowed & Reverb) - Indila"
 
-# Best 26-30s emotional climax window of Indila - Love Story (Slowed & Reverb)
 GOLDEN_START_SEC = 45
 GOLDEN_DURATION_SEC = 30
 
-# Wide spectrum of high-view Manhwa sub-genres & emotional hooks (Never locked to one formula)
 STORY_ARCHETYPES = [
-    "Enemies to Lovers: Two hyper-competitive academy rivals who can't stop bickering until a crisis forces them to protect each other",
-    "Fake Relationship to Real Obsession: A cold popular guy and a quiet girl pretend to date to stop rumours, but he falls dangerously in love first",
-    "The Second Lead Rescue: She spent years chasing a guy who took her for granted, until his quiet best friend steps into the rain and treats her like a queen",
-    "Reincarnation / Time-Leap Regret: He was cold to her in their past life; waking up 5 years in the past, he vows to cherish and protect her from day one",
-    "Secret Identity Crush: By day they ignore each other in university lectures; by night they are anonymous rooftop confidants who don't know each other's faces",
-    "CEO & The Only Person Who Defies Him: Everyone fears the ruthless young chaebol heir except the fearless new designer who accidentally spills iced coffee on his suit",
-    "Childhood Promise Broken & Healed: Separated ten years ago after an airport goodbye, he recognizes her immediately when she transfers into his college",
-    "Bodyguard & Heiress Forbidden Line: Hired only to guard her from afar, he breaks his own strict rules the night she cries alone at a gala",
-    "Cold Ice Prince & Sunshine Transfer Student: He sits alone by the window refusing to talk to anyone until the clumsy new girl refuses to leave him in the dark",
-    "Brother's Best Friend Secretly Waited: He always teased her like a kid sister, until the night another boy asks her out and his calm mask finally shatters"
+    "Enemies to Lovers: Two competitive university rivals who bicker constantly until a sudden storm forces him to protect her",
+    "Fake Dating to Real Obsession: A cold popular senior and a quiet girl fake-date to stop rumors, but he falls in love first",
+    "The Second Lead Rescue: She cried over a boy who broke his promise, until his handsome best friend holds an umbrella over her in the rain",
+    "Childhood Neighbours to Couple: Growing up next door from teasing kids to an emotional rooftop confession",
+    "CEO & The Fearless Intern: Everyone fears the young company heir except the clumsy intern who accidentally bumps into him",
+    "Brother's Best Friend Forbidden Crush: He treated her like a little sister for years until another guy asks her out and he gets jealous",
+    "Subway Strangers to Soulmates: Taking the same 7 AM train every morning in silence until he finally speaks to her",
+    "Cold Ice Prince & Sunshine Girl: The aloof campus genius who ignores everyone melts only when she smiles at him",
+    "Secret Identity Crush: Academic rivals by day who don't realize they are anonymous late-night texting confidants",
+    "Bodyguard & Heiress: Hired strictly to protect her from afar, he breaks his own rule the night she cries alone"
 ]
 
 
@@ -58,251 +58,366 @@ def save_history(history):
         json.dump(history, f, indent=2, ensure_ascii=False)
 
 
+def get_bold_font(size):
+    """Loads crisp sans-serif bold font for clean English lettering."""
+    candidates = [
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return ImageFont.truetype(path, size)
+    return ImageFont.load_default()
+
+
+def render_clean_floating_ages(male_age, female_age, output_path):
+    """
+    Renders neat, non-overlapping floating age numbers in the top-left (Blue) and top-right (Pink)
+    using 2x supersampling so they never duplicate or corrupt.
+    """
+    scale = 2
+    w, h = 1080 * scale, 180 * scale
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    font_age = get_bold_font(64 * scale)
+    font_lbl = get_bold_font(20 * scale)
+
+    def draw_badge(cx, cy, label, age_text, color_rgb):
+        pw, ph = 150 * scale, 92 * scale
+        x0, y0 = cx - pw // 2, cy - ph // 2
+        x1, y1 = cx + pw // 2, cy + ph // 2
+        # Sleek dark glass pill
+        draw.rounded_rectangle(
+            [x0, y0, x1, y1],
+            radius=24 * scale,
+            fill=(14, 18, 28, 210),
+            outline=color_rgb + (230,),
+            width=3 * scale
+        )
+        draw.text((cx, y0 + 21 * scale), label, font=font_lbl, fill=color_rgb + (255,), anchor="mm")
+        draw.text((cx, y0 + 60 * scale), str(age_text).strip(), font=font_age, fill=(255, 255, 255, 255), anchor="mm")
+
+    if male_age:
+        draw_badge(135 * scale, 90 * scale, "HIM", male_age, (65, 175, 255))
+    if female_age:
+        draw_badge(945 * scale, 90 * scale, "HER", female_age, (255, 85, 140))
+
+    img.resize((1080, 180), Image.LANCZOS).save(output_path, "PNG")
+    return output_path
+
+
+def render_single_speaker_bubble(text, side, bubble_type, output_path):
+    """
+    Renders a single character's comic bubble in 100% pure English:
+    - side='left' (Boy): Tail/dots point down-left toward the boy's head.
+    - side='right' (Girl): Tail/dots point down-right toward the girl's head.
+    - bubble_type='speech': Smooth comic oval with sharp pointer tail.
+    - bubble_type='thought': Fluffy scalloped cloud with 3 trailing thought circles.
+    """
+    scale = 2
+    cw, ch = 560 * scale, 300 * scale
+    img = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    font_text = get_bold_font(27 * scale)
+    font_tag = get_bold_font(17 * scale)
+
+    # Sanitize text to pure ASCII/English printable characters only (zero foreign glyphs possible)
+    clean_text = "".join(ch for ch in str(text) if ord(ch) < 128).strip()
+    if not clean_text:
+        clean_text = "..."
+
+    wrapped = textwrap.wrap(clean_text, width=21)[:3]
+    multiline = "\n".join(wrapped)
+
+    bbox = draw.multiline_textbbox((0, 0), multiline, font=font_text, align="center")
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+    bw = min(cw - 60 * scale, max(310 * scale, tw + 76 * scale))
+    bh = max(125 * scale, th + 64 * scale)
+
+    bx0 = (cw - bw) // 2
+    by0 = 32 * scale
+    bx1 = bx0 + bw
+    by1 = by0 + bh
+    cx, cy = (bx0 + bx1) // 2, (by0 + by1) // 2
+
+    is_left = (side == "left")
+    accent = (40, 140, 250) if is_left else (240, 70, 135)
+    who_label = "HIM" if is_left else "HER"
+
+    if bubble_type == "thought":
+        # Scalloped cloud border
+        rx, ry = bw // 2, bh // 2
+        num_puffs = 14
+        puff_r = 28 * scale
+        for i in range(num_puffs):
+            ang = (2 * math.pi * i) / num_puffs
+            px = int(cx + (rx - 8 * scale) * math.cos(ang))
+            py = int(cy + (ry - 6 * scale) * math.sin(ang))
+            draw.ellipse(
+                [px - puff_r, py - puff_r, px + puff_r, py + puff_r],
+                fill=(255, 255, 255, 255),
+                outline=(20, 20, 25, 255),
+                width=4 * scale
+            )
+        # Clean inner cloud core
+        draw.rounded_rectangle(
+            [bx0 + 10 * scale, by0 + 8 * scale, bx1 - 10 * scale, by1 - 8 * scale],
+            radius=30 * scale,
+            fill=(255, 255, 255, 255)
+        )
+        # Trailing thought circles pointing down to the specific speaker
+        tx_start = cx - 45 * scale if is_left else cx + 45 * scale
+        step = -14 * scale if is_left else 14 * scale
+        dots = [
+            (tx_start, by1 + 18 * scale, 11 * scale),
+            (tx_start + step, by1 + 42 * scale, 8 * scale),
+            (tx_start + step * 2, by1 + 60 * scale, 5 * scale)
+        ]
+        for dx, dy, dr in dots:
+            draw.ellipse(
+                [dx - dr, dy - dr, dx + dr, dy + dr],
+                fill=(255, 255, 255, 255),
+                outline=(20, 20, 25, 255),
+                width=3 * scale
+            )
+        tag_text = f"{who_label} (THOUGHT)"
+    else:
+        # Smooth oval speech bubble
+        draw.rounded_rectangle(
+            [bx0, by0, bx1, by1],
+            radius=42 * scale,
+            fill=(255, 255, 255, 255),
+            outline=(20, 20, 25, 255),
+            width=4 * scale
+        )
+        # Single directional pointer tail toward speaker
+        if is_left:
+            tx = bx0 + int(bw * 0.32)
+            tail = [
+                (tx - 15 * scale, by1 - 3 * scale),
+                (tx - 36 * scale, by1 + 42 * scale),
+                (tx + 15 * scale, by1 - 3 * scale)
+            ]
+        else:
+            tx = bx0 + int(bw * 0.68)
+            tail = [
+                (tx - 15 * scale, by1 - 3 * scale),
+                (tx + 36 * scale, by1 + 42 * scale),
+                (tx + 15 * scale, by1 - 3 * scale)
+            ]
+        draw.polygon(tail, fill=(255, 255, 255, 255), outline=(20, 20, 25, 255))
+        draw.line([(tx - 13 * scale, by1 - 2 * scale), (tx + 13 * scale, by1 - 2 * scale)], fill=(255, 255, 255, 255), width=6 * scale)
+        tag_text = who_label
+
+    # Speaker tag pill at top of bubble
+    pw = (145 if bubble_type == "thought" else 80) * scale
+    ph = 26 * scale
+    draw.rounded_rectangle([cx - pw // 2, by0 - ph // 2, cx + pw // 2, by0 + ph // 2], radius=12 * scale, fill=accent + (255,))
+    draw.text((cx, by0), tag_text, font=font_tag, fill=(255, 255, 255, 255), anchor="mm")
+
+    # Crisp English dialogue text
+    draw.multiline_text(
+        (cx, cy + 4 * scale),
+        multiline,
+        font=font_text,
+        fill=(15, 15, 20, 255),
+        align="center",
+        anchor="mm",
+        spacing=5 * scale
+    )
+
+    img.resize((560, 300), Image.LANCZOS).save(output_path, "PNG")
+    return output_path
+
+
 def select_groq_chat_model(client):
-    """
-    Strictly filters Groq's model list so it NEVER selects audio/whisper/tts/guard models.
-    """
+    """Filters out whisper/audio/guard models so Groq always uses a true text LLM."""
     models_resp = client.models.list().data
     all_ids = [m.id for m in models_resp]
+    banned = ("whisper", "guard", "tts", "playai", "embed", "vision", "allam")
+    chat_models = [m for m in all_ids if not any(b in m.lower() for b in banned)]
 
-    # Filter out non-chat models (fixes the whisper-large-v3 crash)
-    banned_substrings = ("whisper", "guard", "tts", "playai", "embed", "vision", "allam", "distil-whisper")
-    chat_models = [
-        m for m in all_ids
-        if not any(bad in m.lower() for bad in banned_substrings)
-    ]
-
-    preferred_priority = [
+    preferred = [
         "llama-3.3-70b-versatile",
         "llama-3.1-8b-instant",
         "deepseek-r1-distill-llama-70b",
         "qwen-qwq-32b",
-        "qwen-2.5-32b",
         "gemma2-9b-it",
         "llama3-70b-8192",
-        "llama3-8b-8192",
-        "mixtral-8x7b-32768"
+        "llama3-8b-8192"
     ]
-
-    for pref in preferred_priority:
-        if pref in chat_models:
-            return pref
-
-    # Fallback to any remaining llama/qwen/gemma chat model
-    for m in chat_models:
-        if any(k in m.lower() for k in ("llama", "qwen", "gemma", "mixtral", "deepseek")):
-            return m
-
+    for p in preferred:
+        if p in chat_models:
+            return p
     return chat_models[0] if chat_models else "llama-3.3-70b-versatile"
 
 
-def build_prompt_payload(chosen_archetype, used_titles, used_dialogues):
+def build_story_prompts(chosen_archetype, used_titles):
     entropy = f"{int(time.time())}-{random.randint(10000, 99999)}"
     system_prompt = (
-        "You are an elite viral Korean Webtoon & Manhwa Shorts creator. "
-        "Every single run you invent a 100% original, unpredictable, emotionally addictive 5-scene story. "
-        "Never reuse old plots, ages, settings, or dialogues. Output strictly valid JSON."
+        "You are an elite Korean Manhwa romance scriptwriter. "
+        "You write 100% English scripts where EVERY scene features a back-and-forth exchange "
+        "between the male lead (left) and female lead (right). Output strictly valid JSON."
     )
-    user_prompt = f"""Write a completely original 5-scene vertical Korean Manhwa romance Short script.
-Unique Run Seed: {entropy}
-Story Concept Direction: "{chosen_archetype}"
-Previously Used Titles (NEVER REPEAT): {json.dumps(used_titles[-8:])}
-Previously Used Dialogues (NEVER REPEAT): {json.dumps(used_dialogues[-15:])}
+    user_prompt = f"""Create a brand-new, original 5-scene vertical Korean Manhwa romance Short script.
+Run Seed: {entropy}
+Concept Direction: "{chosen_archetype}"
+Previously Used Titles (DO NOT REPEAT): {json.dumps(used_titles[-8:])}
 
-PACING SYNCED TO 'INDILA - LOVE STORY (SLOWED & REVERB)' (0:45 to 1:11):
-- Scene 1 (0.0s - 5.2s): Intriguing hook / unexpected first encounter or conflict.
-- Scene 2 (5.2s - 10.4s): Escalating romantic tension, secret jealousy, or vulnerability.
-- Scene 3 (10.4s - 15.6s): THE BEAT DROP -> Major dramatic twist, betrayal, sudden rescue, or confrontation!
-- Scene 4 (15.6s - 20.8s): Raw emotional confession or heart-stopping closeness.
-- Scene 5 (20.8s - 26.0s): Unforgettable payoff (twist ending, passionate embrace, or bittersweet regret).
+RULES FOR PERFECT TWO-SPEAKER DIALOGUE & ANATOMY:
+1. Every scene has TWO separate bubbles:
+   - "male_bubble_type": "speech" or "thought"
+   - "male_text": What the boy says or thinks (pure English, 4 to 9 words).
+   - "female_bubble_type": "speech" or "thought"
+   - "female_text": How the girl replies or thinks back (pure English, 4 to 9 words).
+2. "scene_action" describes ONLY the visual artwork and characters facing each other naturally (NO back-turned twisted necks, NO text in the art).
 
-FREEDOM & CREATIVITY RULES:
-- Choose ANY fitting ages for the characters (they can stay the same age across a single night/week, or jump across years—whatever fits THIS specific plot best!).
-- Vary the settings wildly (rooftop gala, subway train, convenience store at 2 AM, university art studio, snowy bus stop, fencing club, rain-soaked alley, hospital corridor, etc.).
-- Keep "dialogue" between 4 and 7 punchy English words so the AI image generator renders the text cleanly inside the comic bubble.
-
-Return ONLY a valid JSON object with this exact schema:
+Return ONLY valid JSON matching this exact structure:
 {{
-  "trope": "Short catchy name for this specific story",
+  "trope": "Short catchy trope title",
   "recommended_yt_song": "{LOCKED_SONG_TITLE}",
-  "yt_music_search_query": "Indila Love Story instrumental slowed reverb",
-  "video_title": "Unique viral title with emojis #Shorts #manhwa #lovestory",
-  "male_dna": "handsome Korean manhwa male lead with [distinct hair color/style], [eye color] eyes, and [signature outfit/vibe]",
-  "female_dna": "beautiful Korean manhwa female lead with [distinct hair color/style], [eye color] eyes, and [signature outfit/vibe]",
+  "video_title": "Catchy emotional English title with emojis #Shorts #manhwa #lovestory",
+  "male_dna": "handsome Korean manhwa male lead with [hair color/style], [eye color] eyes, wearing [stylish outfit]",
+  "female_dna": "beautiful Korean manhwa female lead with [hair color/style], [eye color] eyes, wearing [stylish outfit]",
   "scenes": [
     {{
       "male_age": "19",
-      "female_age": "19",
-      "bubble_style": "crisp white oval manga speech bubble pointing to the boy OR fluffy cloud thought bubble above the girl",
-      "dialogue": "4 to 7 punchy English words",
-      "visual_effect": "specific lighting, weather, and atmospheric particle effects",
-      "scene_action": "Rich visual description of what both characters are doing, their facial expressions, and the background setting"
+      "female_age": "18",
+      "male_bubble_type": "speech",
+      "male_text": "Why are you out in the rain?",
+      "female_bubble_type": "thought",
+      "female_text": "He actually came looking for me...",
+      "scene_action": "medium shot of both characters facing each other under an umbrella in the rain, warm streetlight glow, romantic eye contact"
     }}
   ]
 }}"""
     return system_prompt, user_prompt
 
 
-def generate_dynamic_combinatorial_story(history):
-    """
-    Emergency combinatorial story engine (zero static scenes).
-    Assembles a fresh plot from randomized character designs, settings, conflicts, twists, and endings.
-    """
+def generate_combinatorial_fallback(history):
+    """Dynamic combinatorial generator if both LLMs are unreachable."""
     run_id = history.get("total_videos", 0) + random.randint(100, 999)
-    m_hair = random.choice(["silver-white", "jet-black undercut", "messy ash-brown", "dark midnight-blue", "platinum-blonde"])
-    f_hair = random.choice(["long chestnut-brown", "wavy strawberry-blonde", " silky raven-black", "soft caramel", "ponytail dark-cherry"])
-    m_eyes = random.choice(["amber", "crimson-grey", "deep sapphire", "emerald", "obsidian"])
-    f_eyes = random.choice(["golden-hazel", "violet", "bright sky-blue", "warm jade", "soft rose"])
-
-    age_base = random.choice([17, 18, 19, 20, 21, 22])
-    m_age = str(age_base + random.choice([0, 1, 2]))
-    f_age = str(age_base)
-
-    hooks = [
-        ("You spilled coffee on my shirt.", "two strangers colliding outside a rainy midnight convenience store", "neon rain reflections"),
-        ("Stop pretending you don't know me.", "tense encounter in a grand university library aisle at dusk", "floating dust motes in amber sunlight"),
-        ("Why did you sit next to me?", "crowded evening subway train as it suddenly brakes", "warm city lights blurring past train windows"),
-        ("I'm only dating you by contract.", "luxury rooftop gala overlooking glittering city skyline", "champagne gold bokeh sparkles")
-    ]
-    tensions = [
-        ("Why is he looking at me?", "boy secretly tying his scarf around shivering girl at snowy bus stop", "falling white snowflakes and warm breath mist"),
-        ("He stayed up all night for me?", "boy asleep on art studio table beside girl's finished canvas", "soft morning sunbeams"),
-        ("Who was that guy with you?", "jealous boy cornering blushing girl near locker hallway", "dramatic high-contrast manga shadows")
-    ]
-    drops = [
-        ("Get behind me. Right now.", "boy stepping in front of girl to shield her from a splashing car in pouring rain", "cinematic water splash and streetlamp halo"),
-        ("Don't ever walk away from me!", "boy catching girl's hand on a windy stone bridge at twilight", "swirling autumn leaves and dramatic wind"),
-        ("I broke the contract for you.", "man tearing up paper contract in front of stunned girl on balcony", "flying paper shards and moonlight")
-    ]
-    confessions = [
-        ("I fell for you first, dummy.", "boy gently resting his forehead against hers under a single umbrella", "glowing raindrops and soft pink aura"),
-        ("Every sketch in my book is you.", "pages of portrait sketches fluttering around them on the school rooftop", "golden sunset flare and wind"),
-        ("My heart only beats for you.", "man cupping girl's tearful cheek under glowing festival lanterns", "floating warm sky lanterns")
-    ]
-    endings = [
-        ("Stay by my side forever.", "passionate embrace under night fireworks with blushing smiles", "vibrant fireworks and starry sky"),
-        ("You were never a mistake to me.", "couple holding hands walking into glowing sunrise on the beach", "shimmering ocean sunrise light"),
-        ("Marry me, my favourite rival.", "man kneeling with ring box in a blooming greenhouse garden", "swirling flower petals and sunbeams")
-    ]
-
-    s1, s2, s3, s4, s5 = random.choice(hooks), random.choice(tensions), random.choice(drops), random.choice(confessions), random.choice(endings)
+    m_hair = random.choice(["jet-black", "silver-grey", "dark ash-brown", "midnight-blue"])
+    f_hair = random.choice(["long chestnut", "wavy dark-brown", "soft caramel", "raven-black"])
 
     return {
-        "trope": f"Original Webtoon Drama #{run_id}",
+        "trope": f"Manhwa Romance Story #{run_id}",
         "recommended_yt_song": LOCKED_SONG_TITLE,
-        "yt_music_search_query": "Indila Love Story instrumental slowed reverb",
-        "video_title": f"\"{s3[0]}\" 💔🥺 #{run_id} #Shorts #manhwa #lovestory",
-        "male_dna": f"handsome Korean manhwa boy with {m_hair} hair and {m_eyes} eyes",
-        "female_dna": f"beautiful Korean manhwa girl with {f_hair} hair and {f_eyes} eyes",
+        "video_title": f"He Pretended Not To Care... Until That Night 💔✨ #{run_id} #Shorts #manhwa #lovestory",
+        "male_dna": f"handsome Korean manhwa boy with {m_hair} hair, sharp warm eyes, wearing a fitted dark jacket",
+        "female_dna": f"cute Korean manhwa girl with {f_hair} hair, bright expressive eyes, wearing a cozy pastel cardigan",
         "scenes": [
-            {"male_age": m_age, "female_age": f_age, "bubble_style": "white oval manga speech bubble pointing to the boy", "dialogue": s1[0], "visual_effect": s1[2], "scene_action": s1[1]},
-            {"male_age": m_age, "female_age": f_age, "bubble_style": "fluffy white cloud thought bubble above the girl", "dialogue": s2[0], "visual_effect": s2[2], "scene_action": s2[1]},
-            {"male_age": str(int(m_age)+1), "female_age": str(int(f_age)+1), "bubble_style": "dramatic manga speech bubble pointing to the boy", "dialogue": s3[0], "visual_effect": s3[2], "scene_action": s3[1]},
-            {"male_age": str(int(m_age)+1), "female_age": str(int(f_age)+1), "bubble_style": "white oval manga speech bubble pointing to the boy", "dialogue": s4[0], "visual_effect": s4[2], "scene_action": s4[1]},
-            {"male_age": str(int(m_age)+2), "female_age": str(int(f_age)+2), "bubble_style": "white manga speech bubble between them", "dialogue": s5[0], "visual_effect": s5[2], "scene_action": s5[1]}
+            {
+                "male_age": "18", "female_age": "17",
+                "male_bubble_type": "speech", "male_text": "Stop sitting alone. Sit next to me.",
+                "female_bubble_type": "thought", "female_text": "Why is the coldest guy talking to me?",
+                "scene_action": "university lecture hall, boy on left looking at blushing girl on right, warm afternoon sunlight through windows"
+            },
+            {
+                "male_age": "18", "female_age": "17",
+                "male_bubble_type": "thought", "male_text": "She looks freezing. Take my scarf.",
+                "female_bubble_type": "speech", "female_text": "Wait, aren't you cold too?",
+                "scene_action": "snowy evening bus stop, boy gently wrapping a warm scarf around the girl's neck while facing her, soft snow falling"
+            },
+            {
+                "male_age": "19", "female_age": "18",
+                "male_bubble_type": "speech", "male_text": "Stay behind me. Don't let go.",
+                "female_bubble_type": "thought", "female_text": "His hand is holding mine so tightly...",
+                "scene_action": "dramatic rainy street at night, boy holding umbrella over girl while shielding her, glowing neon reflections"
+            },
+            {
+                "male_age": "20", "female_age": "19",
+                "male_bubble_type": "speech", "male_text": "I never hated you. I was scared.",
+                "female_bubble_type": "speech", "female_text": "Scared of what?",
+                "scene_action": "rooftop balcony under starry night sky, boy gently touching girl's cheek, emotional close-up facing each other"
+            },
+            {
+                "male_age": "21", "female_age": "20",
+                "male_bubble_type": "speech", "male_text": "Scared of how much I love you.",
+                "female_bubble_type": "thought", "female_text": "I've loved you from the very start.",
+                "scene_action": "golden sunset rooftop, couple holding both hands and smiling warmly into each other's eyes, floating cherry blossom petals"
+            }
         ]
     }
 
 
 def generate_fresh_story(history):
-    """
-    Tier 1: Groq Chat LLM (with whisper/audio models strictly filtered out).
-    Tier 2: Pollinations Free OpenAI-compatible LLM (if Groq is down).
-    Tier 3: Combinatorial Dynamic Matrix (never repeats a static script).
-    """
-    used_archetypes = history.get("used_archetypes", [])[-6:]
+    used_arch = history.get("used_archetypes", [])[-6:]
     used_titles = history.get("used_titles", [])
-    used_dialogues = history.get("used_dialogues", [])
+    avail = [a for a in STORY_ARCHETYPES if a not in used_arch] or STORY_ARCHETYPES
+    chosen_arch = random.choice(avail)
+    sys_p, usr_p = build_story_prompts(chosen_arch, used_titles)
 
-    available_arch = [a for a in STORY_ARCHETYPES if a not in used_archetypes] or STORY_ARCHETYPES
-    chosen_archetype = random.choice(available_arch)
-    system_prompt, user_prompt = build_prompt_payload(chosen_archetype, used_titles, used_dialogues)
-
-    # TIER 1: Groq LLM
     groq_key = os.getenv("GROQ_API_KEY")
     if groq_key:
         try:
             client = Groq(api_key=groq_key)
-            chosen_model = select_groq_chat_model(client)
-            print(f"[GROQ-AI] Selected true chat model: {chosen_model}")
-
+            model = select_groq_chat_model(client)
+            print(f"[GROQ] Generating two-speaker English script with {model}...")
             res = client.chat.completions.create(
-                model=chosen_model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
+                model=model,
+                messages=[{"role": "system", "content": sys_p}, {"role": "user", "content": usr_p}],
                 response_format={"type": "json_object"},
-                temperature=0.92
+                temperature=0.88
             )
-            content = res.choices[0].message.content.strip()
-            data = json.loads(content)
+            data = json.loads(res.choices[0].message.content.strip())
             if "scenes" in data and len(data["scenes"]) >= 4:
-                data["recommended_yt_song"] = LOCKED_SONG_TITLE
-                data["archetype_used"] = chosen_archetype
-                print(f"✅ [GROQ-AI] Brand-new story generated: {data.get('video_title')}")
+                data["archetype_used"] = chosen_arch
                 return data
         except Exception as e:
-            print(f"⚠️ Groq LLM error ({e}). Trying secondary Free AI LLM...")
+            print(f"⚠️ Groq fallback ({e}). Trying secondary LLM...")
 
-    # TIER 2: Pollinations Free Text LLM (Zero-Key Backup Brain)
     try:
-        print("[BACKUP-LLM] Calling Pollinations OpenAI Text API for fresh story...")
         resp = requests.post(
             "https://text.pollinations.ai/openai",
             json={
                 "model": "openai",
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                "response_format": {"type": "json_object"},
-                "temperature": 0.9
+                "messages": [{"role": "system", "content": sys_p}, {"role": "user", "content": usr_p}],
+                "response_format": {"type": "json_object"}
             },
             timeout=45
         )
         if resp.status_code == 200:
-            raw_txt = resp.json()["choices"][0]["message"]["content"].strip()
-            if raw_txt.startswith("```"):
-                raw_txt = raw_txt.split("```")[1]
-                if raw_txt.startswith("json"):
-                    raw_txt = raw_txt[4:]
-            data = json.loads(raw_txt.strip())
+            raw = resp.json()["choices"][0]["message"]["content"].strip()
+            if raw.startswith("```"):
+                raw = raw.split("```")[1].lstrip("json").strip()
+            data = json.loads(raw)
             if "scenes" in data and len(data["scenes"]) >= 4:
-                data["recommended_yt_song"] = LOCKED_SONG_TITLE
-                data["archetype_used"] = chosen_archetype
-                print(f"✅ [BACKUP-LLM] Brand-new story generated: {data.get('video_title')}")
+                data["archetype_used"] = chosen_arch
                 return data
-    except Exception as e:
-        print(f"⚠️ Secondary LLM skipped ({e}). Using combinatorial generator...")
+    except Exception:
+        pass
 
-    # TIER 3: Dynamic Combinatorial Generator
-    return generate_dynamic_combinatorial_story(history)
+    return generate_combinatorial_fallback(history)
 
 
-def generate_complete_manhwa_panel(scene, male_dna, female_dna, story_seed, idx, output_path):
-    """Generates the complete 9:16 Manhwa panel with baked-in bubbles, age numbers, and visual effects."""
+def fetch_clean_anatomical_manhwa_art(scene, male_dna, female_dna, story_seed, idx, output_path):
+    """
+    Generates 100% TEXT-FREE, anatomically natural romantic Manhwa art.
+    Strictly forbids Flux from drawing speech bubbles, Chinese text, or backward necks.
+    Leaves clean upper headroom for our Python vector bubbles and age badges.
+    """
     api_key = os.getenv("POLLINATIONS_API_KEY")
-    m_age = scene.get("male_age", "19")
-    f_age = scene.get("female_age", "18")
-    bubble_style = scene.get("bubble_style", "white manga speech bubble")
-    dialogue = scene.get("dialogue", "Don't let go.")
-    visual_effect = scene.get("visual_effect", "dramatic anime lighting and glowing bokeh")
     action = scene.get("scene_action", "romantic couple looking at each other")
 
-    full_ai_prompt = (
-        f"Vertical 9:16 Korean webtoon manhwa comic panel illustration. "
-        f"Characters: {male_dna} (on left) and {female_dna} (on right), {action}. "
-        f"Visual Effects: {visual_effect}, high-contrast cel-shaded anime masterpiece. "
-        f"Built-in Comic Typography: At the top corners, floating glowing neon numbers '{m_age}' in blue and '{f_age}' in pink. "
-        f"In the upper area, draw one {bubble_style} containing large bold crisp English comic text reading exactly: \"{dialogue}\". "
-        f"Strictly English alphabet only, no Chinese characters, no Hanzi, no Kanji, no watermark."
+    prompt = (
+        f"Masterpiece Korean webtoon romance illustration, 9:16 vertical composition. "
+        f"Characters positioned in the lower two-thirds with generous sky/ceiling headroom above their heads: "
+        f"On the left side is {male_dna} in natural three-quarter front profile facing right; "
+        f"On the right side is {female_dna} in natural three-quarter front profile facing left. "
+        f"Action: {action}. "
+        f"Anatomical perfection: natural human neck and shoulder alignment, front-facing torsos, warm expressive eyes, "
+        f"clean cel-shaded manhwa art style, soft romantic lighting. "
+        f"STRICTLY NO TEXT, NO SPEECH BUBBLES, NO NUMBERS, NO CHINESE CHARACTERS, NO LETTERS, NO WATERMARK."
     )
 
-    encoded_prompt = urllib.parse.quote(full_ai_prompt)
-    seed = story_seed + (idx * 137)
+    encoded = urllib.parse.quote(prompt)
+    seed = story_seed + (idx * 131)
     url = (
-        f"https://gen.pollinations.ai/image/{encoded_prompt}"
+        f"https://gen.pollinations.ai/image/{encoded}"
         f"?width=1080&height=1920&model=flux&seed={seed}&nologo=true&enhance=false"
     )
     if api_key:
@@ -312,14 +427,17 @@ def generate_complete_manhwa_panel(scene, male_dna, female_dna, story_seed, idx,
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
-    print(f"[AI-PANEL] Generating Scene {idx + 1}/5: \"{dialogue}\"...")
+    print(f"[ART] Generating clean text-free Manhwa frame {idx + 1}/5...")
     for attempt in range(4):
         try:
             res = requests.get(url, headers=headers, timeout=75)
             if res.status_code == 200 and "image" in res.headers.get("Content-Type", "") and len(res.content) > 15000:
                 with open(output_path, "wb") as f:
                     f.write(res.content)
-                print(f"✅ Scene {idx + 1} saved: {output_path}")
+                # Ensure exact 1080x1920 dimensions
+                with Image.open(output_path) as im:
+                    im.convert("RGB").resize((1080, 1920), Image.LANCZOS).save(output_path, "JPEG", quality=95)
+                print(f"✅ Clean Scene {idx + 1} saved: {output_path}")
                 return True
             time.sleep(4)
         except Exception:
@@ -328,20 +446,14 @@ def generate_complete_manhwa_panel(scene, male_dna, female_dna, story_seed, idx,
 
 
 def synthesize_indila_waltz_fallback(output_mp3, duration_sec=30):
-    """
-    Synthesizes the D-Minor 3/4 Waltz arpeggio & soaring melody of Indila's 'Love Story'
-    with slowed cathedral reverb via FFmpeg if external audio networks are blocked.
-    Fixed float boundary clamping with min(2, ...) so IndexError is impossible.
-    """
     raw_wav = "workspace/waltz_raw.wav"
     sample_rate = 44100
     num_samples = int(sample_rate * duration_sec)
-
     waltz_bars = [
-        ([146.83, 293.66, 349.23, 440.00], [587.33, 523.25, 440.00]),  # Dm
-        ([116.54, 233.08, 293.66, 349.23], [523.25, 466.16, 392.00]),  # Bb
-        ([98.00, 196.00, 233.08, 293.66], [466.16, 440.00, 349.23]),   # Gm
-        ([110.00, 220.00, 277.18, 329.63], [440.00, 392.00, 329.63])   # A7
+        ([146.83, 293.66, 349.23, 440.00], [587.33, 523.25, 440.00]),
+        ([116.54, 233.08, 293.66, 349.23], [523.25, 466.16, 392.00]),
+        ([98.00, 196.00, 233.08, 293.66], [466.16, 440.00, 349.23]),
+        ([110.00, 220.00, 277.18, 329.63], [440.00, 392.00, 329.63])
     ]
     beat_len = 0.65
     bar_len = beat_len * 3.0
@@ -353,7 +465,6 @@ def synthesize_indila_waltz_fallback(output_mp3, duration_sec=30):
         for i in range(num_samples):
             t = i / sample_rate
             bar_idx = int(t / bar_len) % len(waltz_bars)
-            # Clamped to [0, 2] to prevent float precision IndexError
             beat_in_bar = min(2, max(0, int((t % bar_len) / beat_len)))
             note_t = max(0.0, (t % bar_len) - (beat_in_bar * beat_len))
 
@@ -366,9 +477,7 @@ def synthesize_indila_waltz_fallback(output_mp3, duration_sec=30):
             env_bass = math.exp(-(t % bar_len) * 1.4)
 
             signal = 0.35 * math.sin(2 * math.pi * bass_freq * t) * env_bass
-            signal += 0.35 * (
-                math.sin(2 * math.pi * arp_freq * t) + 0.4 * math.sin(4 * math.pi * arp_freq * t)
-            ) * env_arp
+            signal += 0.35 * (math.sin(2 * math.pi * arp_freq * t) + 0.4 * math.sin(4 * math.pi * arp_freq * t)) * env_arp
 
             if t >= 10.4:
                 swell = min(1.0, (t - 10.4) / 1.5)
@@ -389,35 +498,35 @@ def synthesize_indila_waltz_fallback(output_mp3, duration_sec=30):
     return output_mp3 if os.path.exists(output_mp3) else raw_wav
 
 
-def get_indila_magical_cut():
+def get_indila_pure_instrumental():
     """
-    Pulls 'Indila - Love Story (Instrumental Slowed & Reverb)' using python -m yt_dlp,
-    slices the 0:45 - 1:15 climax window, and caches it in assets/.
+    Fetches the PURE INSTRUMENTAL (no French vocals) of Indila - Love Story (Slowed & Reverb),
+    slices the 0:45-1:15 climax window, and caches it in assets/indila_love_story_instrumental_v2.mp3.
     """
     os.makedirs("assets", exist_ok=True)
     os.makedirs("workspace", exist_ok=True)
 
     if os.path.exists(LOCKED_SONG_PATH) and os.path.getsize(LOCKED_SONG_PATH) > 40000:
-        print(f"✅ Using cached Indila Love Story magical cut: {LOCKED_SONG_PATH}")
+        print(f"✅ Using cached pure instrumental cut: {LOCKED_SONG_PATH}")
         return LOCKED_SONG_PATH
 
-    raw_download = "workspace/indila_full_raw.mp3"
-    search_queries = [
-        "scsearch3:Indila Love Story instrumental slowed reverb",
-        "scsearch3:Indila Love Story slowed reverb",
-        "ytsearch3:Indila Love Story instrumental slowed and reverb"
+    raw_download = "workspace/indila_inst_raw.mp3"
+    # Strictly query piano/violin/karaoke instrumentals without vocals
+    queries = [
+        "scsearch5:Indila Love Story instrumental piano slowed reverb",
+        "scsearch5:Indila Love Story violin instrumental slowed",
+        "ytsearch5:Indila Love Story instrumental no vocals slowed reverb"
     ]
 
     downloaded = False
-    for query in search_queries:
-        print(f"[MUSIC-HUNTER] Searching via python -m yt_dlp: {query}...")
+    for q in queries:
+        print(f"[MUSIC] Searching pure instrumental via: {q}...")
         try:
             if os.path.exists(raw_download):
                 os.remove(raw_download)
-            # Invoking via sys.executable -m yt_dlp avoids PATH binary missing errors
             cmd = [
                 sys.executable, "-m", "yt_dlp",
-                query,
+                q,
                 "--extract-audio",
                 "--audio-format", "mp3",
                 "--audio-quality", "192K",
@@ -429,14 +538,13 @@ def get_indila_magical_cut():
             ]
             subprocess.run(cmd, timeout=65, check=False)
             if os.path.exists(raw_download) and os.path.getsize(raw_download) > 50000:
-                print("✅ Downloaded Indila - Love Story (Slowed & Reverb) track!")
                 downloaded = True
                 break
-        except Exception as e:
-            print(f"⚠️ Search attempt skipped: {e}")
+        except Exception:
+            continue
 
     if downloaded:
-        print(f"[AUDIO-MASTERING] Slicing magical timeline ({GOLDEN_START_SEC}s to {GOLDEN_START_SEC + GOLDEN_DURATION_SEC}s)...")
+        print("[AUDIO] Mastering 0:45-1:15 instrumental climax cut...")
         slice_cmd = [
             "ffmpeg", "-y",
             "-ss", str(GOLDEN_START_SEC),
@@ -448,28 +556,21 @@ def get_indila_magical_cut():
         ]
         subprocess.run(slice_cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if os.path.exists(LOCKED_SONG_PATH) and os.path.getsize(LOCKED_SONG_PATH) > 30000:
-            print(f"🎉 Cached permanent magical cut: {LOCKED_SONG_PATH}")
             return LOCKED_SONG_PATH
 
-    print("[AUDIO-FALLBACK] Generating Indila Love Story D-Minor Waltz (Slowed & Reverb)...")
-    fallback_mp3 = "workspace/indila_waltz_fallback.mp3"
-    return synthesize_indila_waltz_fallback(fallback_mp3, duration_sec=30)
+    return synthesize_indila_waltz_fallback("workspace/indila_waltz_fallback.mp3", duration_sec=30)
 
 
 def build_pipeline():
-    print("=== STARTING MANHWA FACTORY (UNIQUE AI STORIES + INDILA LOVE STORY CUT) ===")
+    print("=== STARTING CLEAN ENGLISH VECTOR BUBBLE + ANATOMY-SAFE MANHWA PIPELINE ===")
     os.makedirs("workspace", exist_ok=True)
     os.makedirs("videos", exist_ok=True)
 
     history = load_history()
     story_data = generate_fresh_story(history)
 
-    # Record title, archetype, and dialogues so future runs never repeat them
     history["used_titles"].append(story_data.get("video_title", ""))
     history.setdefault("used_archetypes", []).append(story_data.get("archetype_used", ""))
-    for sc in story_data.get("scenes", []):
-        if sc.get("dialogue"):
-            history.setdefault("used_dialogues", []).append(sc["dialogue"])
     history["total_videos"] = history.get("total_videos", 0) + 1
     save_history(history)
 
@@ -482,37 +583,73 @@ def build_pipeline():
     story_seed = random.randint(100000, 999999)
 
     scene_duration = 5.2
+    second_bubble_delay = 2.0  # Girl's bubble pops in at 2.0s for natural conversation flow
     clips = []
 
     for idx, sc in enumerate(scenes):
-        panel_path = f"workspace/panel_{idx}.jpg"
-        if not generate_complete_manhwa_panel(sc, male_dna, female_dna, story_seed, idx, panel_path):
+        bg_path = f"workspace/scene_bg_{idx}.jpg"
+        if not fetch_clean_anatomical_manhwa_art(sc, male_dna, female_dna, story_seed, idx, bg_path):
             continue
 
-        clip = ImageClip(panel_path).set_duration(scene_duration).resize((1080, 1920))
-        clip = clip.resize(lambda t: 1.0 + (0.02 * t))
-        clips.append(clip)
+        # 1. Clean Text-Free Manhwa Artwork with subtle slow zoom
+        base_clip = ImageClip(bg_path).set_duration(scene_duration).resize((1080, 1920))
+        base_clip = base_clip.resize(lambda t: 1.0 + (0.018 * t))
+        layers = [base_clip]
+
+        # 2. Neat, Non-Overlapping Floating Age Badges (Top-Left Blue, Top-Right Pink)
+        age_png = f"workspace/ages_{idx}.png"
+        render_clean_floating_ages(sc.get("male_age", "20"), sc.get("female_age", "19"), age_png)
+        age_clip = ImageClip(age_png).set_position(("center", 28)).set_duration(scene_duration)
+        layers.append(age_clip)
+
+        # 3. Bubble 1: Male Lead (Left Side, appears at 0.0s, tail points down-left to boy)
+        m_text = sc.get("male_text", sc.get("dialogue", ""))
+        m_type = sc.get("male_bubble_type", "speech").lower()
+        if m_text:
+            m_png = f"workspace/bubble_male_{idx}.png"
+            render_single_speaker_bubble(m_text, side="left", bubble_type=m_type, output_path=m_png)
+            m_clip = (
+                ImageClip(m_png)
+                .set_position((30, 210))
+                .set_start(0.0)
+                .set_duration(scene_duration)
+            )
+            layers.append(m_clip)
+
+        # 4. Bubble 2: Female Lead (Right Side, pops in at 2.0s, tail/dots point down-right to girl)
+        f_text = sc.get("female_text", "")
+        f_type = sc.get("female_bubble_type", "thought").lower()
+        if f_text:
+            f_png = f"workspace/bubble_female_{idx}.png"
+            render_single_speaker_bubble(f_text, side="right", bubble_type=f_type, output_path=f_png)
+            f_clip = (
+                ImageClip(f_png)
+                .set_position((490, 480))
+                .set_start(second_bubble_delay)
+                .set_duration(scene_duration - second_bubble_delay)
+            )
+            layers.append(f_clip)
+
+        comp = CompositeVideoClip(layers, size=(1080, 1920)).set_duration(scene_duration)
+        clips.append(comp)
 
     if not clips:
-        raise RuntimeError("❌ Pipeline aborted: No AI comic panels were generated.")
+        raise RuntimeError("❌ No scenes were generated.")
 
     final_video = concatenate_videoclips(clips, method="compose")
     total_dur = final_video.duration
 
-    magical_audio_path = get_indila_magical_cut()
-    if magical_audio_path and os.path.exists(magical_audio_path):
-        print(f"[AUDIO-SYNC] Locking Indila 'Love Story' climax cut onto {total_dur:.1f}s timeline...")
-        audio_clip = AudioFileClip(magical_audio_path)
+    audio_path = get_indila_pure_instrumental()
+    if audio_path and os.path.exists(audio_path):
+        audio_clip = AudioFileClip(audio_path)
         if audio_clip.duration < total_dur:
             audio_clip = afx.audio_loop(audio_clip, duration=total_dur)
         else:
             audio_clip = audio_clip.subclip(0, total_dur)
-
         audio_clip = audio_clip.audio_fadein(0.8).audio_fadeout(1.5).volumex(0.95)
         final_video = final_video.set_audio(audio_clip)
 
     output_mp4 = "videos/final_manhwa_short.mp4"
-    print("[RENDER] Exporting 9:16 Short with embedded soundtrack...")
     final_video.write_videofile(
         output_mp4,
         fps=24,
@@ -521,7 +658,7 @@ def build_pipeline():
         preset="medium",
         ffmpeg_params=["-crf", "18", "-pix_fmt", "yuv420p"]
     )
-    print(f"🎉 MASTER SHORT COMPLETE: {output_mp4}")
+    print(f"🎉 FLAWLESS ENGLISH MANHWA SHORT READY: {output_mp4}")
 
 
 if __name__ == "__main__":
