@@ -8,11 +8,12 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
+
 def get_authenticated_service():
-    """Decodes Base64-encoded Pickle OR JSON YouTube credentials."""
+    """Decodes Base64 Pickle or JSON OAuth credentials and refreshes automatically."""
     token_str = os.getenv("YOUTUBE_TOKEN_JSON_B64")
     if not token_str:
-        raise ValueError("❌ Missing YOUTUBE_TOKEN_JSON_B64 secret in environment.")
+        raise ValueError("❌ Missing YOUTUBE_TOKEN_JSON_B64 secret in GitHub Actions.")
 
     try:
         raw_bytes = base64.b64decode(token_str)
@@ -20,10 +21,8 @@ def get_authenticated_service():
         raw_bytes = token_str.encode("utf-8")
 
     if raw_bytes.startswith(b"\x80"):
-        print("[AUTH] Loaded Base64 Python pickle token.")
         credentials = pickle.loads(raw_bytes)
     else:
-        print("[AUTH] Loaded Base64 JSON token.")
         try:
             data = json.loads(raw_bytes.decode("utf-8"))
         except Exception:
@@ -39,58 +38,52 @@ def get_authenticated_service():
         )
 
     if credentials.expired and credentials.refresh_token:
-        print("[AUTH] Refreshing expired token via Google OAuth...")
+        print("[AUTH] Refreshing expired OAuth token...")
         credentials.refresh(Request())
-        print("✅ OAuth token refreshed.")
 
     return build("youtube", "v3", credentials=credentials)
 
-def find_target_video():
-    """Finds the generated MP4 file inside the videos/ directory."""
-    files = glob.glob("videos/*.mp4")
-    if not files:
-        raise FileNotFoundError("❌ No .mp4 files found in videos/ directory.")
-    latest = max(files, key=os.path.getctime)
-    print(f"[VIDEO] Found target upload file: {latest}")
-    return latest
 
-def load_metadata():
-    """Loads Groq AI generated titles and song recommendations."""
-    meta_path = "workspace/video_metadata.json"
-    if os.path.exists(meta_path):
-        try:
-            with open(meta_path, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {
-        "video_title": "When you love someone you can't have... 💔 #Shorts #manhwa #lovestory",
-        "recommended_yt_song": "Moral of the Story - Ashe (Shorts Trending)",
-        "yt_music_search_query": "Moral of the Story Ashe"
-    }
+def load_story_metadata():
+    meta_file = "workspace/video_metadata.json"
+    if os.path.exists(meta_file):
+        with open(meta_file, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
 
 def upload_short():
-    print("=== STARTING YOUTUBE SHORTS UPLOAD PIPELINE ===")
+    print("=== STARTING AUTOMATED YOUTUBE SHORTS UPLOAD ===")
     youtube = get_authenticated_service()
-    video_path = find_target_video()
-    meta = load_metadata()
 
-    song_name = meta.get("recommended_yt_song", "Trending Romance Audio")
-    song_search = meta.get("yt_music_search_query", song_name)
-    title = meta.get("video_title", "When you love someone you can't have... 💔 #Shorts #manhwa #lovestory")
+    mp4_files = glob.glob("videos/*.mp4")
+    if not mp4_files:
+        raise FileNotFoundError("❌ No rendered MP4 found in videos/ directory.")
+    target_video = max(mp4_files, key=os.path.getctime)
+
+    meta = load_story_metadata()
+    raw_title = meta.get("video_title", "Neighbours love story.. 👀💗 #Shorts #manhwa #lovestory")
+    if "#Shorts" not in raw_title and "#shorts" not in raw_title:
+        raw_title = f"{raw_title} #Shorts"
+    title = raw_title[:100]
+
+    trope_name = meta.get("trope", "Korean Manhwa Love Story")
 
     description = (
-        f"When feelings cross the line... 💔\n\n"
-        f"🎵 Recommended Sound: '{song_name}' (Add via YouTube Shorts editor)\n"
-        f"🔍 Audio Search Term: {song_search}\n\n"
-        f"#Shorts #manhwa #webtoon #romance #animestory #viralshort #lovestory"
+        f"{trope_name} 💗🥀\n\n"
+        f"🎵 Music: Love Story (Instrumental Slowed & Reverb) - Indila\n"
+        f"✨ Subscribe for daily original Manhwa love stories!\n\n"
+        f"#Shorts #manhwa #webtoon #lovestory #indila #romance #anime #manga #viralshort #fyp"
     )
 
     body = {
         "snippet": {
-            "title": title[:100],
+            "title": title,
             "description": description,
-            "tags": ["Shorts", "manhwa", "webtoon", "romance", "anime", "love story", "age gap"],
+            "tags": [
+                "Shorts", "manhwa", "webtoon", "love story", "indila love story",
+                "childhood friends to lovers", "enemies to lovers", "anime romance", "viral short"
+            ],
             "categoryId": "1"  # Film & Animation
         },
         "status": {
@@ -100,20 +93,19 @@ def upload_short():
         }
     }
 
-    media = MediaFileUpload(video_path, chunksize=1024 * 1024 * 4, resumable=True, mimetype="video/mp4")
+    media = MediaFileUpload(target_video, chunksize=1024 * 1024 * 4, resumable=True, mimetype="video/mp4")
     request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
 
-    print(f"[UPLOAD] Uploading soundless short with metadata tags...")
+    print(f"[UPLOAD] Uploading {target_video} to YouTube Shorts...")
     response = None
     while response is None:
         status, response = request.next_chunk()
         if status:
-            print(f"   ↳ Progress: {int(status.progress() * 100)}%")
+            print(f"   ↳ Upload Progress: {int(status.progress() * 100)}%")
 
-    video_id = response.get("id")
-    print(f"🎉 UPLOAD COMPLETE!")
-    print(f"🔗 Watch URL: https://youtube.com/shorts/{video_id}")
-    print(f"💡 TO ATTACH SOUND: Open the YouTube App -> Tap on your uploaded Short -> Tap 'Add Sound' -> Search '{song_search}' -> Done!")
+    vid_id = response.get("id")
+    print(f"🎉 UPLOAD COMPLETE: https://youtube.com/shorts/{vid_id}")
+
 
 if __name__ == "__main__":
     upload_short()
