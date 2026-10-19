@@ -24,18 +24,18 @@ jobs:
         python-version: '3.11'
         cache: 'pip'
 
-    - name: Install FFmpeg
+    - name: Install FFmpeg & Clean English Fonts
       run: |
         sudo apt-get update
-        sudo apt-get install -y ffmpeg
+        sudo apt-get install -y ffmpeg fonts-liberation fonts-dejavu-core
 
-    - name: Install Python Packages & yt-dlp
+    - name: Install Python Packages
       run: |
         pip install --upgrade pip
-        pip install requests groq yt-dlp Pillow==9.5.0 "moviepy<2.0"
+        pip install requests groq yt-dlp numpy Pillow==9.5.0 "moviepy<2.0"
         pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
 
-    - name: Generate Vision-Verified Native Manhwa Short
+    - name: Generate CV-Anchored Manhwa Short with Whisper-Verified Instrumental
       env:
         GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
@@ -48,18 +48,19 @@ jobs:
       run: |
         python upload_script.py
 
-    - name: Persist Story History & Cached Instrumental Audio Cut
+    - name: Persist Story History & Whisper-Verified Pure Instrumental Cut
       if: always()
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
+        git rm -f --ignore-unmatch assets/indila_love_story_magical_cut.mp3 assets/indila_love_story_instrumental_v2.mp3 assets/indila_love_story_pure_instrumental_v3.mp3 || true
         if [ -f story_history.json ]; then
           git add story_history.json
         fi
-        if [ -f assets/indila_love_story_pure_instrumental_v3.mp3 ]; then
-          git add assets/indila_love_story_pure_instrumental_v3.mp3
+        if [ -f assets/indila_love_story_pure_inst_v4.mp3 ]; then
+          git add assets/indila_love_story_pure_inst_v4.mp3
         fi
-        git diff --staged --quiet || git commit -m "chore: update story history and cached instrumental audio [skip ci]"
+        git diff --staged --quiet || git commit -m "chore: update story history and verified pure instrumental audio [skip ci]"
         git push || true
 
     - name: Save Video Artifact
