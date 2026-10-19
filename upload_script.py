@@ -62,7 +62,7 @@ def upload_short():
     target_video = max(mp4_files, key=os.path.getctime)
 
     meta = load_story_metadata()
-    raw_title = meta.get("video_title", "Neighbours love story.. 👀💗 #Shorts #manhwa #lovestory")
+    raw_title = meta.get("video_title", "He waited in the rain just to say this.. 💔🥺 #Shorts #manhwa #lovestory")
     if "#Shorts" not in raw_title and "#shorts" not in raw_title:
         raw_title = f"{raw_title} #Shorts"
     title = raw_title[:100]
@@ -84,7 +84,7 @@ def upload_short():
                 "Shorts", "manhwa", "webtoon", "love story", "indila love story",
                 "childhood friends to lovers", "enemies to lovers", "anime romance", "viral short"
             ],
-            "categoryId": "1"  # Film & Animation
+            "categoryId": "1"
         },
         "status": {
             "privacyStatus": "public",
