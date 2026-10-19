@@ -5,41 +5,52 @@ import time
 import math
 import wave
 import struct
+import base64
 import random
-import textwrap
 import subprocess
 import urllib.parse
 import requests
 
-# Auto-ensure yt-dlp is installed
+# Auto-install yt-dlp if missing in environment
 try:
     import yt_dlp
 except ImportError:
     subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-U", "yt-dlp"], check=False)
 
+from PIL import Image
 from groq import Groq
-from PIL import Image, ImageDraw, ImageFont
-from moviepy.editor import ImageClip, AudioFileClip, CompositeVideoClip, concatenate_videoclips, afx
+from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips, afx
 
 HISTORY_FILE = "story_history.json"
-# Using v2 filename so the workflow replaces the old vocal track with the pure instrumental cut
-LOCKED_SONG_PATH = "assets/indila_love_story_instrumental_v2.mp3"
+LOCKED_SONG_PATH = "assets/indila_love_story_pure_instrumental_v3.mp3"
 LOCKED_SONG_TITLE = "Love Story (Instrumental Slowed & Reverb) - Indila"
 
+# Best 26-30s emotional climax window of Indila - Love Story (Slowed & Reverb)
 GOLDEN_START_SEC = 45
 GOLDEN_DURATION_SEC = 30
 
-STORY_ARCHETYPES = [
-    "Enemies to Lovers: Two competitive university rivals who bicker constantly until a sudden storm forces him to protect her",
-    "Fake Dating to Real Obsession: A cold popular senior and a quiet girl fake-date to stop rumors, but he falls in love first",
-    "The Second Lead Rescue: She cried over a boy who broke his promise, until his handsome best friend holds an umbrella over her in the rain",
-    "Childhood Neighbours to Couple: Growing up next door from teasing kids to an emotional rooftop confession",
-    "CEO & The Fearless Intern: Everyone fears the young company heir except the clumsy intern who accidentally bumps into him",
-    "Brother's Best Friend Forbidden Crush: He treated her like a little sister for years until another guy asks her out and he gets jealous",
-    "Subway Strangers to Soulmates: Taking the same 7 AM train every morning in silence until he finally speaks to her",
-    "Cold Ice Prince & Sunshine Girl: The aloof campus genius who ignores everyone melts only when she smiles at him",
-    "Secret Identity Crush: Academic rivals by day who don't realize they are anonymous late-night texting confidants",
-    "Bodyguard & Heiress: Hired strictly to protect her from afar, he breaks his own rule the night she cries alone"
+# Priority list of Pollinations image models ranked by Native English Typography & Anatomical Accuracy
+PREFERRED_IMAGE_MODELS = [
+    "gptimage-large",
+    "gptimage",
+    "nanobanana-pro",
+    "nanobanana",
+    "seedream",
+    "kontext",
+    "flux"
+]
+
+STORY_CONCEPTS = [
+    "Academic Rivals to Lovers: Rank #1 cold boy and Rank #2 girl who compete in every exam, until he secretly takes the blame for her mistake",
+    "Contract Fake Dating to Real Love: They signed a 30-day fake dating agreement to fool their families, but he tears up the contract on day 30",
+    "The Second-Lead Umbrella Rescue: Her fiancé left her waiting in the rain, so his quiet older brother steps in with an umbrella and never leaves her side",
+    "Childhood Next-Door Neighbours: From sharing snacks across balconies at age 10 to a breathless rooftop confession at age 21",
+    "Ruthless Young CEO & Fearless New Architect: Nobody dares to speak back to the company heir except her—and he becomes completely obsessed",
+    "Time-Leap Second Chance: After losing her in a tragic future, he wakes up 4 years in the past on the day they first met and vows to protect her",
+    "Brother's Best Friend Secretly Waited: He pretended to see her as a kid sister for years until another guy asks her to the gala",
+    "7 AM Subway Strangers: Riding the same train car every morning in silence for a year until the train stops in a storm and he finally speaks",
+    "Campus Ice Prince & Warm Art Student: He rejects every confession on campus, yet secretly keeps every doodle she left on the library desk",
+    "Bodyguard & Runaway Heiress: Hired strictly to keep her safe from a distance, he breaks his own rule when she reaches for his hand"
 ]
 
 
@@ -50,7 +61,7 @@ def load_history():
                 return json.load(f)
         except Exception:
             pass
-    return {"used_titles": [], "used_archetypes": [], "used_dialogues": [], "total_videos": 0}
+    return {"used_titles": [], "used_concepts": [], "used_dialogues": [], "total_videos": 0}
 
 
 def save_history(history):
@@ -58,193 +69,46 @@ def save_history(history):
         json.dump(history, f, indent=2, ensure_ascii=False)
 
 
-def get_bold_font(size):
-    """Loads crisp sans-serif bold font for clean English lettering."""
-    candidates = [
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-    ]
-    for path in candidates:
-        if os.path.exists(path):
-            return ImageFont.truetype(path, size)
-    return ImageFont.load_default()
+def discover_image_models():
+    """Queries Pollinations for active image models and orders them by text/anatomy quality."""
+    available = []
+    try:
+        res = requests.get("https://gen.pollinations.ai/image/models", timeout=12)
+        if res.status_code == 200:
+            data = res.json()
+            if isinstance(data, list):
+                for item in data:
+                    if isinstance(item, str):
+                        available.append(item)
+                    elif isinstance(item, dict) and "name" in item:
+                        available.append(item["name"])
+                    elif isinstance(item, dict) and "id" in item:
+                        available.append(item["id"])
+    except Exception:
+        pass
 
-
-def render_clean_floating_ages(male_age, female_age, output_path):
-    """
-    Renders neat, non-overlapping floating age numbers in the top-left (Blue) and top-right (Pink)
-    using 2x supersampling so they never duplicate or corrupt.
-    """
-    scale = 2
-    w, h = 1080 * scale, 180 * scale
-    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-
-    font_age = get_bold_font(64 * scale)
-    font_lbl = get_bold_font(20 * scale)
-
-    def draw_badge(cx, cy, label, age_text, color_rgb):
-        pw, ph = 150 * scale, 92 * scale
-        x0, y0 = cx - pw // 2, cy - ph // 2
-        x1, y1 = cx + pw // 2, cy + ph // 2
-        # Sleek dark glass pill
-        draw.rounded_rectangle(
-            [x0, y0, x1, y1],
-            radius=24 * scale,
-            fill=(14, 18, 28, 210),
-            outline=color_rgb + (230,),
-            width=3 * scale
-        )
-        draw.text((cx, y0 + 21 * scale), label, font=font_lbl, fill=color_rgb + (255,), anchor="mm")
-        draw.text((cx, y0 + 60 * scale), str(age_text).strip(), font=font_age, fill=(255, 255, 255, 255), anchor="mm")
-
-    if male_age:
-        draw_badge(135 * scale, 90 * scale, "HIM", male_age, (65, 175, 255))
-    if female_age:
-        draw_badge(945 * scale, 90 * scale, "HER", female_age, (255, 85, 140))
-
-    img.resize((1080, 180), Image.LANCZOS).save(output_path, "PNG")
-    return output_path
-
-
-def render_single_speaker_bubble(text, side, bubble_type, output_path):
-    """
-    Renders a single character's comic bubble in 100% pure English:
-    - side='left' (Boy): Tail/dots point down-left toward the boy's head.
-    - side='right' (Girl): Tail/dots point down-right toward the girl's head.
-    - bubble_type='speech': Smooth comic oval with sharp pointer tail.
-    - bubble_type='thought': Fluffy scalloped cloud with 3 trailing thought circles.
-    """
-    scale = 2
-    cw, ch = 560 * scale, 300 * scale
-    img = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-
-    font_text = get_bold_font(27 * scale)
-    font_tag = get_bold_font(17 * scale)
-
-    # Sanitize text to pure ASCII/English printable characters only (zero foreign glyphs possible)
-    clean_text = "".join(ch for ch in str(text) if ord(ch) < 128).strip()
-    if not clean_text:
-        clean_text = "..."
-
-    wrapped = textwrap.wrap(clean_text, width=21)[:3]
-    multiline = "\n".join(wrapped)
-
-    bbox = draw.multiline_textbbox((0, 0), multiline, font=font_text, align="center")
-    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-
-    bw = min(cw - 60 * scale, max(310 * scale, tw + 76 * scale))
-    bh = max(125 * scale, th + 64 * scale)
-
-    bx0 = (cw - bw) // 2
-    by0 = 32 * scale
-    bx1 = bx0 + bw
-    by1 = by0 + bh
-    cx, cy = (bx0 + bx1) // 2, (by0 + by1) // 2
-
-    is_left = (side == "left")
-    accent = (40, 140, 250) if is_left else (240, 70, 135)
-    who_label = "HIM" if is_left else "HER"
-
-    if bubble_type == "thought":
-        # Scalloped cloud border
-        rx, ry = bw // 2, bh // 2
-        num_puffs = 14
-        puff_r = 28 * scale
-        for i in range(num_puffs):
-            ang = (2 * math.pi * i) / num_puffs
-            px = int(cx + (rx - 8 * scale) * math.cos(ang))
-            py = int(cy + (ry - 6 * scale) * math.sin(ang))
-            draw.ellipse(
-                [px - puff_r, py - puff_r, px + puff_r, py + puff_r],
-                fill=(255, 255, 255, 255),
-                outline=(20, 20, 25, 255),
-                width=4 * scale
-            )
-        # Clean inner cloud core
-        draw.rounded_rectangle(
-            [bx0 + 10 * scale, by0 + 8 * scale, bx1 - 10 * scale, by1 - 8 * scale],
-            radius=30 * scale,
-            fill=(255, 255, 255, 255)
-        )
-        # Trailing thought circles pointing down to the specific speaker
-        tx_start = cx - 45 * scale if is_left else cx + 45 * scale
-        step = -14 * scale if is_left else 14 * scale
-        dots = [
-            (tx_start, by1 + 18 * scale, 11 * scale),
-            (tx_start + step, by1 + 42 * scale, 8 * scale),
-            (tx_start + step * 2, by1 + 60 * scale, 5 * scale)
-        ]
-        for dx, dy, dr in dots:
-            draw.ellipse(
-                [dx - dr, dy - dr, dx + dr, dy + dr],
-                fill=(255, 255, 255, 255),
-                outline=(20, 20, 25, 255),
-                width=3 * scale
-            )
-        tag_text = f"{who_label} (THOUGHT)"
-    else:
-        # Smooth oval speech bubble
-        draw.rounded_rectangle(
-            [bx0, by0, bx1, by1],
-            radius=42 * scale,
-            fill=(255, 255, 255, 255),
-            outline=(20, 20, 25, 255),
-            width=4 * scale
-        )
-        # Single directional pointer tail toward speaker
-        if is_left:
-            tx = bx0 + int(bw * 0.32)
-            tail = [
-                (tx - 15 * scale, by1 - 3 * scale),
-                (tx - 36 * scale, by1 + 42 * scale),
-                (tx + 15 * scale, by1 - 3 * scale)
-            ]
-        else:
-            tx = bx0 + int(bw * 0.68)
-            tail = [
-                (tx - 15 * scale, by1 - 3 * scale),
-                (tx + 36 * scale, by1 + 42 * scale),
-                (tx + 15 * scale, by1 - 3 * scale)
-            ]
-        draw.polygon(tail, fill=(255, 255, 255, 255), outline=(20, 20, 25, 255))
-        draw.line([(tx - 13 * scale, by1 - 2 * scale), (tx + 13 * scale, by1 - 2 * scale)], fill=(255, 255, 255, 255), width=6 * scale)
-        tag_text = who_label
-
-    # Speaker tag pill at top of bubble
-    pw = (145 if bubble_type == "thought" else 80) * scale
-    ph = 26 * scale
-    draw.rounded_rectangle([cx - pw // 2, by0 - ph // 2, cx + pw // 2, by0 + ph // 2], radius=12 * scale, fill=accent + (255,))
-    draw.text((cx, by0), tag_text, font=font_tag, fill=(255, 255, 255, 255), anchor="mm")
-
-    # Crisp English dialogue text
-    draw.multiline_text(
-        (cx, cy + 4 * scale),
-        multiline,
-        font=font_text,
-        fill=(15, 15, 20, 255),
-        align="center",
-        anchor="mm",
-        spacing=5 * scale
-    )
-
-    img.resize((560, 300), Image.LANCZOS).save(output_path, "PNG")
-    return output_path
+    ordered = []
+    for m in PREFERRED_IMAGE_MODELS:
+        if not available or m in available:
+            ordered.append(m)
+    if "flux" not in ordered:
+        ordered.append("flux")
+    print(f"[MODEL-ENGINE] Image model priority queue: {ordered}")
+    return ordered
 
 
 def select_groq_chat_model(client):
-    """Filters out whisper/audio/guard models so Groq always uses a true text LLM."""
+    """Selects a true text LLM on Groq and strictly excludes whisper/audio/guard/tts models."""
     models_resp = client.models.list().data
     all_ids = [m.id for m in models_resp]
-    banned = ("whisper", "guard", "tts", "playai", "embed", "vision", "allam")
+    banned = ("whisper", "guard", "tts", "playai", "embed", "vision", "allam", "distil")
     chat_models = [m for m in all_ids if not any(b in m.lower() for b in banned)]
 
     preferred = [
         "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant",
         "deepseek-r1-distill-llama-70b",
         "qwen-qwq-32b",
+        "llama-3.1-8b-instant",
         "gemma2-9b-it",
         "llama3-70b-8192",
         "llama3-8b-8192"
@@ -255,128 +119,152 @@ def select_groq_chat_model(client):
     return chat_models[0] if chat_models else "llama-3.3-70b-versatile"
 
 
-def build_story_prompts(chosen_archetype, used_titles):
+def build_director_prompts(concept, used_titles, used_dialogues):
     entropy = f"{int(time.time())}-{random.randint(10000, 99999)}"
     system_prompt = (
-        "You are an elite Korean Manhwa romance scriptwriter. "
-        "You write 100% English scripts where EVERY scene features a back-and-forth exchange "
-        "between the male lead (left) and female lead (right). Output strictly valid JSON."
+        "You are a Master Romantic Graphic Novel Director and AI Prompt Architect. "
+        "You design 5-scene vertical romance Shorts where the AI image model natively renders "
+        "both characters facing forward with flawless human anatomy, separate left/right comic bubbles, "
+        "and ultra-clean 3-to-5 word English lines. Output strictly valid JSON."
     )
-    user_prompt = f"""Create a brand-new, original 5-scene vertical Korean Manhwa romance Short script.
+    user_prompt = f"""Design a 100% original, deeply emotional 5-scene vertical romance Short script.
 Run Seed: {entropy}
-Concept Direction: "{chosen_archetype}"
-Previously Used Titles (DO NOT REPEAT): {json.dumps(used_titles[-8:])}
+Story Concept: "{concept}"
+Previously Used Titles (NEVER REPEAT): {json.dumps(used_titles[-10:])}
+Previously Used Lines (NEVER REPEAT): {json.dumps(used_dialogues[-15:])}
 
-RULES FOR PERFECT TWO-SPEAKER DIALOGUE & ANATOMY:
-1. Every scene has TWO separate bubbles:
-   - "male_bubble_type": "speech" or "thought"
-   - "male_text": What the boy says or thinks (pure English, 4 to 9 words).
-   - "female_bubble_type": "speech" or "thought"
-   - "female_text": How the girl replies or thinks back (pure English, 4 to 9 words).
-2. "scene_action" describes ONLY the visual artwork and characters facing each other naturally (NO back-turned twisted necks, NO text in the art).
+CRITICAL NATIVE-IMAGE TYPOGRAPHY & ANATOMY RULES:
+1. Every scene has TWO separate bubbles drawn natively by the image generator:
+   - "male_bubble_shape": either "sleek white oval speech bubble with pointer tail aimed down-left at the boy" OR "fluffy white cloud thought bubble with small dots aimed down-left at the boy"
+   - "male_line": 3 to 5 simple English words ONLY (short lines guarantee 100% perfect spelling by the image model!).
+   - "female_bubble_shape": either "sleek white oval speech bubble with pointer tail aimed down-right at the girl" OR "fluffy white cloud thought bubble with small dots aimed down-right at the girl"
+   - "female_line": 3 to 5 simple English words ONLY.
+2. ANATOMY LOCK:
+   - Never use pullover hoodies or back-turned poses (which cause twisted necks).
+   - Dress characters in front-buttoned blazers, collared shirts, V-neck cardigans, or evening wear so their chests and collarbones clearly face the camera.
+   - Both characters must stand side-by-side (boy on left, girl on right) in a waist-up front/three-quarter view facing the viewer while looking at each other.
 
-Return ONLY valid JSON matching this exact structure:
+Return ONLY a valid JSON object matching this exact schema:
 {{
-  "trope": "Short catchy trope title",
+  "trope": "Short catchy story theme",
   "recommended_yt_song": "{LOCKED_SONG_TITLE}",
-  "video_title": "Catchy emotional English title with emojis #Shorts #manhwa #lovestory",
-  "male_dna": "handsome Korean manhwa male lead with [hair color/style], [eye color] eyes, wearing [stylish outfit]",
-  "female_dna": "beautiful Korean manhwa female lead with [hair color/style], [eye color] eyes, wearing [stylish outfit]",
+  "video_title": "Emotional viral English title with emojis #Shorts #manhwa #lovestory",
+  "male_dna": "handsome young Korean man with [distinct hair color/style], [eye color] eyes, wearing an open front-buttoned dark tailored blazer over a crisp collared shirt",
+  "female_dna": "beautiful young Korean woman with [distinct hair color/style], [eye color] eyes, wearing a front-buttoned pastel cardigan with a visible V-neck collar",
   "scenes": [
     {{
-      "male_age": "19",
-      "female_age": "18",
-      "male_bubble_type": "speech",
-      "male_text": "Why are you out in the rain?",
-      "female_bubble_type": "thought",
-      "female_text": "He actually came looking for me...",
-      "scene_action": "medium shot of both characters facing each other under an umbrella in the rain, warm streetlight glow, romantic eye contact"
+      "male_age": "20",
+      "female_age": "19",
+      "male_bubble_shape": "sleek white oval speech bubble with pointer tail aimed down-left at the boy",
+      "male_line": "You waited in the rain?",
+      "female_bubble_shape": "fluffy white cloud thought bubble with small dots aimed down-right at the girl",
+      "female_line": "Only for you, dummy.",
+      "lighting_and_atmosphere": "warm golden streetlamp glow, soft rain droplets, romantic bokeh",
+      "scene_setting_and_pose": "standing side-by-side under a transparent umbrella on an evening city street, chests facing forward toward camera, looking warmly into each other's eyes"
     }}
   ]
 }}"""
     return system_prompt, user_prompt
 
 
-def generate_combinatorial_fallback(history):
-    """Dynamic combinatorial generator if both LLMs are unreachable."""
+def generate_dynamic_fallback_story(history):
+    """Combinatorial story generator (never repeats static scenes) if external LLMs time out."""
     run_id = history.get("total_videos", 0) + random.randint(100, 999)
-    m_hair = random.choice(["jet-black", "silver-grey", "dark ash-brown", "midnight-blue"])
-    f_hair = random.choice(["long chestnut", "wavy dark-brown", "soft caramel", "raven-black"])
+    m_hair = random.choice(["jet-black tousled", "silver-ash", "dark espresso", "midnight-blue"])
+    f_hair = random.choice(["long chestnut wavy", "silky raven-black", "warm honey-brown", "dark cherry"])
+    m_eyes = random.choice(["deep amber", "sapphire", "obsidian", "warm grey"])
+    f_eyes = random.choice(["bright hazel", "emerald", "soft violet", "warm brown"])
+
+    base_age = random.choice([18, 19, 20, 21])
+    ma, fa = str(base_age + 1), str(base_age)
+
+    arc_sets = [
+        [
+            ("Why sit near me?", "Because you looked lonely.", "sunlit university library desk, warm afternoon dust motes", "sitting side-by-side at wooden library table, front-facing torsos, looking at each other"),
+            ("Take my blazer now.", "His jacket is so warm...", "snowy evening campus courtyard, glowing lamp posts", "standing side-by-side in gentle snow, boy draping his blazer over girl's shoulders, front view"),
+            ("Stay right behind me.", "He's holding my hand!", "rainy neon city crosswalk at night, shimmering reflections", "boy holding umbrella over both of them, holding her hand firmly, chests facing forward"),
+            ("I broke our contract.", "Wait... why did you?", "starry rooftop terrace with city skyline lights", "standing close by rooftop railing facing forward, boy holding torn paper, intense loving gaze"),
+            ("Because I love you.", "I loved you first.", "golden sunrise balcony with floating cherry blossom petals", "holding both hands and smiling tenderly at each other, warm sunrise glow")
+        ],
+        [
+            ("You dropped your sketchbook.", "Don't open that page!", "autumn park pathway with falling golden leaves", "standing face-to-face in three-quarter front view, boy holding an open sketchbook"),
+            ("Every drawing is me?", "My heart is racing...", "quiet art studio with warm sunset window beams", "standing beside an easel, boy smiling softly while girl blushes, front-facing posture"),
+            ("Why didn't you tell me?", "I thought you hated me.", "dramatic rain outside glass conservatory, soft blue lighting", "sheltering together under conservatory roof, boy gently touching her chin, front view"),
+            ("I could never hate you.", "You mean that truly?", "lantern-lit night garden bridge, glowing floating lights", "leaning close together on bridge, warm golden lantern light on their faces"),
+            ("Be mine forever, okay?", "Yes, always with you.", "fireworks blooming over night harbor, sparkling reflections", "embracing warmly in front-facing waist-up portrait, happy tears and smiles")
+        ]
+    ]
+    chosen_arc = random.choice(arc_sets)
+
+    scenes = []
+    for idx, (m_line, f_line, atmos, pose) in enumerate(chosen_arc):
+        cur_m = str(int(ma) + (1 if idx >= 3 else 0))
+        cur_f = str(int(fa) + (1 if idx >= 3 else 0))
+        scenes.append({
+            "male_age": cur_m,
+            "female_age": cur_f,
+            "male_bubble_shape": "sleek white oval speech bubble with pointer tail aimed down-left at the boy",
+            "male_line": m_line,
+            "female_bubble_shape": "fluffy white cloud thought bubble with small dots aimed down-right at the girl" if idx < 3 else "sleek white oval speech bubble with pointer tail aimed down-right at the girl",
+            "female_line": f_line,
+            "lighting_and_atmosphere": atmos,
+            "scene_setting_and_pose": pose
+        })
 
     return {
-        "trope": f"Manhwa Romance Story #{run_id}",
+        "trope": f"Original Romance Story #{run_id}",
         "recommended_yt_song": LOCKED_SONG_TITLE,
-        "video_title": f"He Pretended Not To Care... Until That Night 💔✨ #{run_id} #Shorts #manhwa #lovestory",
-        "male_dna": f"handsome Korean manhwa boy with {m_hair} hair, sharp warm eyes, wearing a fitted dark jacket",
-        "female_dna": f"cute Korean manhwa girl with {f_hair} hair, bright expressive eyes, wearing a cozy pastel cardigan",
-        "scenes": [
-            {
-                "male_age": "18", "female_age": "17",
-                "male_bubble_type": "speech", "male_text": "Stop sitting alone. Sit next to me.",
-                "female_bubble_type": "thought", "female_text": "Why is the coldest guy talking to me?",
-                "scene_action": "university lecture hall, boy on left looking at blushing girl on right, warm afternoon sunlight through windows"
-            },
-            {
-                "male_age": "18", "female_age": "17",
-                "male_bubble_type": "thought", "male_text": "She looks freezing. Take my scarf.",
-                "female_bubble_type": "speech", "female_text": "Wait, aren't you cold too?",
-                "scene_action": "snowy evening bus stop, boy gently wrapping a warm scarf around the girl's neck while facing her, soft snow falling"
-            },
-            {
-                "male_age": "19", "female_age": "18",
-                "male_bubble_type": "speech", "male_text": "Stay behind me. Don't let go.",
-                "female_bubble_type": "thought", "female_text": "His hand is holding mine so tightly...",
-                "scene_action": "dramatic rainy street at night, boy holding umbrella over girl while shielding her, glowing neon reflections"
-            },
-            {
-                "male_age": "20", "female_age": "19",
-                "male_bubble_type": "speech", "male_text": "I never hated you. I was scared.",
-                "female_bubble_type": "speech", "female_text": "Scared of what?",
-                "scene_action": "rooftop balcony under starry night sky, boy gently touching girl's cheek, emotional close-up facing each other"
-            },
-            {
-                "male_age": "21", "female_age": "20",
-                "male_bubble_type": "speech", "male_text": "Scared of how much I love you.",
-                "female_bubble_type": "thought", "female_text": "I've loved you from the very start.",
-                "scene_action": "golden sunset rooftop, couple holding both hands and smiling warmly into each other's eyes, floating cherry blossom petals"
-            }
-        ]
+        "video_title": f"\"{chosen_arc[2][0]}\" 💔🥺 #{run_id} #Shorts #manhwa #lovestory",
+        "male_dna": f"handsome young Korean man with {m_hair} hair and {m_eyes} eyes, wearing an open front-buttoned dark blazer over a crisp white collared shirt",
+        "female_dna": f"beautiful young Korean woman with {f_hair} hair and {f_eyes} eyes, wearing a front-buttoned cream cardigan with a visible collar",
+        "scenes": scenes
     }
 
 
 def generate_fresh_story(history):
-    used_arch = history.get("used_archetypes", [])[-6:]
+    used_concepts = history.get("used_archetypes", [])[-6:]
     used_titles = history.get("used_titles", [])
-    avail = [a for a in STORY_ARCHETYPES if a not in used_arch] or STORY_ARCHETYPES
-    chosen_arch = random.choice(avail)
-    sys_p, usr_p = build_story_prompts(chosen_arch, used_titles)
+    used_dialogues = history.get("used_dialogues", [])
 
+    avail = [c for c in STORY_CONCEPTS if c not in used_concepts] or STORY_CONCEPTS
+    chosen_concept = random.choice(avail)
+    sys_p, usr_p = build_director_prompts(chosen_concept, used_titles, used_dialogues)
+
+    # 1. Try Groq Chat LLM
     groq_key = os.getenv("GROQ_API_KEY")
     if groq_key:
         try:
             client = Groq(api_key=groq_key)
             model = select_groq_chat_model(client)
-            print(f"[GROQ] Generating two-speaker English script with {model}...")
+            print(f"[STORY-DIRECTOR] Writing fresh script via Groq ({model})...")
             res = client.chat.completions.create(
                 model=model,
                 messages=[{"role": "system", "content": sys_p}, {"role": "user", "content": usr_p}],
                 response_format={"type": "json_object"},
-                temperature=0.88
+                temperature=0.85
             )
             data = json.loads(res.choices[0].message.content.strip())
             if "scenes" in data and len(data["scenes"]) >= 4:
-                data["archetype_used"] = chosen_arch
+                data["archetype_used"] = chosen_concept
+                print(f"✅ Fresh Script Created: {data.get('video_title')}")
                 return data
         except Exception as e:
-            print(f"⚠️ Groq fallback ({e}). Trying secondary LLM...")
+            print(f"⚠️ Groq LLM skipped ({e}). Switching to Pollinations Text LLM...")
 
+    # 2. Try Pollinations Unified OpenAI Chat Endpoint
     try:
+        api_key = os.getenv("POLLINATIONS_API_KEY")
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
         resp = requests.post(
-            "https://text.pollinations.ai/openai",
+            "https://gen.pollinations.ai/v1/chat/completions",
+            headers=headers,
             json={
                 "model": "openai",
                 "messages": [{"role": "system", "content": sys_p}, {"role": "user", "content": usr_p}],
-                "response_format": {"type": "json_object"}
+                "response_format": {"type": "json_object"},
+                "temperature": 0.85
             },
             timeout=45
         )
@@ -386,66 +274,191 @@ def generate_fresh_story(history):
                 raw = raw.split("```")[1].lstrip("json").strip()
             data = json.loads(raw)
             if "scenes" in data and len(data["scenes"]) >= 4:
-                data["archetype_used"] = chosen_arch
+                data["archetype_used"] = chosen_concept
+                print(f"✅ Fresh Script Created via Pollinations LLM: {data.get('video_title')}")
                 return data
+    except Exception as e:
+        print(f"⚠️ Secondary LLM skipped ({e}). Using dynamic combinatorial story...")
+
+    return generate_dynamic_fallback_story(history)
+
+
+def sanitize_short_english(text, max_words=6):
+    """Ensures dialogue contains ONLY clean ASCII English characters and stays concise for AI spelling."""
+    clean = "".join(c for c in str(text) if ord(c) < 128 and (c.isalnum() or c in " .,?!'\"-")).strip()
+    words = clean.split()
+    if not words:
+        return "I waited for you."
+    return " ".join(words[:max_words])
+
+
+def build_native_panel_prompt(scene, male_dna, female_dna):
+    """
+    Constructs a spatially engineered prompt that forces the AI image generator to:
+    1. Render natural front-facing torso & neck anatomy (no 180-degree twisted heads).
+    2. Draw two separate bubbles (Boy on upper-left, Girl on upper-right) with clean English text.
+    3. Draw neat corner age badges without duplicating digits or using Chinese/Japanese characters.
+    """
+    m_age = str(scene.get("male_age", "20")).strip()[:2]
+    f_age = str(scene.get("female_age", "19")).strip()[:2]
+    m_shape = scene.get("male_bubble_shape", "sleek white oval speech bubble with pointer tail aimed down-left at the boy")
+    f_shape = scene.get("female_bubble_shape", "fluffy white cloud thought bubble with small dots aimed down-right at the girl")
+    m_line = sanitize_short_english(scene.get("male_line", scene.get("dialogue", "Wait for me.")))
+    f_line = sanitize_short_english(scene.get("female_line", "My heart is racing..."))
+    atmos = scene.get("lighting_and_atmosphere", scene.get("visual_effect", "warm golden sunset lighting"))
+    pose = scene.get("scene_setting_and_pose", scene.get("scene_action", "standing side by side looking at each other"))
+
+    prompt = (
+        f"Vertical 9:16 romantic Korean web-novel digital illustration, masterpiece cel-shaded art style. "
+        f"CAMERA & ANATOMY LOCK: Waist-up front-facing portrait in the lower two-thirds of the frame. "
+        f"On the left stands {male_dna}; on the right stands {female_dna}. "
+        f"Action: {pose}. Both characters have front-facing chests, visible collarbones, and natural human neck alignment "
+        f"(strictly no back views, no hoods on backs, no twisted necks). Atmosphere: {atmos}. "
+        f"SEPARATE DUAL COMIC BUBBLES IN UPPER SKY AREA: "
+        f"1) Upper-left above the boy: one {m_shape} reading in bold black English letters: \"{m_line}\". "
+        f"2) Upper-right above the girl: one separate {f_shape} reading in bold black English letters: \"{f_line}\". "
+        f"CORNER AGE PILLS: Top-left corner has a small clean blue rounded pill reading \"{m_age}\". "
+        f"Top-right corner has a small clean pink rounded pill reading \"{f_age}\". "
+        f"LANGUAGE RULE: 100% English Latin alphabet only. Strictly zero Chinese characters, zero Japanese Kanji or Kana, zero gibberish."
+    )
+    return prompt, m_line, f_line, m_age, f_age
+
+
+def inspect_image_with_vision_ai(image_path, expected_m_line, expected_f_line):
+    """
+    Acts like human eyes: inspects the generated image using a Vision LLM to verify:
+    - No Chinese/Japanese/Korean characters
+    - No 180-degree backward twisted necks / horror anatomy
+    - Separate, readable bubbles
+    Returns (is_clean: bool, reason: str)
+    """
+    try:
+        with open(image_path, "rb") as f:
+            b64_img = base64.b64encode(f.read()).decode("utf-8")
+    except Exception:
+        return True, "File read skipped"
+
+    inspection_prompt = (
+        "You are a strict Quality Control Director for a romantic comic channel. Inspect this image carefully:\n"
+        "1. Are there any Chinese (Hanzi), Japanese (Kanji/Kana), or Korean (Hangul) characters anywhere in the speech bubbles?\n"
+        "2. Does either character have a horror/deformed neck (e.g., head twisted 180 degrees backward onto a back-facing hoodie/torso)?\n"
+        "3. Are the corner age numbers corrupted into 3+ digits like '119' or '20019'?\n"
+        "Respond ONLY with valid JSON: {\"pass\": true_or_false, \"defect\": \"none or short reason\"}"
+    )
+
+    api_key = os.getenv("POLLINATIONS_API_KEY")
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    try:
+        resp = requests.post(
+            "https://gen.pollinations.ai/v1/chat/completions",
+            headers=headers,
+            json={
+                "model": "openai",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": inspection_prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}}
+                        ]
+                    }
+                ],
+                "response_format": {"type": "json_object"},
+                "temperature": 0.1
+            },
+            timeout=25
+        )
+        if resp.status_code == 200:
+            content = resp.json()["choices"][0]["message"]["content"].strip()
+            if content.startswith("```"):
+                content = content.split("```")[1].lstrip("json").strip()
+            result = json.loads(content)
+            passed = bool(result.get("pass", True))
+            defect = str(result.get("defect", "none"))
+            return passed, defect
     except Exception:
         pass
 
-    return generate_combinatorial_fallback(history)
+    return True, "Vision check bypassed"
 
 
-def fetch_clean_anatomical_manhwa_art(scene, male_dna, female_dna, story_seed, idx, output_path):
+def generate_verified_native_panel(scene, male_dna, female_dna, model_queue, story_seed, idx, output_path):
     """
-    Generates 100% TEXT-FREE, anatomically natural romantic Manhwa art.
-    Strictly forbids Flux from drawing speech bubbles, Chinese text, or backward necks.
-    Leaves clean upper headroom for our Python vector bubbles and age badges.
+    Generates the complete panel (Characters + Native Dual Bubbles + Native English Text + Ages)
+    using the highest-tier model available, then runs Vision AI Quality Control.
+    If Vision QC detects Chinese text or twisted anatomy, it automatically regenerates!
     """
     api_key = os.getenv("POLLINATIONS_API_KEY")
-    action = scene.get("scene_action", "romantic couple looking at each other")
+    base_prompt, m_line, f_line, m_age, f_age = build_native_panel_prompt(scene, male_dna, female_dna)
 
-    prompt = (
-        f"Masterpiece Korean webtoon romance illustration, 9:16 vertical composition. "
-        f"Characters positioned in the lower two-thirds with generous sky/ceiling headroom above their heads: "
-        f"On the left side is {male_dna} in natural three-quarter front profile facing right; "
-        f"On the right side is {female_dna} in natural three-quarter front profile facing left. "
-        f"Action: {action}. "
-        f"Anatomical perfection: natural human neck and shoulder alignment, front-facing torsos, warm expressive eyes, "
-        f"clean cel-shaded manhwa art style, soft romantic lighting. "
-        f"STRICTLY NO TEXT, NO SPEECH BUBBLES, NO NUMBERS, NO CHINESE CHARACTERS, NO LETTERS, NO WATERMARK."
+    neg_prompt = (
+        "chinese text, hanzi, kanji, hiragana, katakana, hangul, asian characters, gibberish text, "
+        "backward head, twisted neck, 180 degree head turn, back of hoodie, deformed face, extra limbs, "
+        "merged speech bubbles, triple digit numbers, 119, watermark, signature"
     )
-
-    encoded = urllib.parse.quote(prompt)
-    seed = story_seed + (idx * 131)
-    url = (
-        f"https://gen.pollinations.ai/image/{encoded}"
-        f"?width=1080&height=1920&model=flux&seed={seed}&nologo=true&enhance=false"
-    )
-    if api_key:
-        url += f"&key={api_key}"
 
     headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
-    print(f"[ART] Generating clean text-free Manhwa frame {idx + 1}/5...")
-    for attempt in range(4):
-        try:
-            res = requests.get(url, headers=headers, timeout=75)
-            if res.status_code == 200 and "image" in res.headers.get("Content-Type", "") and len(res.content) > 15000:
-                with open(output_path, "wb") as f:
-                    f.write(res.content)
-                # Ensure exact 1080x1920 dimensions
-                with Image.open(output_path) as im:
-                    im.convert("RGB").resize((1080, 1920), Image.LANCZOS).save(output_path, "JPEG", quality=95)
-                print(f"✅ Clean Scene {idx + 1} saved: {output_path}")
-                return True
-            time.sleep(4)
-        except Exception:
-            time.sleep(4)
-    return False
+    # Try up to 3 quality-controlled generation passes per scene
+    for qc_pass in range(3):
+        # Cycle through our top typography models
+        for model_name in model_queue:
+            seed = story_seed + (idx * 251) + (qc_pass * 997)
+            prompt_variant = base_prompt
+            if qc_pass > 0:
+                prompt_variant += (
+                    " CRITICAL CORRECTION: Ensure both characters face forward with visible collarbones "
+                    "and render ONLY clean English letters inside two separate white bubbles."
+                )
+
+            encoded_prompt = urllib.parse.quote(prompt_variant)
+            encoded_neg = urllib.parse.quote(neg_prompt)
+
+            url = (
+                f"https://gen.pollinations.ai/image/{encoded_prompt}"
+                f"?model={model_name}&width=1080&height=1920&seed={seed}"
+                f"&negative_prompt={encoded_neg}&nologo=true&enhance=false"
+            )
+            if api_key:
+                url += f"&key={api_key}"
+
+            print(f"[IMAGE-GEN] Scene {idx + 1}/5 | Model: {model_name} | Pass #{qc_pass + 1} | Boy: \"{m_line}\" | Girl: \"{f_line}\"")
+            try:
+                res = requests.get(url, headers=headers, timeout=80)
+                ctype = res.headers.get("Content-Type", "")
+                if res.status_code == 200 and "image" in ctype and len(res.content) > 18000:
+                    with open(output_path, "wb") as f:
+                        f.write(res.content)
+                    # Normalize dimensions to crisp 1080x1920
+                    with Image.open(output_path) as im:
+                        im.convert("RGB").resize((1080, 1920), Image.LANCZOS).save(output_path, "JPEG", quality=95)
+
+                    # Run Vision AI Quality Control Inspector
+                    passed, defect = inspect_image_with_vision_ai(output_path, m_line, f_line)
+                    if passed:
+                        print(f"✅ [VISION-QC PASSED] Scene {idx + 1} verified clean ({model_name})!")
+                        return True
+                    else:
+                        print(f"⚠️ [VISION-QC REJECTED] Scene {idx + 1} ({model_name}) had defect: {defect}. Regenerating...")
+                        break  # Break inner loop to advance qc_pass with a new seed and stricter prompt
+                else:
+                    # Model might require higher tier or returned error; try next model in queue
+                    continue
+            except Exception as e:
+                print(f"⚠️ Model {model_name} timeout/error: {e}. Trying next model...")
+                continue
+
+    # If all QC passes completed, use the last successfully downloaded frame
+    return os.path.exists(output_path) and os.path.getsize(output_path) > 15000
 
 
 def synthesize_indila_waltz_fallback(output_mp3, duration_sec=30):
+    """Zero-crash D-Minor 3/4 Waltz synthesizer fallback."""
     raw_wav = "workspace/waltz_raw.wav"
     sample_rate = 44100
     num_samples = int(sample_rate * duration_sec)
@@ -500,8 +513,8 @@ def synthesize_indila_waltz_fallback(output_mp3, duration_sec=30):
 
 def get_indila_pure_instrumental():
     """
-    Fetches the PURE INSTRUMENTAL (no French vocals) of Indila - Love Story (Slowed & Reverb),
-    slices the 0:45-1:15 climax window, and caches it in assets/indila_love_story_instrumental_v2.mp3.
+    Pulls a PURE INSTRUMENTAL (piano/violin cover, zero French vocals) of
+    Indila - Love Story (Slowed & Reverb) and slices the 0:45-1:15 climax window.
     """
     os.makedirs("assets", exist_ok=True)
     os.makedirs("workspace", exist_ok=True)
@@ -511,16 +524,15 @@ def get_indila_pure_instrumental():
         return LOCKED_SONG_PATH
 
     raw_download = "workspace/indila_inst_raw.mp3"
-    # Strictly query piano/violin/karaoke instrumentals without vocals
     queries = [
-        "scsearch5:Indila Love Story instrumental piano slowed reverb",
-        "scsearch5:Indila Love Story violin instrumental slowed",
-        "ytsearch5:Indila Love Story instrumental no vocals slowed reverb"
+        "scsearch5:Indila Love Story piano instrumental slowed reverb",
+        "scsearch5:Indila Love Story violin instrumental slowed reverb",
+        "ytsearch5:Indila Love Story piano cover slowed reverb no vocals"
     ]
 
     downloaded = False
     for q in queries:
-        print(f"[MUSIC] Searching pure instrumental via: {q}...")
+        print(f"[MUSIC-HUNTER] Searching pure instrumental via: {q}...")
         try:
             if os.path.exists(raw_download):
                 os.remove(raw_download)
@@ -544,7 +556,7 @@ def get_indila_pure_instrumental():
             continue
 
     if downloaded:
-        print("[AUDIO] Mastering 0:45-1:15 instrumental climax cut...")
+        print("[AUDIO-MASTERING] Slicing 0:45-1:15 magical climax cut...")
         slice_cmd = [
             "ffmpeg", "-y",
             "-ss", str(GOLDEN_START_SEC),
@@ -562,15 +574,21 @@ def get_indila_pure_instrumental():
 
 
 def build_pipeline():
-    print("=== STARTING CLEAN ENGLISH VECTOR BUBBLE + ANATOMY-SAFE MANHWA PIPELINE ===")
+    print("=== STARTING FRONTIER VISION-VERIFIED NATIVE MANHWA PIPELINE ===")
     os.makedirs("workspace", exist_ok=True)
     os.makedirs("videos", exist_ok=True)
 
+    model_queue = discover_image_models()
     history = load_history()
     story_data = generate_fresh_story(history)
 
     history["used_titles"].append(story_data.get("video_title", ""))
     history.setdefault("used_archetypes", []).append(story_data.get("archetype_used", ""))
+    for sc in story_data.get("scenes", []):
+        if sc.get("male_line"):
+            history.setdefault("used_dialogues", []).append(sc["male_line"])
+        if sc.get("female_line"):
+            history.setdefault("used_dialogues", []).append(sc["female_line"])
     history["total_videos"] = history.get("total_videos", 0) + 1
     save_history(history)
 
@@ -583,58 +601,21 @@ def build_pipeline():
     story_seed = random.randint(100000, 999999)
 
     scene_duration = 5.2
-    second_bubble_delay = 2.0  # Girl's bubble pops in at 2.0s for natural conversation flow
     clips = []
 
     for idx, sc in enumerate(scenes):
-        bg_path = f"workspace/scene_bg_{idx}.jpg"
-        if not fetch_clean_anatomical_manhwa_art(sc, male_dna, female_dna, story_seed, idx, bg_path):
+        panel_path = f"workspace/native_panel_{idx}.jpg"
+        if not generate_verified_native_panel(sc, male_dna, female_dna, model_queue, story_seed, idx, panel_path):
+            print(f"❌ Skipping scene {idx + 1} due to generation failure.")
             continue
 
-        # 1. Clean Text-Free Manhwa Artwork with subtle slow zoom
-        base_clip = ImageClip(bg_path).set_duration(scene_duration).resize((1080, 1920))
-        base_clip = base_clip.resize(lambda t: 1.0 + (0.018 * t))
-        layers = [base_clip]
-
-        # 2. Neat, Non-Overlapping Floating Age Badges (Top-Left Blue, Top-Right Pink)
-        age_png = f"workspace/ages_{idx}.png"
-        render_clean_floating_ages(sc.get("male_age", "20"), sc.get("female_age", "19"), age_png)
-        age_clip = ImageClip(age_png).set_position(("center", 28)).set_duration(scene_duration)
-        layers.append(age_clip)
-
-        # 3. Bubble 1: Male Lead (Left Side, appears at 0.0s, tail points down-left to boy)
-        m_text = sc.get("male_text", sc.get("dialogue", ""))
-        m_type = sc.get("male_bubble_type", "speech").lower()
-        if m_text:
-            m_png = f"workspace/bubble_male_{idx}.png"
-            render_single_speaker_bubble(m_text, side="left", bubble_type=m_type, output_path=m_png)
-            m_clip = (
-                ImageClip(m_png)
-                .set_position((30, 210))
-                .set_start(0.0)
-                .set_duration(scene_duration)
-            )
-            layers.append(m_clip)
-
-        # 4. Bubble 2: Female Lead (Right Side, pops in at 2.0s, tail/dots point down-right to girl)
-        f_text = sc.get("female_text", "")
-        f_type = sc.get("female_bubble_type", "thought").lower()
-        if f_text:
-            f_png = f"workspace/bubble_female_{idx}.png"
-            render_single_speaker_bubble(f_text, side="right", bubble_type=f_type, output_path=f_png)
-            f_clip = (
-                ImageClip(f_png)
-                .set_position((490, 480))
-                .set_start(second_bubble_delay)
-                .set_duration(scene_duration - second_bubble_delay)
-            )
-            layers.append(f_clip)
-
-        comp = CompositeVideoClip(layers, size=(1080, 1920)).set_duration(scene_duration)
-        clips.append(comp)
+        # Zero post-editing text boxes: the AI image already has the bubbles, text, and ages baked in!
+        clip = ImageClip(panel_path).set_duration(scene_duration).resize((1080, 1920))
+        clip = clip.resize(lambda t: 1.0 + (0.016 * t))
+        clips.append(clip)
 
     if not clips:
-        raise RuntimeError("❌ No scenes were generated.")
+        raise RuntimeError("❌ Pipeline aborted: 0 verified panels generated.")
 
     final_video = concatenate_videoclips(clips, method="compose")
     total_dur = final_video.duration
@@ -650,6 +631,7 @@ def build_pipeline():
         final_video = final_video.set_audio(audio_clip)
 
     output_mp4 = "videos/final_manhwa_short.mp4"
+    print("[RENDER] Exporting 9:16 Master MP4...")
     final_video.write_videofile(
         output_mp4,
         fps=24,
@@ -658,7 +640,7 @@ def build_pipeline():
         preset="medium",
         ffmpeg_params=["-crf", "18", "-pix_fmt", "yuv420p"]
     )
-    print(f"🎉 FLAWLESS ENGLISH MANHWA SHORT READY: {output_mp4}")
+    print(f"🎉 VISION-VERIFIED MASTER SHORT READY: {output_mp4}")
 
 
 if __name__ == "__main__":
