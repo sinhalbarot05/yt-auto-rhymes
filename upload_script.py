@@ -62,7 +62,7 @@ def upload_short():
     target_video = max(mp4_files, key=os.path.getctime)
 
     meta = load_story_metadata()
-    raw_title = meta.get("video_title", "7 AM Same Train... Until The Storm Stopped Us 😭🚇 #Shorts #manhwa #lovestory")
+    raw_title = meta.get("video_title", "He Left Her In The Rain… So His Brother Stepped In 💔☔ #Shorts #manhwa #lovestory")
     if "#Shorts" not in raw_title and "#shorts" not in raw_title:
         raw_title = f"{raw_title} #Shorts"
     title = raw_title[:100]
@@ -72,7 +72,7 @@ def upload_short():
     description = (
         f"{trope_name} 💗🥀\n\n"
         f"🎵 Music: Love Story (Instrumental Slowed & Reverb) - Indila\n"
-        f"✨ Subscribe for daily original Manhwa love stories!\n\n"
+        f"✨ Subscribe for daily complete Manhwa love stories!\n\n"
         f"#Shorts #manhwa #webtoon #lovestory #indila #romance #anime #manga #viralshort #fyp"
     )
 
