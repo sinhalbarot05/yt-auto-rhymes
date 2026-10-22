@@ -22,7 +22,13 @@ import numpy as np
 import yt_dlp
 from groq import Groq
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
-from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
+from moviepy.editor import (
+    ImageClip,
+    AudioFileClip,
+    CompositeVideoClip,
+    concatenate_videoclips,
+    afx
+)
 
 HISTORY_FILE = "story_history.json"
 # Continuous 75-second forward cut (never loops on 45s-58s videos)
@@ -216,8 +222,6 @@ def render_webtoon_bubble_layer(text, bubble_type, side, head_top, mouth_pt, out
             m_draw.ellipse([px - pr, py - pr, px + pr, py + pr], fill=255)
 
         # 2. Detached Chain of 4 Shrinking Circular Bubbles (Garfield Thought Balloon Style)
-        # Placed along a gentle curve from below the cloud down toward the thinker's head,
-        # spaced clearly apart so each circle retains its own crisp black ink ring!
         start_x = cx + (int(rx * 0.14) if side == "left" else -int(rx * 0.14))
         start_y = cy + ry + 26 * scale
         ctrl_x = (start_x + tx) * 0.5 + (-14 * scale if side == "left" else 14 * scale)
@@ -310,7 +314,7 @@ def render_webtoon_bubble_layer(text, bubble_type, side, head_top, mouth_pt, out
         for i in range(0, dash_steps, 2):
             ang = (2.0 * math.pi * i) / dash_steps
             if 0.35 * math.pi < ang < 0.65 * math.pi:
-                continue  # Keep tail base solid
+                continue
             dx = cx + rx * math.cos(ang)
             dy = cy + ry * math.sin(ang)
             r_gap = 5 * scale
@@ -377,7 +381,7 @@ def get_valid_groq_chat_models(client):
 
     banned = (
         "orpheus", "canopylabs", "whisper", "guard", "tts", "playai",
-        "embed", "vision", "allam", "distil", "audio", "speech", " safeguard"
+        "embed", "vision", "allam", "distil", "audio", "speech", "safeguard"
     )
     allowed_families = ("llama", "qwen", "deepseek", "gemma", "mixtral", "compound", "kimi")
 
@@ -521,7 +525,6 @@ def generate_fresh_story(history):
     chosen_concept = random.choice(avail)
     sys_p, usr_p = build_story_prompts(chosen_concept, used_titles, used_dialogues)
 
-    # 1. Try Groq Chat LLMs (iterating across all valid chat models if one requires terms or rate-limits)
     groq_key = os.getenv("GROQ_API_KEY")
     if groq_key:
         try:
@@ -547,7 +550,6 @@ def generate_fresh_story(history):
         except Exception as e:
             print(f"⚠️ Groq client fallback ({e})...")
 
-    # 2. Try Pollinations Text LLM
     try:
         print("[STORY-ENGINE] Trying secondary Pollinations OpenAI Text LLM...")
         resp = requests.post(
@@ -577,9 +579,8 @@ def generate_fresh_story(history):
 
 def fetch_clean_manhwa_artwork(scene, male_dna, female_dna, story_seed, idx, total_scenes, output_path):
     """
-    Bulletproof Dual-Gateway Image Fetcher:
-    - Keeps the URL concise (<500 chars) so Cloudflare/Pollinations never drops the request with HTTP 400/414.
-    - Alternates between gen.pollinations.ai and image.pollinations.ai across retries so 0-scene failures cannot happen.
+    Fast Dual-Gateway Image Fetcher:
+    Prioritizes image.pollinations.ai first so scenes download immediately without hitting 402 delays.
     """
     api_key = os.getenv("POLLINATIONS_API_KEY")
     atmos = scene.get("lighting_and_atmosphere", "warm golden cinematic lighting")
@@ -595,10 +596,10 @@ def fetch_clean_manhwa_artwork(scene, male_dna, female_dna, story_seed, idx, tot
     seed = story_seed + (idx * 173)
 
     endpoints = [
-        f"https://gen.pollinations.ai/image/{encoded}?width=1080&height=1920&model=flux&seed={seed}&nologo=true",
         f"https://image.pollinations.ai/prompt/{encoded}?width=1080&height=1920&model=flux&seed={seed}&nologo=true",
-        f"https://gen.pollinations.ai/image/{encoded}?width=1080&height=1920&model=turbo&seed={seed}&nologo=true",
-        f"https://image.pollinations.ai/prompt/{encoded}?width=1080&height=1920&seed={seed}&nologo=true"
+        f"https://image.pollinations.ai/prompt/{encoded}?width=1080&height=1920&seed={seed}&nologo=true",
+        f"https://gen.pollinations.ai/image/{encoded}?width=1080&height=1920&model=flux&seed={seed}&nologo=true",
+        f"https://gen.pollinations.ai/image/{encoded}?width=1080&height=1920&model=turbo&seed={seed}&nologo=true"
     ]
 
     print(f"[ARTWORK] Generating clean text-free Scene {idx + 1}/{total_scenes}...")
@@ -621,10 +622,10 @@ def fetch_clean_manhwa_artwork(scene, male_dna, female_dna, story_seed, idx, tot
                 return True
             else:
                 print(f"   ⚠️ Attempt {attempt + 1} status {res.status_code}. Switching endpoint...")
-                time.sleep(3)
+                time.sleep(2)
         except Exception as e:
             print(f"   ⚠️ Attempt {attempt + 1} network error ({e}). Switching endpoint...")
-            time.sleep(3)
+            time.sleep(2)
 
     return False
 
@@ -667,14 +668,12 @@ def verify_zero_vocals_with_whisper(audio_path):
 def synthesize_indila_continuous_75s_orchestra(output_mp3, duration_sec=75):
     """
     Generates a continuous 75-second evolving orchestral arrangement of Indila's 'Love Story'
-    in D-Minor 3/4 Waltz (Intro -> Verse -> Pre-Chorus -> Full Strings Drop -> High Octave Climax -> Outro)
-    so the music evolves forward continuously for the entire 45s-58s video without looping!
+    in D-Minor 3/4 Waltz so the music evolves forward continuously for the entire 45s-58s video without looping!
     """
     raw_wav = "workspace/indila_orchestral_75s.wav"
     sr = 44100
     total_samples = int(sr * duration_sec)
 
-    # Evolving 8-bar phrasing so the melody develops continuously forward
     bars = [
         (146.83, [293.66, 349.23, 440.00], [440.00, 587.33, 523.25]),  # Bar 1: Dm
         (116.54, [233.08, 293.66, 349.23], [466.16, 440.00, 392.00]),  # Bar 2: Bb
@@ -704,8 +703,6 @@ def synthesize_indila_continuous_75s_orchestra(output_mp3, duration_sec=75):
             arp_f = arp_list[beat_idx]
             mel_f = mel_list[beat_idx]
 
-            # Continuous forward dynamic evolution across 75 seconds:
-            # 0-12s: Delicate Harp/Piano Intro -> 12-24s: Cello & Violin Enter -> 24-58s: Full Grand Orchestra Climax
             bass_gain = 0.18 if t < 12.0 else min(0.36, 0.18 + (t - 12.0) * 0.03)
             lead_gain = 0.20 if t < 11.5 else min(0.54, 0.20 + (t - 11.5) * 0.04)
             octave_shimmer = 0.0 if t < 23.0 else min(0.28, (t - 23.0) * 0.03)
@@ -747,7 +744,6 @@ def get_verified_75s_pure_instrumental(required_duration_sec):
     os.makedirs("assets", exist_ok=True)
     os.makedirs("workspace", exist_ok=True)
 
-    # Clean up older short 30s cuts so we never loop a 26s-30s file
     for old_f in (
         "assets/indila_love_story_magical_cut.mp3",
         "assets/indila_love_story_instrumental_v2.mp3",
@@ -836,7 +832,6 @@ def get_verified_75s_pure_instrumental(required_duration_sec):
                 if not (os.path.exists(raw_dl) and os.path.getsize(raw_dl) > 90000):
                     continue
 
-                # Slice continuous 75s forward progression (0:35 to 1:50)
                 slice_cmd = [
                     "ffmpeg", "-y",
                     "-ss", str(GOLDEN_START_SEC),
@@ -899,7 +894,7 @@ def build_pipeline():
 
     male_dna = story_data.get("male_dna", "")
     female_dna = story_data.get("female_dna", "")
-    scenes = story_data.get("scenes", [])[:10]  # Up to 10 scenes (~52s Short, comfortably under 60s limit)
+    scenes = story_data.get("scenes", [])[:10]
     total_scenes = len(scenes)
     story_seed = random.randint(100000, 999999)
 
@@ -974,7 +969,6 @@ def build_pipeline():
     audio_path = get_verified_75s_pure_instrumental(required_duration_sec=total_dur)
     if audio_path and os.path.exists(audio_path):
         audio_clip = AudioFileClip(audio_path)
-        # Play continuously forward from 0.0 to total_dur without repeating
         audio_clip = audio_clip.subclip(0, min(total_dur, audio_clip.duration))
         audio_clip = audio_clip.audio_fadein(1.0).audio_fadeout(1.8).volumex(0.95)
         final_video = final_video.set_audio(audio_clip)
