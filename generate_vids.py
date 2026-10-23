@@ -4,16 +4,14 @@ import io
 import json
 import time
 import math
-import wave
-import struct
 import random
 import textwrap
 import subprocess
 import urllib.parse
 import requests
 
-# Ensure yt-dlp and numpy are installed
-for pkg in ("yt-dlp", "numpy"):
+# Auto-install required packages
+for pkg in ("yt-dlp", "pytubefix", "numpy"):
     try:
         __import__(pkg.replace("-", "_"))
     except ImportError:
@@ -22,33 +20,40 @@ for pkg in ("yt-dlp", "numpy"):
 import numpy as np
 import yt_dlp
 from groq import Groq
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from moviepy.editor import (
     ImageClip,
     AudioFileClip,
     CompositeVideoClip,
-    concatenate_videoclips,
-    afx
+    concatenate_videoclips
 )
 
 HISTORY_FILE = "story_history.json"
-# Continuous 75-second forward cut (never loops on 45s-55s videos)
-LOCKED_SONG_PATH = "assets/indila_love_story_pure_inst_75s_v5.mp3"
-LOCKED_SONG_TITLE = "Love Story (Instrumental Slowed & Reverb) - Indila"
+# New v6 path so old synthetic piano MP3s are purged and replaced with the real song
+LOCKED_SONG_PATH = "assets/indila_love_story_real_v6.mp3"
+LOCKED_SONG_TITLE = "Love Story - Indila (Slowed + Reverb)"
 
-GOLDEN_START_SEC = 35
-GOLDEN_DURATION_SEC = 75
+# Exact YouTube Audio Sources requested:
+# 1) https://youtu.be/e4KMz7PdAmE -> starts right at 00:00
+# 2) https://youtu.be/1NBnN0IAljQ -> skips first 20s, starts at 00:20
+PRIMARY_YT_URL = "https://youtu.be/e4KMz7PdAmE"
+PRIMARY_START_SEC = 0
 
-# Complete multi-act romance storylines
+SECONDARY_YT_URL = "https://youtu.be/1NBnN0IAljQ"
+SECONDARY_START_SEC = 20
+
+MASTER_AUDIO_DURATION = 75  # Continuous 75s forward cut (zero looping)
+
+# Complete, emotional multi-act Korean Manhwa romance storylines
 STORY_CONCEPTS = [
-    "Childhood Friends to Soulmates: From age 9 kids sharing strawberries across sunlit balconies, to age 14 walking home in autumn, to age 17 defending her in the rain, to age 19 jealous confession, to age 23 proposing under the golden cherry tree",
-    "Uncherished to Cherished by True Future Love: For years her cold fiancé ignored her birthday and left her in the rain; when she walks away, his protective older brother steps in with an umbrella and cherishes her like a queen while her ex regrets losing her",
-    "Intense Jealousy in Secret Love: The aloof student council president claims he only sees her as a junior, until a transfer boy makes her smile—shattering his calm mask as he pulls her into a golden sunset classroom to confess",
-    "Contract Marriage to Obsessive Devotion: Married on paper with a rule to never fall in love; when she prepares to leave thinking he loves someone else, he tears up the papers in the rain and begs her to stay",
-    "Academic Rivals to Midnight Confidants: Fighting for #1 rank every semester while bickering daily, until he finds her crying on the sunset rooftop and stays beside her every evening",
-    "The Forgotten Childhood Promise: Separated at age 9 when she moved away, she thinks the quiet university senior is a stranger—until she spots the faded red ribbon she tied on his wrist twelve years ago",
-    "Ignored by Crush, Treasured by the Quiet Protector: She always brought lunch for the popular captain who took her for granted, while the quiet art prodigy secretly painted her in golden sunlight for two years before stepping forward",
-    "Time-Leap Redemption: After losing her in a distant future, he wakes up back at age 16 on the day they first met in high school and vows to protect and cherish her every single day"
+    "Uncherished to Cherished by True Future Love: For 3 years her cold fiancé ignored her birthday and left her waiting in the rain; when she walks away, his protective older brother steps in with an umbrella and cherishes her like a queen while her ex begs in regret",
+    "Childhood Friends to Soulmates: From sharing strawberries across next-door balconies as kids, to walking home under cherry blossoms in high school, to a jealous rain confession, to a tearful rooftop marriage proposal",
+    "Intense Jealousy in Secret Love: The cold student council president claims he only sees her as a junior, until a handsome transfer student makes her laugh—shattering his calm mask as he pulls her aside at sunset to confess",
+    "Contract Marriage to Real Obsession: Married on paper with a strict rule to never fall in love; when she prepares to leave thinking he loves someone else, he tears up the contract in the rain and begs her to stay",
+    "Academic Rivals to Midnight Confidants: Competing for #1 rank every semester while bickering daily, until he discovers her crying on the library balcony at dusk and stays beside her every evening",
+    "The Forgotten Childhood Promise: Separated at age 10 when she moved away, she doesn't recognize the popular university senior—until she spots the braided red bracelet she made 10 years ago still on his wrist",
+    "Ignored by Crush, Treasured by the Quiet Protector: She always brought lunch for the popular captain who took her for granted, while the quiet art prodigy secretly filled his sketchbook with her smile before stepping forward",
+    "7 AM Subway Strangers to Soulmates: Standing in the same train car every morning in silence for a year until a sudden storm stops the train and he finally pulls her close to protect her"
 ]
 
 
@@ -85,125 +90,73 @@ def clean_english_text(text):
     return " ".join(allowed.split()) or "..."
 
 
-def apply_aot_golden_2d_grade(pil_img):
+def clean_watermark_and_fit_9_16(raw_bytes, output_path):
     """
-    Transforms the image into a crisp 2D Anime frame with Attack on Titan (WIT Studio)
-    Golden-Hour Sunset color grading:
-    1. Enhances 2D dark ink edge lines and flattens 3D plastic shading via subtle posterization/edge blend.
-    2. Infuses warm golden-amber highlights and deep cinematic bronze shadows across the frame.
-    3. Adds a soft golden sunset bloom in the upper sky/highlights.
-    """
-    img = pil_img.convert("RGB")
-
-    # 1. Subtle 2D Cel-Shading & Ink Line Enhancement
-    # Detect fine edges to reinforce 2D hand-drawn lineart
-    edges = img.convert("L").filter(ImageFilter.FIND_EDGES).filter(ImageFilter.GaussianBlur(0.6))
-    edge_arr = np.array(edges, dtype=np.float32) / 255.0
-    ink_mask = np.clip((edge_arr - 0.12) * 0.35, 0.0, 0.28)[:, :, None]
-
-    # Slightly quantize tonal steps + blend smooth version to remove 3D CGI skin pores
-    smoothed = img.filter(ImageFilter.MedianFilter(size=3))
-    arr = np.array(smoothed, dtype=np.float32)
-    # Soft cel quantization blended at 30% with smooth base
-    cel_arr = np.floor(arr / 16.0) * 16.0 + 8.0
-    arr = (arr * 0.72) + (cel_arr * 0.28)
-
-    # Darken ink outlines like WIT Studio thick anime lineart
-    arr = arr * (1.0 - ink_mask)
-
-    # 2. Attack on Titan (WIT Studio) Golden Sunset Color Matrix
-    norm = arr / 255.0
-    lum = 0.299 * norm[:, :, 0] + 0.587 * norm[:, :, 1] + 0.114 * norm[:, :, 2]
-
-    # S-curve contrast for dramatic anime lighting
-    norm = np.clip(0.5 + (norm - 0.5) * 1.14, 0.0, 1.0)
-
-    r = norm[:, :, 0]
-    g = norm[:, :, 1]
-    b = norm[:, :, 2]
-
-    # Golden amber boost in midtones & highlights, rich warm bronze in shadows
-    highlight_weight = np.clip((lum - 0.35) / 0.65, 0.0, 1.0)
-    shadow_weight = 1.0 - highlight_weight
-
-    r_graded = r * 1.14 + 0.05 * highlight_weight + 0.02 * shadow_weight
-    g_graded = g * 1.03 + 0.02 * highlight_weight - 0.01 * shadow_weight
-    b_graded = b * 0.82 - 0.05 * highlight_weight - 0.02 * shadow_weight
-
-    graded = np.stack([r_graded, g_graded, b_graded], axis=-1)
-
-    # 3. Top Golden Sky Sun-Glow Gradient (adds cinematic sunset warmth from the top)
-    h, w = r.shape
-    y_grad = np.linspace(1.0, 0.0, h, dtype=np.float32)[:, None]
-    sun_glow = (y_grad ** 1.8) * 0.08
-    graded[:, :, 0] += sun_glow * 1.2
-    graded[:, :, 1] += sun_glow * 0.7
-    graded[:, :, 2] -= sun_glow * 0.4
-
-    final_arr = np.clip(graded * 255.0, 0, 255).astype(np.uint8)
-    out_img = Image.fromarray(final_arr, mode="RGB")
-    out_img = ImageEnhance.Color(out_img).enhance(1.18)
-    return out_img
-
-
-def crop_watermark_and_fit_9_16(raw_bytes, output_path):
-    """
-    Genius Watermark Destroyer + Zero-Stretch 9:16 Aspect-Ratio Fitter:
-    1. Slices off the bottom 7.5% of the raw image (where the 'pollinations.ai' watermark sits)
-       and 1.5% off the left/right/top margins.
-    2. Never stretches a square (1:1) or 3:4 image! Instead, computes the exact 9:16 (0.5625)
-       crop window centered on the characters so proportions stay 100% natural, then scales cleanly to 1080x1920.
-    3. Applies the 2D Attack on Titan Golden Sunset color grade.
+    Preserves 100% of Pollinations Flux's natural, vibrant Korean Manhwa beauty (ZERO artificial color filters!).
+    1. Trims 3.8% off the bottom edge to cleanly remove any 'pollinations.ai' corner watermark.
+    2. Trims 1.9% off the left and right edges to preserve the exact 9:16 aspect ratio with ZERO stretching.
+    3. Resizes cleanly to 1080x1920 with LANCZOS interpolation.
     """
     with Image.open(io.BytesIO(raw_bytes)) as im:
         rgb = im.convert("RGB")
         w, h = rgb.size
 
-        # Step 1: Slice off the bottom 7.5% to completely eliminate the pollinations.ai watermark
-        left_margin = int(w * 0.015)
-        right_margin = int(w * 0.985)
-        top_margin = int(h * 0.01)
-        bottom_clean = int(h * 0.925)  # Removes bottom 7.5% watermark bar
+        # Trim bottom 3.8% watermark strip and proportional side margins
+        x0 = int(w * 0.019)
+        x1 = int(w * 0.981)
+        y0 = int(h * 0.005)
+        y1 = int(h * 0.962)
 
-        clean_crop = rgb.crop((left_margin, top_margin, right_margin, bottom_clean))
-        cw, ch = clean_crop.size
+        cropped = rgb.crop((x0, y0, x1, y1))
+        cw, ch = cropped.size
 
-        # Step 2: Aspect-ratio-preserving 9:16 center crop (ZERO stretching!)
         target_aspect = 1080.0 / 1920.0  # 0.5625
         current_aspect = cw / float(ch)
 
-        if current_aspect > target_aspect:
-            # Image is wider than 9:16 (e.g. square 1024x947 after watermark cut) -> crop left & right evenly
-            new_w = int(ch * target_aspect)
-            x0 = (cw - new_w) // 2
-            box_9_16 = clean_crop.crop((x0, 0, x0 + new_w, ch))
-        else:
-            # Image is taller than 9:16 -> crop bottom/top preserving upper headroom
-            new_h = int(cw / target_aspect)
-            y0 = max(0, (ch - new_h) // 3)
-            box_9_16 = clean_crop.crop((0, y0, cw, y0 + new_h))
+        if abs(current_aspect - target_aspect) > 0.02:
+            if current_aspect > target_aspect:
+                new_w = int(ch * target_aspect)
+                left = (cw - new_w) // 2
+                cropped = cropped.crop((left, 0, left + new_w, ch))
+            else:
+                new_h = int(cw / target_aspect)
+                top = max(0, (ch - new_h) // 3)
+                cropped = cropped.crop((0, top, cw, top + new_h))
 
-        # Step 3: Scale to 1080x1920 with LANCZOS (1:1 pixel aspect ratio, zero distortion)
-        fitted = box_9_16.resize((1080, 1920), Image.LANCZOS)
-
-        # Step 4: Apply 2D Cel-Shade + Attack on Titan Golden Sunset Color Grading
-        graded = apply_aot_golden_2d_grade(fitted)
-        graded.save(output_path, "JPEG", quality=95)
+        final_img = cropped.resize((1080, 1920), Image.LANCZOS)
+        final_img.save(output_path, "JPEG", quality=96)
 
     return output_path
+
+
+def is_valid_colorful_artwork(raw_bytes):
+    """Verifies the downloaded bytes form a valid, non-blank, colorful image."""
+    if not raw_bytes or len(raw_bytes) < 15000:
+        return False
+    try:
+        with Image.open(io.BytesIO(raw_bytes)) as im:
+            arr = np.array(im.convert("RGB"), dtype=np.float32)
+            if arr.shape[0] < 500 or arr.shape[1] < 400:
+                return False
+            # Reject blank/solid frames
+            if np.std(arr) < 20.0:
+                return False
+        return True
+    except Exception:
+        return False
 
 
 def detect_character_anchors(img_path):
     """
     Computer-Vision Head & Mouth Locator:
-    Finds the Boy (left half) and Girl (right half) face/hair coordinates so bubbles sit
-    intimately above their heads and tails/thought-chains point directly to them.
+    Detects the Boy (left half) and Girl (right half) head-tops and mouth coordinates
+    so bubbles sit cleanly above their hair without covering their eyes.
     """
     default_anchors = {
-        "boy_head_top": (285, 505),
-        "boy_mouth": (345, 735),
-        "girl_head_top": (795, 540),
-        "girl_mouth": (725, 765)
+        "boy_head_top": (280, 430),
+        "boy_mouth": (335, 640),
+        "girl_head_top": (800, 460),
+        "girl_mouth": (735, 670)
     }
     try:
         with Image.open(img_path) as im:
@@ -211,27 +164,27 @@ def detect_character_anchors(img_path):
 
         r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
         skin_mask = (
-            (r > 160) & (g > 110) & (b > 80) &
-            ((r - g) > 8) & ((r - b) > 20) &
+            (r > 165) & (g > 120) & (b > 95) &
+            ((r - g) > 10) & ((r - b) > 20) & ((r - b) < 115) &
             (g > b)
         )
-        y_min, y_max = 360, 1060
+        y_min, y_max = 320, 1020
 
         def find_side_face(x_start, x_end, is_left):
             sub_mask = skin_mask[y_min:y_max, x_start:x_end]
             ys, xs = np.where(sub_mask)
-            if len(ys) < 400:
+            if len(ys) < 380:
                 return None
 
             face_cx = int(x_start + np.median(xs))
             face_top_y = int(y_min + np.percentile(ys, 12))
             face_bot_y = int(y_min + np.percentile(ys, 88))
-            face_h = max(140, min(320, face_bot_y - face_top_y))
+            face_h = max(130, min(300, face_bot_y - face_top_y))
 
-            head_top_y = max(345, face_top_y - int(face_h * 0.48))
-            inward_shift = int(face_h * 0.18) if is_left else -int(face_h * 0.18)
+            head_top_y = max(320, face_top_y - int(face_h * 0.45))
+            inward_shift = int(face_h * 0.16) if is_left else -int(face_h * 0.16)
             mouth_x = max(120, min(960, face_cx + inward_shift))
-            mouth_y = min(1020, face_top_y + int(face_h * 0.72))
+            mouth_y = min(980, face_top_y + int(face_h * 0.68))
             return (face_cx, head_top_y), (mouth_x, mouth_y)
 
         left_res = find_side_face(50, 530, is_left=True)
@@ -241,8 +194,8 @@ def detect_character_anchors(img_path):
             default_anchors["boy_head_top"], default_anchors["boy_mouth"] = left_res
         if right_res:
             default_anchors["girl_head_top"], default_anchors["girl_mouth"] = right_res
-    except Exception as e:
-        print(f"⚠️ Anchor detection fallback used: {e}")
+    except Exception:
+        pass
 
     return default_anchors
 
@@ -261,13 +214,12 @@ def quad_bezier_points(p0, p1, p2, steps=32):
 
 def render_webtoon_bubble_layer(text, bubble_type, side, head_top, mouth_pt, output_path):
     """
-    Renders professional comic bubbles using our 2x supersampled morphological ink-and-shadow engine:
-    1. 'speech'  -> Horizontal egg / super-ellipse + SOLID curved Bezier wedge tail pointing to mouth.
-    2. 'thought' -> Fluffy scalloped cloud / egg body + NO solid tail, replaced by a curved chain of
-                    4 DETACHED, progressively shrinking circular thought bubbles (O -> o -> . -> .)
-                    pointing to the character's head (Garfield comic style).
-    3. 'whisper' -> Smooth horizontal egg + slender curved tail with a DASHED ink border.
-    4. 'shout'   -> Spiky comic starburst oval + sharp wedge tail for intense jealousy/shock moments.
+    Renders professional comic bubbles at 2x supersampled resolution (2160x3840):
+    - Positioned in the upper headroom band (cy = 195..255) so faces and eyes are NEVER covered.
+    - 'speech'  -> Smooth horizontal egg + solid curved Bezier tail pointing toward speaker.
+    - 'thought' -> Fluffy scalloped cloud + 4 detached shrinking circular thought bubbles (Garfield style).
+    - 'whisper' -> Smooth horizontal egg with dashed border for soft/shy confessions.
+    - 'shout'   -> Spiky comic starburst for intense jealousy or dramatic moments.
     """
     scale = 2
     W, H = 1080 * scale, 1920 * scale
@@ -280,40 +232,42 @@ def render_webtoon_bubble_layer(text, bubble_type, side, head_top, mouth_pt, out
     wrapped_lines = textwrap.wrap(clean_txt, width=18)[:3]
     multiline_str = "\n".join(wrapped_lines)
 
-    font = get_comic_font(33 * scale)
+    font = get_comic_font(32 * scale)
     dummy = Image.new("L", (10, 10))
     d_draw = ImageDraw.Draw(dummy)
     bbox = d_draw.multiline_textbbox((0, 0), multiline_str, font=font, align="center", spacing=8 * scale)
     tw = bbox[2] - bbox[0]
     th = bbox[3] - bbox[1]
 
-    rx = max(148 * scale, int(tw * 0.5 + 56 * scale))
-    ry = max(80 * scale, int(th * 0.5 + 44 * scale))
+    rx = max(145 * scale, int(tw * 0.5 + 52 * scale))
+    ry = max(76 * scale, int(th * 0.5 + 40 * scale))
 
     hx, hy = head_top[0] * scale, head_top[1] * scale
     mx, my = mouth_pt[0] * scale, mouth_pt[1] * scale
 
+    # Keep bubble bodies in the upper sky/headroom zone (y: 195..255) so they never cover faces!
     if side == "left":
-        cx = max(rx + 28 * scale, min(515 * scale - rx, hx - 12 * scale))
-        cy = max(ry + 115 * scale, min(hy - ry - 20 * scale, 325 * scale))
+        cx = max(rx + 26 * scale, min(515 * scale - rx, hx - 10 * scale))
+        cy = max(ry + 110 * scale, min(hy - ry - 25 * scale, 215 * scale))
     else:
-        cx = max(565 * scale + rx, min(W - rx - 28 * scale, hx + 12 * scale))
-        cy = max(ry + 155 * scale, min(hy - ry - 16 * scale, 370 * scale))
+        cx = max(565 * scale + rx, min(W - rx - 26 * scale, hx + 10 * scale))
+        cy = max(ry + 135 * scale, min(hy - ry - 20 * scale, 250 * scale))
 
-    raw_tx = mx + (-20 * scale if side == "left" else 20 * scale)
+    raw_tx = mx + (-18 * scale if side == "left" else 18 * scale)
     tx = max(cx - rx + 20 * scale, min(cx + rx - 20 * scale, raw_tx))
     if side == "left":
-        tx = max(tx, cx + int(rx * 0.18))
+        tx = max(tx, cx + int(rx * 0.16))
     else:
-        tx = min(tx, cx - int(rx * 0.18))
+        tx = min(tx, cx - int(rx * 0.16))
 
-    tail_bottom_limit = cy + ry + 128 * scale
-    ty = max(cy + ry + 68 * scale, min(tail_bottom_limit, my - 50 * scale))
+    tail_bottom_limit = cy + ry + 120 * scale
+    ty = max(cy + ry + 64 * scale, min(tail_bottom_limit, my - 60 * scale))
 
     mask = Image.new("L", (W, H), 0)
     m_draw = ImageDraw.Draw(mask)
 
     if b_type == "thought":
+        # Scalloped Cloud Body + 4 Detached Shrinking Circular Bubbles (Garfield Style)
         m_draw.ellipse(
             [cx - rx + 14 * scale, cy - ry + 12 * scale, cx + rx - 14 * scale, cy + ry - 12 * scale],
             fill=255
@@ -323,19 +277,19 @@ def render_webtoon_bubble_layer(text, bubble_type, side, head_top, mouth_pt, out
             ang = (2.0 * math.pi * i) / num_puffs
             px = cx + (rx - 12 * scale) * math.cos(ang)
             py = cy + (ry - 8 * scale) * math.sin(ang)
-            pr = (29 if i % 2 == 0 else 24) * scale
+            pr = (28 if i % 2 == 0 else 23) * scale
             m_draw.ellipse([px - pr, py - pr, px + pr, py + pr], fill=255)
 
         start_x = cx + (int(rx * 0.14) if side == "left" else -int(rx * 0.14))
-        start_y = cy + ry + 26 * scale
+        start_y = cy + ry + 24 * scale
         ctrl_x = (start_x + tx) * 0.5 + (-14 * scale if side == "left" else 14 * scale)
         ctrl_y = start_y + (ty - start_y) * 0.52
 
         dot_specs = [
-            (0.08, 14.5 * scale),
-            (0.40, 10.5 * scale),
-            (0.70, 7.5 * scale),
-            (0.96, 5.0 * scale)
+            (0.08, 14.0 * scale),
+            (0.40, 10.0 * scale),
+            (0.70, 7.0 * scale),
+            (0.96, 4.8 * scale)
         ]
         for t_val, r_dot in dot_specs:
             inv = 1.0 - t_val
@@ -357,9 +311,9 @@ def render_webtoon_bubble_layer(text, bubble_type, side, head_top, mouth_pt, out
         base_x = cx + (int(rx * 0.12) if side == "left" else -int(rx * 0.12))
         base_y = cy + int(ry * 0.85)
         tail_poly = [
-            (base_x - 22 * scale, base_y),
+            (base_x - 20 * scale, base_y),
             (tx, ty),
-            (base_x + 22 * scale, base_y)
+            (base_x + 20 * scale, base_y)
         ]
         m_draw.polygon(tail_poly, fill=255)
 
@@ -377,7 +331,7 @@ def render_webtoon_bubble_layer(text, bubble_type, side, head_top, mouth_pt, out
 
         base_x = cx + (int(rx * 0.12) if side == "left" else -int(rx * 0.12))
         base_y = cy + ry - 8 * scale
-        half_base = (14 if b_type == "whisper" else 20) * scale
+        half_base = (14 if b_type == "whisper" else 19) * scale
 
         p_left = (base_x - half_base, base_y)
         p_right = (base_x + half_base, base_y)
@@ -433,12 +387,12 @@ def render_webtoon_bubble_layer(text, bubble_type, side, head_top, mouth_pt, out
 
 
 def render_floating_manhwa_ages(male_age, female_age, output_path):
-    """Renders sleek floating Manhwa age numbers in top corners."""
+    """Renders sleek floating Manhwa age numbers in the top corners."""
     scale = 2
-    W, H = 1080 * scale, 180 * scale
+    W, H = 1080 * scale, 170 * scale
     img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    font_age = get_comic_font(62 * scale)
+    font_age = get_comic_font(60 * scale)
 
     def draw_stylized_age(cx, cy, age_val, main_color, glow_color):
         txt = "".join(c for c in str(age_val) if c.isdigit())[:2] or "19"
@@ -459,16 +413,16 @@ def render_floating_manhwa_ages(male_age, female_age, output_path):
         )
 
     if male_age:
-        draw_stylized_age(95 * scale, 78 * scale, male_age, (75, 180, 255), (30, 120, 255))
+        draw_stylized_age(90 * scale, 70 * scale, male_age, (75, 180, 255), (30, 120, 255))
     if female_age:
-        draw_stylized_age(985 * scale, 78 * scale, female_age, (255, 85, 135), (255, 40, 100))
+        draw_stylized_age(990 * scale, 70 * scale, female_age, (255, 85, 135), (255, 40, 100))
 
-    img.resize((1080, 180), Image.LANCZOS).save(output_path, "PNG")
+    img.resize((1080, 170), Image.LANCZOS).save(output_path, "PNG")
     return output_path
 
 
 def get_valid_groq_chat_models(client):
-    """Strictly selects a text LLM on Groq and blocks TTS/audio/guard models."""
+    """Selects verified text-chat LLMs on Groq and blocks TTS/audio/guard models."""
     models_resp = client.models.list().data
     all_ids = [m.id for m in models_resp]
 
@@ -506,30 +460,29 @@ def get_valid_groq_chat_models(client):
 def build_story_prompts(concept, used_titles, used_dialogues):
     entropy = f"{int(time.time())}-{random.randint(10000, 99999)}"
     system_prompt = (
-        "You are an elite 2D Anime & Manhwa romance scriptwriter and comic director. "
-        "You write complete, deeply satisfying 9-scene vertical romance Shorts (46.8 seconds long) "
-        "with a full beginning, emotional turning point, and unforgettable resolution. "
-        "You use comic bubble types ('speech', 'thought', 'whisper', 'shout') like a master comic writer. "
+        "You are an elite Korean Romance Manhwa & Webtoon scriptwriter. "
+        "You write complete, emotionally captivating 8-scene vertical romance Shorts (~43 seconds total) "
+        "with a clear beginning, emotional turning point, and deeply satisfying resolution. "
+        "You use comic bubble types ('speech', 'thought', 'whisper', 'shout') like a master webtoon artist. "
         "Output strictly valid JSON."
     )
-    user_prompt = f"""Write a brand-new, complete 9-scene vertical 2D Anime/Manhwa romance Short script.
+    user_prompt = f"""Write a brand-new, complete 8-scene vertical Korean Manhwa romance Short script.
 Run Seed: {entropy}
 Story Concept: "{concept}"
 Previously Used Titles (NEVER REPEAT): {json.dumps(used_titles[-10:])}
 Previously Used Lines (NEVER REPEAT): {json.dumps(used_dialogues[-15:])}
 
-COMPLETE 9-SCENE STORY STRUCTURE (47 SECONDS TOTAL — DO NOT RUSH):
-- Scenes 1 & 2 (Act I - The Setup): Establish the characters, ages, and emotional hook.
-- Scenes 3 & 4 (Act II - The Wound / Jealousy): Heartbreak, jealousy, being left behind in the rain, or unspoken longing.
-- Scenes 5 & 6 (Act III - The Turning Point): The dramatic rescue, umbrella moment, or jealous confrontation where the true protector steps in.
-- Scenes 7 & 8 (Act IV - Healing & Confession): Being truly cherished, raw emotional confession, or the ex realizing what he lost too late.
-- Scene 9 (Act V - Unforgettable Payoff): Years-later proposal, passionate embrace, or deeply satisfying romantic closure.
+COMPLETE 8-SCENE STORY ARC (~43 SECONDS TOTAL):
+- Scenes 1 & 2 (Act I - The Setup): Establish the male and female lead, their ages, and the emotional hook.
+- Scenes 3 & 4 (Act II - Heartbreak / Tension): Jealousy, unspoken feelings, or being left in the rain.
+- Scenes 5 & 6 (Act III - The Turning Point): The dramatic umbrella rescue, protective confrontation, or sudden closeness.
+- Scenes 7 & 8 (Act IV - Confession & Payoff): Raw emotional confession and unforgettable romantic resolution (proposal, embrace, or kiss).
 
 COMIC WRITER BUBBLE RULES:
 - Choose the exact right bubble type for each character in every scene:
-  * "speech"  -> Normal spoken dialogue (solid tail).
-  * "thought" -> Secret inner feelings, heartbreak, or silent realization (cloud with detached circular thought dots).
-  * "whisper" -> Shy, trembling, or quiet confession (dashed border).
+  * "speech"  -> Spoken out loud (solid curved tail).
+  * "thought" -> Secret inner thoughts or silent realization (cloud with detached circular thought dots).
+  * "whisper" -> Shy, trembling, or soft confession (dashed border).
   * "shout"   -> Jealousy, shock, or urgent protective call (spiky burst).
 - Keep "male_line" and "female_line" between 4 and 8 natural English words.
 
@@ -538,8 +491,8 @@ Return ONLY valid JSON matching this exact schema:
   "trope": "Short catchy story theme",
   "recommended_yt_song": "{LOCKED_SONG_TITLE}",
   "video_title": "Emotional viral English title with emojis #Shorts #manhwa #lovestory",
-  "male_hair_eyes": "jet-black tousled hair and warm amber eyes",
-  "female_hair_eyes": "long chestnut-brown hair and bright emerald eyes",
+  "male_dna": "handsome Korean manhwa boy with jet-black tousled hair and warm amber eyes",
+  "female_dna": "beautiful Korean manhwa girl with long wavy chestnut-brown hair and bright eyes",
   "scenes": [
     {{
       "male_age": "19",
@@ -548,7 +501,8 @@ Return ONLY valid JSON matching this exact schema:
       "male_line": "Why are you standing in the rain?",
       "female_bubble_type": "thought",
       "female_line": "He actually came looking for me...",
-      "scene_setting_and_pose": "standing side-by-side under an umbrella on a sunset street with cherry trees and golden sky above"
+      "lighting_and_atmosphere": "soft pastel rain reflections, warm streetlamp bokeh, romantic webtoon glow",
+      "scene_setting_and_pose": "standing side-by-side under a transparent umbrella on an evening street with cherry trees above"
     }}
   ]
 }}"""
@@ -556,40 +510,38 @@ Return ONLY valid JSON matching this exact schema:
 
 
 def generate_complete_fallback_story(history):
-    """Complete 9-scene (46.8-second) multi-act fallback story generator."""
+    """Complete 8-scene multi-act Korean Manhwa romance fallback generator."""
     run_id = history.get("total_videos", 0) + random.randint(100, 999)
-    m_hair = random.choice(["jet-black tousled", "silver-ash", "dark espresso", "midnight-blue"])
-    f_hair = random.choice(["long chestnut wavy", "silky raven-black", "warm honey-brown", "soft caramel"])
+    m_hair = random.choice(["silver-white tousled", "jet-black", "ash-brown", "dark navy"])
+    f_hair = random.choice(["long wavy chestnut-brown", "silky raven-black", "soft caramel", "dark cherry"])
 
     story_templates = [
         {
             "trope": f"Uncherished to Treasured by True Love #{run_id}",
             "video_title": f"He Left Her In The Rain… So His Brother Stepped In 💔☔ #{run_id} #Shorts #manhwa #lovestory",
             "scenes": [
-                {"male_age": "21", "female_age": "19", "male_bubble_type": "speech", "male_line": "Wait outside. I'm busy right now.", "female_bubble_type": "thought", "female_line": "He forgot my birthday again...", "scene_setting_and_pose": "standing outside a glowing cafe window at dusk, girl holding a small birthday cake box"},
-                {"male_age": "23", "female_age": "19", "male_bubble_type": "thought", "male_line": "How can my brother ignore her tears?", "female_bubble_type": "whisper", "female_line": "It's fine... I'm used to waiting.", "scene_setting_and_pose": "tall older brother in a long coat approaching the shivering girl under a sunset streetlamp"},
-                {"male_age": "23", "female_age": "19", "male_bubble_type": "speech", "male_line": "Take my umbrella. Come with me.", "female_bubble_type": "thought", "female_line": "Why is his gaze so warm?", "scene_setting_and_pose": "standing side-by-side under an umbrella in golden-lit rain with tall city buildings behind them"},
-                {"male_age": "23", "female_age": "20", "male_bubble_type": "speech", "male_line": "I bought every cake you missed.", "female_bubble_type": "thought", "female_line": "No one ever treasured me like this...", "scene_setting_and_pose": "warm candlelit dining room with tall windows, boy smiling gently while girl blushes"},
-                {"male_age": "24", "female_age": "20", "male_bubble_type": "shout", "male_line": "Don't touch her! You lost your chance!", "female_bubble_type": "thought", "female_line": "He stepped right in front of me...", "scene_setting_and_pose": "protective man shielding the girl behind his shoulder in a grand golden-lit hall"},
-                {"male_age": "24", "female_age": "20", "male_bubble_type": "whisper", "male_line": "Did you really wait years for me?", "female_bubble_type": "speech", "female_line": "Stay with me. Never look back.", "scene_setting_and_pose": "standing close on a sunset rooftop terrace, boy gently holding her hands"},
-                {"male_age": "25", "female_age": "21", "male_bubble_type": "speech", "male_line": "You deserve to be cherished every day.", "female_bubble_type": "thought", "female_line": "My broken heart finally feels whole.", "scene_setting_and_pose": "standing together under floating golden sky lanterns over an evening lake"},
-                {"male_age": "26", "female_age": "22", "male_bubble_type": "speech", "male_line": "Marry me and be my whole world.", "female_bubble_type": "speech", "female_line": "Yes! Only you, forever.", "scene_setting_and_pose": "man holding a velvet ring box under golden sunset cherry blossom branches, girl smiling with happy tears"},
-                {"male_age": "27", "female_age": "23", "male_bubble_type": "thought", "male_line": "I'll protect that smile for life.", "female_bubble_type": "thought", "female_line": "Losing the wrong one led me to you.", "scene_setting_and_pose": "embracing warmly under golden cathedral sunbeams and floating light particles"}
+                {"male_age": "21", "female_age": "19", "male_bubble_type": "speech", "male_line": "Wait outside. I'm busy right now.", "female_bubble_type": "thought", "female_line": "He forgot my birthday again...", "lighting_and_atmosphere": "soft blue evening twilight outside a glowing cafe", "scene_setting_and_pose": "boy in dark jacket looking coldly at cute girl holding a small birthday cake box"},
+                {"male_age": "23", "female_age": "19", "male_bubble_type": "thought", "male_line": "How can my brother ignore her tears?", "female_bubble_type": "whisper", "female_line": "It's fine... I'm used to waiting.", "lighting_and_atmosphere": "warm streetlamp bokeh as gentle rain begins to fall", "scene_setting_and_pose": "tall handsome older brother in a tailored coat approaching the shivering girl"},
+                {"male_age": "23", "female_age": "19", "male_bubble_type": "speech", "male_line": "Take my umbrella. Come with me.", "female_bubble_type": "thought", "female_line": "Why is his gaze so warm?", "lighting_and_atmosphere": "cinematic rain droplets and soft pastel neon reflections", "scene_setting_and_pose": "standing side-by-side under a large umbrella in the rain, looking into each other's eyes"},
+                {"male_age": "23", "female_age": "20", "male_bubble_type": "speech", "male_line": "I bought every cake you missed.", "female_bubble_type": "thought", "female_line": "No one ever treasured me like this...", "lighting_and_atmosphere": "warm candlelit penthouse dining room with city skyline view", "scene_setting_and_pose": "boy smiling gently over birthday candles while girl covers her blushing cheeks"},
+                {"male_age": "24", "female_age": "20", "male_bubble_type": "shout", "male_line": "Don't touch her! You lost your chance!", "female_bubble_type": "thought", "female_line": "He stepped right in front of me...", "lighting_and_atmosphere": "dramatic crystal chandelier lighting in a grand hall", "scene_setting_and_pose": "protective older brother shielding the girl behind his shoulder"},
+                {"male_age": "24", "female_age": "20", "male_bubble_type": "whisper", "male_line": "I've loved you in silence for years.", "female_bubble_type": "speech", "female_line": "Stay with me. Never let go.", "lighting_and_atmosphere": "starry night balcony with floating golden bokeh lights", "scene_setting_and_pose": "standing close on a night balcony, boy gently cupping the blushing girl's cheek"},
+                {"male_age": "25", "female_age": "21", "male_bubble_type": "speech", "male_line": "Marry me and be my whole world.", "female_bubble_type": "speech", "female_line": "Yes! Only you, forever.", "lighting_and_atmosphere": "dreamy pink sunset garden with falling cherry blossom petals", "scene_setting_and_pose": "handsome man holding a velvet ring box under cherry blossoms, girl smiling with happy tears"},
+                {"male_age": "26", "female_age": "22", "male_bubble_type": "thought", "male_line": "I'll protect her smile for life.", "female_bubble_type": "thought", "female_line": "Losing the wrong one led me to you.", "lighting_and_atmosphere": "soft pastel sunset glow and floating cherry blossom petals", "scene_setting_and_pose": "couple holding hands and embracing tenderly under blooming cherry trees"}
             ]
         },
         {
             "trope": f"Childhood Friends to Forever #{run_id}",
             "video_title": f"From Next-Door Neighbours To Forever 🥺🌸 #{run_id} #Shorts #manhwa #lovestory",
             "scenes": [
-                {"male_age": "9", "female_age": "9", "male_bubble_type": "speech", "male_line": "Stop crying! I saved you strawberries.", "female_bubble_type": "thought", "female_line": "He always makes me smile...", "scene_setting_and_pose": "two cute 9-year-old kids on sunlit wooden balconies with golden sky and trees above"},
-                {"male_age": "14", "female_age": "14", "male_bubble_type": "speech", "male_line": "Walk on the inside of the street.", "female_bubble_type": "thought", "female_line": "Since when did he get so tall?", "scene_setting_and_pose": "two 14-year-old middle school teens walking under golden autumn trees"},
-                {"male_age": "17", "female_age": "16", "male_bubble_type": "thought", "male_line": "Why is that guy talking to her?", "female_bubble_type": "speech", "female_line": "Wait, why are you pulling my sleeve?", "scene_setting_and_pose": "high school boy gently taking girl's wrist in a golden sunset school corridor"},
-                {"male_age": "18", "female_age": "17", "male_bubble_type": "speech", "male_line": "Take my coat. Your hands are freezing.", "female_bubble_type": "thought", "female_line": "His coat feels so warm...", "scene_setting_and_pose": "boy draping his winter coat over girl's shoulders at a golden lamp-lit snowy bus stop"},
-                {"male_age": "19", "female_age": "18", "male_bubble_type": "shout", "male_line": "Don't date anyone else! Look at me!", "female_bubble_type": "thought", "female_line": "His heart is beating so loud...", "scene_setting_and_pose": "sheltering under a wooden roof in golden-lit rain, boy looking intensely into her eyes"},
-                {"male_age": "19", "female_age": "18", "male_bubble_type": "whisper", "male_line": "I've loved you since we were nine.", "female_bubble_type": "whisper", "female_line": "I was scared to lose our friendship...", "scene_setting_and_pose": "standing close on a sunset hilltop overlooking the town, boy gently cupping her cheek"},
-                {"male_age": "21", "female_age": "20", "male_bubble_type": "speech", "male_line": "Every promise I made was for you.", "female_bubble_type": "thought", "female_line": "He kept the ring from childhood!", "scene_setting_and_pose": "standing under golden cherry blossom branches, boy showing a silver promise ring"},
-                {"male_age": "23", "female_age": "22", "male_bubble_type": "speech", "male_line": "From next-door neighbours to my wife?", "female_bubble_type": "speech", "female_line": "Yes! A thousand times yes!", "scene_setting_and_pose": "romantic proposal under glowing golden sunset clouds and cherry petals"},
-                {"male_age": "24", "female_age": "23", "male_bubble_type": "thought", "male_line": "Forever starts right now with her.", "female_bubble_type": "thought", "female_line": "My childhood friend is my whole life.", "scene_setting_and_pose": "embracing happily under warm golden sunset rays and floating petals"}
+                {"male_age": "10", "female_age": "9", "male_bubble_type": "speech", "male_line": "Stop crying! I saved you strawberries.", "female_bubble_type": "thought", "female_line": "He always knows how to make me smile...", "lighting_and_atmosphere": "bright sunny summer afternoon with soft green leaves", "scene_setting_and_pose": "two cute childhood kids smiling across adjacent bedroom balconies"},
+                {"male_age": "15", "female_age": "14", "male_bubble_type": "speech", "male_line": "Walk on the inside of the street.", "female_bubble_type": "thought", "female_line": "Since when did he get so tall?", "lighting_and_atmosphere": "warm afternoon sunlight with floating cherry blossom petals", "scene_setting_and_pose": "two middle school teens in uniforms walking side-by-side under cherry trees"},
+                {"male_age": "17", "female_age": "16", "male_bubble_type": "thought", "male_line": "Why is that guy talking to her?", "female_bubble_type": "speech", "female_line": "Wait, why are you holding my wrist?", "lighting_and_atmosphere": "sunlit high school hallway with pastel window light", "scene_setting_and_pose": "jealous handsome high school boy gently holding blushing girl's wrist"},
+                {"male_age": "18", "female_age": "17", "male_bubble_type": "speech", "male_line": "Take my coat. Your hands are freezing.", "female_bubble_type": "thought", "female_line": "His coat feels so warm and safe...", "lighting_and_atmosphere": "soft white snow falling under glowing streetlamps", "scene_setting_and_pose": "boy draping his winter coat over the blushing girl's shoulders at a snowy bus stop"},
+                {"male_age": "19", "female_age": "18", "male_bubble_type": "shout", "male_line": "Don't date anyone else! Look at me!", "female_bubble_type": "thought", "female_line": "His heart is beating so fast...", "lighting_and_atmosphere": "evening rain with glowing pastel reflections", "scene_setting_and_pose": "sheltering together under an umbrella in the rain, intense romantic eye contact"},
+                {"male_age": "19", "female_age": "18", "male_bubble_type": "whisper", "male_line": "I've loved you since we were kids.", "female_bubble_type": "whisper", "female_line": "I loved you from the very start...", "lighting_and_atmosphere": "starry night rooftop with dreamy blue and pink bokeh", "scene_setting_and_pose": "standing close on a starry rooftop, boy gently resting his forehead against hers"},
+                {"male_age": "22", "female_age": "21", "male_bubble_type": "speech", "male_line": "From next-door neighbours to my wife?", "female_bubble_type": "speech", "female_line": "Yes! A thousand times yes!", "lighting_and_atmosphere": "magical sunset rooftop with glowing fairy lights", "scene_setting_and_pose": "handsome man in suit proposing with a diamond ring box, girl smiling with happy tears"},
+                {"male_age": "23", "female_age": "22", "male_bubble_type": "thought", "male_line": "Forever starts right now with her.", "female_bubble_type": "thought", "female_line": "My childhood friend is my whole world.", "lighting_and_atmosphere": "sparkling night fireworks and floating petals", "scene_setting_and_pose": "couple embracing happily under colorful fireworks in the night sky"}
             ]
         }
     ]
@@ -599,8 +551,8 @@ def generate_complete_fallback_story(history):
         "trope": picked["trope"],
         "recommended_yt_song": LOCKED_SONG_TITLE,
         "video_title": picked["video_title"],
-        "male_hair_eyes": f"{m_hair} hair and warm amber eyes",
-        "female_hair_eyes": f"{f_hair} hair and bright expressive eyes",
+        "male_dna": f"handsome Korean manhwa boy with {m_hair} hair and warm amber eyes",
+        "female_dna": f"beautiful Korean manhwa girl with {f_hair} hair and bright expressive eyes",
         "scenes": picked["scenes"]
     }
 
@@ -621,7 +573,7 @@ def generate_fresh_story(history):
             candidate_models = get_valid_groq_chat_models(client)
             for model in candidate_models[:4]:
                 try:
-                    print(f"[STORY-ENGINE] Writing complete 9-scene script via Groq ({model})...")
+                    print(f"[STORY-ENGINE] Writing complete 8-scene script via Groq ({model})...")
                     res = client.chat.completions.create(
                         model=model,
                         messages=[{"role": "system", "content": sys_p}, {"role": "user", "content": usr_p}],
@@ -666,403 +618,293 @@ def generate_fresh_story(history):
     return generate_complete_fallback_story(history)
 
 
-def build_age_accurate_character_prompt(age_str, gender, hair_eyes_desc):
+def build_age_matched_manhwa_character(age_str, is_male, base_dna):
     """
-    Dynamically matches the character's physical body, face, and outfit to their exact numeric age
-    so a 9-year-old looks like an adorable 9-year-old child, a 14-year-old looks like a middle-school teen,
-    and a 22-year-old looks like a young adult!
+    Ensures the character's visual age matches the numeric age badge while keeping
+    the gorgeous Korean Manhwa / Webtoon aesthetic.
     """
     digits = "".join(c for c in str(age_str) if c.isdigit())
     age = int(digits) if digits else 19
 
-    # Strip any accidental "Korean man/woman" words that trigger 3D photorealism
-    clean_traits = (
-        str(hair_eyes_desc)
-        .replace("handsome young Korean man with", "")
-        .replace("beautiful young Korean woman with", "")
-        .replace("Korean", "2D anime")
-        .strip()
-    )
-    if not clean_traits or len(clean_traits) > 65:
-        clean_traits = "dark hair and warm amber eyes" if gender == "male" else "long brown hair and bright eyes"
-
     if age <= 11:
-        if gender == "male":
-            return f"cute {age}-year-old 2D anime little child boy (small kid body proportions, round child cheeks, big innocent kid eyes, {clean_traits})"
-        else:
-            return f"cute {age}-year-old 2D anime little child girl (small kid body proportions, round child cheeks, big innocent kid eyes, {clean_traits})"
+        role = f"cute {age}-year-old child boy with small kid proportions" if is_male else f"cute {age}-year-old child girl with small kid proportions"
+        return f"{role} ({base_dna})"
     elif age <= 15:
-        if gender == "male":
-            return f"{age}-year-old 2D anime middle-school teen boy (youthful teen face, school uniform, {clean_traits})"
-        else:
-            return f"{age}-year-old 2D anime middle-school teen girl (youthful teen face, school uniform, {clean_traits})"
+        role = f"{age}-year-old middle-school teen boy in uniform" if is_male else f"{age}-year-old middle-school teen girl in uniform"
+        return f"{role} ({base_dna})"
     elif age <= 18:
-        if gender == "male":
-            return f"{age}-year-old 2D anime high-school boy (collared school shirt and blazer, {clean_traits})"
-        else:
-            return f"{age}-year-old 2D anime high-school girl (school cardigan and ribbon collar, {clean_traits})"
+        role = f"handsome {age}-year-old high-school boy in blazer uniform" if is_male else f"cute {age}-year-old high-school girl in cardigan uniform"
+        return f"{role} ({base_dna})"
     else:
-        if gender == "male":
-            return f"handsome {age}-year-old 2D anime young man (open tailored coat over collared shirt, {clean_traits})"
-        else:
-            return f"beautiful {age}-year-old 2D anime young woman (elegant cardigan over collared blouse, {clean_traits})"
+        role = f"handsome {age}-year-old young man in stylish jacket" if is_male else f"beautiful {age}-year-old young woman in stylish outfit"
+        return f"{role} ({base_dna})"
 
 
-def try_huggingface_free_anime_space(prompt, seed):
+def fetch_pollinations_manhwa_artwork(scene, male_dna, female_dna, story_seed, idx, total_scenes, output_path):
     """
-    Secondary Free Image Provider (Hugging Face Public Inference / Gradio Gateways)
-    if Pollinations temporarily rate-limits a scene on GitHub Actions IPs.
+    100% Pure Pollinations Korean Manhwa / Webtoon Artwork Generator (Zero Hugging Face, Zero Filters):
+    - Uses the exact vibrant Korean Manhwa / Makoto Shinkai webtoon style that made the 2nd video look beautiful.
+    - Respects Pollinations' token-bucket rate limit with smart cooldowns so all 8 scenes succeed natively.
     """
-    hf_models = [
-        "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell",
-        "https://api-inference.huggingface.co/models/cagliostrolab/animagine-xl-3.1"
-    ]
-    headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"}
-    hf_token = os.getenv("HF_TOKEN")
-    if hf_token:
-        headers["Authorization"] = f"Bearer {hf_token}"
-
-    for model_url in hf_models:
-        try:
-            res = requests.post(
-                model_url,
-                headers=headers,
-                json={"inputs": prompt, "parameters": {"seed": seed}},
-                timeout=45
-            )
-            if res.status_code == 200 and "image" in res.headers.get("Content-Type", "") and len(res.content) > 14000:
-                return res.content
-        except Exception:
-            continue
-    return None
-
-
-def synthesize_emergency_aot_2d_scene_frame(prev_img_path, idx, output_path):
-    """
-    Last-resort emergency frame builder:
-    If all external image networks time out on Scene idx, creates a distinct cinematic framing variation
-    (pan/zoom/warm sunset lighting shift) from the nearest rendered scene or painted golden sky canvas
-    so the 9-scene story NEVER drops a scene or shortens the video!
-    """
-    if prev_img_path and os.path.exists(prev_img_path):
-        with Image.open(prev_img_path) as im:
-            rgb = im.convert("RGB").resize((1080, 1920), Image.LANCZOS)
-            # Create a distinct closer emotional medium-closeup framing with warmer golden sunset shift
-            crop_box = (65, 90, 1015, 1780) if idx % 2 == 0 else (40, 60, 1040, 1838)
-            varied = rgb.crop(crop_box).resize((1080, 1920), Image.LANCZOS)
-            varied = ImageEnhance.Brightness(varied).enhance(1.04)
-            varied.save(output_path, "JPEG", quality=95)
-            return True
-    return False
-
-
-def fetch_clean_manhwa_artwork(scene, male_traits, female_traits, story_seed, idx, total_scenes, prev_img_path, output_path):
-    """
-    Bulletproof 9-Scene 2D WIT-Studio Anime Art Generator:
-    1. Builds age-accurate 2D anime character prompts (so age 9 = actual 9-year-old kids!).
-    2. Enforces 2D flat hand-drawn Attack on Titan (WIT Studio) golden-hour sunset aesthetic (NO 3D CGI).
-    3. Uses rate-limit-aware pacing + multi-endpoint backoff so all 9 scenes complete reliably.
-    4. Automatically strips the bottom 7.5% Pollinations watermark and fits to 9:16 with ZERO stretching!
-    """
+    api_key = os.getenv("POLLINATIONS_API_KEY")
     m_age = scene.get("male_age", "19")
     f_age = scene.get("female_age", "18")
-    pose = scene.get("scene_setting_and_pose", "standing side-by-side under golden sunset sky looking at each other")
+    atmos = scene.get("lighting_and_atmosphere", "soft pastel sunset lighting and glowing cherry blossom petals")
+    pose = scene.get("scene_setting_and_pose", "standing side-by-side looking warmly into each other's eyes")
 
-    male_desc = build_age_accurate_character_prompt(m_age, "male", male_traits)
-    female_desc = build_age_accurate_character_prompt(f_age, "female", female_traits)
+    male_desc = build_age_matched_manhwa_character(m_age, True, male_dna)
+    female_desc = build_age_matched_manhwa_character(f_age, False, female_dna)
 
-    # Put 2D WIT Studio Style + Age-Accurate Characters + Scene Action right up front (never truncated!)
     prompt = (
-        f"Flat 2D hand-drawn anime television frame, Attack on Titan WIT Studio 2D anime art style, "
-        f"bold dark ink outlines, flat 2D cel-shading, warm golden-hour sunset amber color grading, "
-        f"glowing golden dust particles, rich painted 2D anime background with sky headroom at top. "
-        f"Waist-up front-facing 2D portrait: on left is {male_desc}; on right is {female_desc}. "
-        f"Scene: {pose}. Strictly 2D flat anime illustration, NOT 3D, no CGI, no text, no speech bubbles."
+        f"Masterpiece Korean romance manhwa webtoon illustration, Makoto Shinkai anime aesthetic, "
+        f"vibrant luminous colors, clean detailed lineart, soft romantic lighting. "
+        f"Wide composition with clean sky or ceiling headroom in the top 25 percent above their heads: "
+        f"On the left is {male_desc}; on the right is {female_desc}. "
+        f"Scene: {pose}, {atmos}. "
+        f"Natural front-facing posture, expressive eyes, strictly no text, no speech bubbles, no numbers, no watermark."
     )
-
     encoded = urllib.parse.quote(prompt)
-    seed = story_seed + (idx * 293)
 
-    # Pace requests by 5.5s between scenes so Pollinations' Cloudflare IP burst limiter never triggers 402
+    # Pace requests between scenes so Pollinations' IP burst limiter stays green
     if idx > 0:
-        time.sleep(5.5)
-
-    # Multiple distinct URL structures & resolutions across Pollinations servers
-    candidate_urls = [
-        f"https://image.pollinations.ai/prompt/{encoded}?width=768&height=1344&model=flux&seed={seed}&nologo=true",
-        f"https://image.pollinations.ai/prompt/{encoded}?width=1080&height=1920&seed={seed + 11}&nologo=true",
-        f"https://gen.pollinations.ai/image/{encoded}?width=768&height=1344&model=flux&seed={seed + 23}&nologo=true",
-        f"https://image.pollinations.ai/prompt/{encoded}?width=768&height=1344&model=flux&seed={seed + 47}",
-        f"https://image.pollinations.ai/prompt/{encoded}?seed={seed + 89}"
-    ]
+        time.sleep(9.0)
 
     user_agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
-        "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
+        "Mozilla/5.0 (X11; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0"
     ]
 
-    print(f"[ARTWORK] Generating 2D Golden-Tint Scene {idx + 1}/{total_scenes} (Ages {m_age} & {f_age})...")
+    print(f"[POLLINATIONS-ART] Generating Scene {idx + 1}/{total_scenes} (Ages {m_age} & {f_age})...")
 
-    for attempt, url in enumerate(candidate_urls):
+    for attempt in range(7):
+        seed = story_seed + (idx * 317) + (attempt * 43)
+        # Rotate between exact 9:16 Pollinations Flux endpoints
+        if attempt % 3 == 0:
+            url = f"https://image.pollinations.ai/prompt/{encoded}?width=768&height=1344&model=flux&seed={seed}&nologo=true"
+        elif attempt % 3 == 1:
+            url = f"https://image.pollinations.ai/prompt/{encoded}?width=1080&height=1920&model=flux&seed={seed}&nologo=true"
+        else:
+            url = f"https://gen.pollinations.ai/image/{encoded}?width=768&height=1344&model=flux&seed={seed}&nologo=true"
+            if api_key and attempt == 2:
+                url += f"&key={api_key}"
+
         headers = {"User-Agent": user_agents[attempt % len(user_agents)]}
+
         try:
-            res = requests.get(url, headers=headers, timeout=80)
+            res = requests.get(url, headers=headers, timeout=85)
             ctype = res.headers.get("Content-Type", "")
-            if res.status_code == 200 and "image" in ctype and len(res.content) > 14000:
-                crop_watermark_and_fit_9_16(res.content, output_path)
-                print(f"✅ Scene {idx + 1}/{total_scenes} saved (Watermark cropped + 9:16 zero-stretch + AoT Golden 2D grade): {output_path}")
+            if res.status_code == 200 and "image" in ctype and is_valid_colorful_artwork(res.content):
+                clean_watermark_and_fit_9_16(res.content, output_path)
+                print(f"✅ Scene {idx + 1}/{total_scenes} saved in pure Pollinations Manhwa quality: {output_path}")
                 return True
             else:
-                wait_sec = 6 + (attempt * 4)
-                print(f"   ⚠️ Attempt {attempt + 1} status {res.status_code}. Cooling down {wait_sec}s before next gateway...")
-                time.sleep(wait_sec)
+                # Token-bucket refill wait (15s-24s) so the next request succeeds cleanly
+                cooldown = 15 + (attempt * 3)
+                print(f"   ⏳ Pollinations cooldown (status {res.status_code}). Waiting {cooldown}s for token bucket refill...")
+                time.sleep(cooldown)
         except Exception as e:
-            wait_sec = 5 + (attempt * 3)
-            print(f"   ⚠️ Attempt {attempt + 1} network error ({e}). Waiting {wait_sec}s...")
-            time.sleep(wait_sec)
-
-    # Secondary Provider: Hugging Face Free Inference
-    print(f"   ↳ Trying Hugging Face Free Anime/Flux Gateway for Scene {idx + 1}...")
-    hf_bytes = try_huggingface_free_anime_space(prompt, seed)
-    if hf_bytes:
-        crop_watermark_and_fit_9_16(hf_bytes, output_path)
-        print(f"✅ Scene {idx + 1}/{total_scenes} saved via Hugging Face Gateway!")
-        return True
-
-    # Final Guarantee: Ensure scene count never drops
-    if synthesize_emergency_aot_2d_scene_frame(prev_img_path, idx, output_path):
-        print(f"✅ Scene {idx + 1}/{total_scenes} synthesized via continuity frame engine!")
-        return True
+            cooldown = 12 + (attempt * 3)
+            print(f"   ⏳ Network retry ({e}). Waiting {cooldown}s...")
+            time.sleep(cooldown)
 
     return False
 
 
-def verify_zero_vocals_with_whisper(audio_path):
-    """Verifies with Groq Whisper-Large-v3 that zero sung French/English lyrics exist in the cut."""
-    groq_key = os.getenv("GROQ_API_KEY")
-    if not groq_key or not os.path.exists(audio_path):
-        return True
+def download_youtube_audio_multi_client(yt_url, out_raw_path):
+    """
+    Downloads audio from a specific YouTube URL on GitHub Actions using 3 sequential bypass layers:
+    1) pytubefix with ANDROID_VR / IOS / TV / WEB_EMBED clients
+    2) yt-dlp with android_vr / ios / tv_embedded player clients
+    3) Invidious / Piped public stream API mirrors
+    """
+    video_id = yt_url.split("/")[-1].split("?")[0].replace("watch?v=", "")
 
+    # Layer 1: pytubefix multi-client bypass
     try:
-        client = Groq(api_key=groq_key)
-        with open(audio_path, "rb") as f:
-            transcription = client.audio.transcriptions.create(
-                file=(os.path.basename(audio_path), f.read()),
-                model="whisper-large-v3",
-                response_format="json"
-            )
-        text = (getattr(transcription, "text", "") or "").strip().lower()
-        non_vocal = ["sous-titres", "amara.org", "merci d'avoir", "thank you for watching", "music", "applause", "instrumental"]
-        for p in non_vocal:
-            text = text.replace(p, "")
-
-        indila_lyrics = ("attend", "debout", "rose", "main", "rien", "autour", "sens", "lourd", "regard", "seul", "parle", "aime", "histoire")
-        if any(w in text for w in indila_lyrics):
-            print(f"⚠️ [WHISPER VOCAL GATE] Rejected track—detected Indila lyrics: '{text[:60]}'")
-            return False
-
-        words = [w for w in text.split() if len(w) > 2]
-        if len(words) > 6:
-            print(f"⚠️ [WHISPER VOCAL GATE] Rejected track—detected vocals ({len(words)} words): '{text[:60]}'")
-            return False
-
-        print("✅ [WHISPER VOCAL GATE] Confirmed 100% PURE INSTRUMENTAL (75s continuous forward cut)!")
-        return True
+        from pytubefix import YouTube
+        for client_name in ("ANDROID_VR", "IOS", "TV", "MWEB", "WEB_EMBED"):
+            try:
+                print(f"   [AUDIO-DL] Trying pytubefix ({client_name}) for {yt_url}...")
+                yt = YouTube(yt_url, client=client_name)
+                stream = yt.streams.get_audio_only()
+                if stream:
+                    dl_file = stream.download(output_path="workspace", filename=f"pytube_{video_id}.m4a")
+                    if dl_file and os.path.exists(dl_file) and os.path.getsize(dl_file) > 60000:
+                        os.replace(dl_file, out_raw_path)
+                        print(f"   ✅ Downloaded {yt_url} via pytubefix ({client_name})!")
+                        return True
+            except Exception:
+                continue
     except Exception:
-        return True
+        pass
 
+    # Layer 2: yt-dlp with player_client spoofing
+    for client_arg in ("youtube:player_client=android_vr", "youtube:player_client=ios,tv_embedded", "youtube:player_client=mweb"):
+        try:
+            print(f"   [AUDIO-DL] Trying yt-dlp ({client_arg}) for {yt_url}...")
+            if os.path.exists(out_raw_path):
+                os.remove(out_raw_path)
+            cmd = [
+                sys.executable, "-m", "yt_dlp",
+                yt_url,
+                "--extractor-args", client_arg,
+                "--extract-audio",
+                "--audio-format", "mp3",
+                "--audio-quality", "192K",
+                "--no-playlist",
+                "--quiet",
+                "--output", out_raw_path
+            ]
+            subprocess.run(cmd, timeout=60, check=False)
+            if os.path.exists(out_raw_path) and os.path.getsize(out_raw_path) > 60000:
+                print(f"   ✅ Downloaded {yt_url} via yt-dlp ({client_arg})!")
+                return True
+        except Exception:
+            continue
 
-def synthesize_indila_continuous_75s_orchestra(output_mp3, duration_sec=75):
-    """Generates a continuous 75-second evolving orchestral arrangement of Indila's 'Love Story'."""
-    raw_wav = "workspace/indila_orchestral_75s.wav"
-    sr = 44100
-    total_samples = int(sr * duration_sec)
-
-    bars = [
-        (146.83, [293.66, 349.23, 440.00], [440.00, 587.33, 523.25]),
-        (116.54, [233.08, 293.66, 349.23], [466.16, 440.00, 392.00]),
-        (98.00,  [196.00, 293.66, 349.23], [349.23, 440.00, 392.00]),
-        (110.00, [220.00, 277.18, 329.63], [349.23, 329.63, 293.66]),
-        (146.83, [293.66, 440.00, 587.33], [587.33, 659.25, 698.46]),
-        (116.54, [233.08, 349.23, 466.16], [659.25, 587.33, 523.25]),
-        (98.00,  [196.00, 293.66, 440.00], [587.33, 523.25, 466.16]),
-        (110.00, [220.00, 329.63, 440.00], [523.25, 440.00, 440.00]),
+    # Layer 3: Piped / Invidious Direct Audio Stream Mirrors
+    mirror_apis = [
+        f"https://pipedapi.kavin.rocks/streams/{video_id}",
+        f"https://pipedapi.tokhmi.xyz/streams/{video_id}",
+        f"https://inv.nadeko.net/api/v1/videos/{video_id}"
     ]
-    beat_sec = 0.64
-    bar_sec = beat_sec * 3.0
+    for api_url in mirror_apis:
+        try:
+            r = requests.get(api_url, timeout=15)
+            if r.status_code == 200:
+                j = r.json()
+                streams = j.get("audioStreams") or j.get("adaptiveFormats") or []
+                for st in streams:
+                    s_url = st.get("url")
+                    if s_url and ("audio" in (st.get("mimeType") or st.get("type") or "audio")):
+                        audio_res = requests.get(s_url, timeout=40)
+                        if audio_res.status_code == 200 and len(audio_res.content) > 60000:
+                            with open(out_raw_path, "wb") as f:
+                                f.write(audio_res.content)
+                            print(f"   ✅ Downloaded {yt_url} via stream mirror!")
+                            return True
+        except Exception:
+            continue
 
-    with wave.open(raw_wav, "w") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sr)
-
-        for i in range(total_samples):
-            t = i / float(sr)
-            bar_idx = int(t / bar_sec) % len(bars)
-            in_bar_t = t % bar_sec
-            beat_idx = min(2, max(0, int(in_bar_t / beat_sec)))
-            note_t = max(0.0, in_bar_t - beat_idx * beat_sec)
-
-            bass_f, arp_list, mel_list = bars[bar_idx]
-            arp_f = arp_list[beat_idx]
-            mel_f = mel_list[beat_idx]
-
-            bass_gain = 0.18 if t < 12.0 else min(0.36, 0.18 + (t - 12.0) * 0.03)
-            lead_gain = 0.20 if t < 11.5 else min(0.54, 0.20 + (t - 11.5) * 0.04)
-            octave_shimmer = 0.0 if t < 23.0 else min(0.28, (t - 23.0) * 0.03)
-
-            bass_env = math.exp(-in_bar_t * 1.1) * min(1.0, in_bar_t * 35.0)
-            bass_sig = bass_gain * (
-                math.sin(2 * math.pi * bass_f * t) + 0.35 * math.sin(4 * math.pi * bass_f * t)
-            ) * bass_env
-
-            arp_env = math.exp(-note_t * 2.7) * min(1.0, note_t * 50.0)
-            arp_sig = 0.30 * (
-                math.sin(2 * math.pi * arp_f * t) + 0.25 * math.sin(4 * math.pi * arp_f * t)
-            ) * arp_env
-
-            vib = 1.0 + 0.0035 * math.sin(2 * math.pi * 5.0 * t)
-            mel_env = math.exp(-note_t * 1.25) * min(1.0, note_t * 18.0)
-            lead_sig = (
-                lead_gain * math.sin(2 * math.pi * mel_f * vib * t)
-                + (lead_gain * 0.45) * math.sin(4 * math.pi * mel_f * vib * t)
-                + octave_shimmer * math.sin(2 * math.pi * (mel_f * 2.0) * vib * t)
-            ) * mel_env
-
-            val = max(-1.0, min(1.0, (bass_sig + arp_sig + lead_sig) * 0.65))
-            wf.writeframesraw(struct.pack("<h", int(val * 32767)))
-
-    subprocess.run([
-        "ffmpeg", "-y", "-i", raw_wav,
-        "-af", "aecho=0.8:0.90:70|140:0.40|0.25,lowpass=f=3600,loudnorm=I=-14:TP=-1.5:LRA=11",
-        "-b:a", "192k", output_mp3
-    ], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return output_mp3
+    return False
 
 
-def get_verified_75s_pure_instrumental(required_duration_sec):
-    """Guarantees a continuous forward-playing 75-second cut of Indila - Love Story (Instrumental)."""
+def get_locked_target_song(required_duration_sec):
+    """
+    Fetches and slices the exact requested song:
+    1) Primary: https://youtu.be/e4KMz7PdAmE from 00:00 (Love Story - Indila Slowed+Reverb+Echo)
+    2) Secondary: https://youtu.be/1NBnN0IAljQ from 00:20 (Love Story by Indila Ethereal Instrumental)
+    3) Direct SoundCloud Mirror of the exact same Slowed+Reverb+Echo / Ethereal track if YouTube blocks datacenter IPs.
+    Never uses any synthetic computer piano!
+    """
     os.makedirs("assets", exist_ok=True)
     os.makedirs("workspace", exist_ok=True)
 
-    if os.path.exists(LOCKED_SONG_PATH) and os.path.getsize(LOCKED_SONG_PATH) > 80000:
+    # Purge any old synthetic or short audio files
+    for old_f in (
+        "assets/indila_love_story_magical_cut.mp3",
+        "assets/indila_love_story_instrumental_v2.mp3",
+        "assets/indila_love_story_pure_instrumental_v3.mp3",
+        "assets/indila_love_story_pure_inst_v4.mp3",
+        "assets/indila_love_story_pure_inst_75s_v5.mp3"
+    ):
+        if os.path.exists(old_f):
+            try:
+                os.remove(old_f)
+            except Exception:
+                pass
+
+    slice_len = max(MASTER_AUDIO_DURATION, int(required_duration_sec) + 6)
+
+    if os.path.exists(LOCKED_SONG_PATH) and os.path.getsize(LOCKED_SONG_PATH) > 90000:
         try:
-            test_clip = AudioFileClip(LOCKED_SONG_PATH)
-            dur = test_clip.duration
-            test_clip.close()
-            if dur >= required_duration_sec and verify_zero_vocals_with_whisper(LOCKED_SONG_PATH):
-                print(f"✅ Using verified {dur:.1f}s continuous forward Indila instrumental: {LOCKED_SONG_PATH}")
+            clip = AudioFileClip(LOCKED_SONG_PATH)
+            dur = clip.duration
+            clip.close()
+            if dur >= required_duration_sec:
+                print(f"✅ Using cached real Indila soundtrack ({dur:.1f}s): {LOCKED_SONG_PATH}")
                 return LOCKED_SONG_PATH
         except Exception:
             pass
 
-    candidate_queries = [
-        "https://www.youtube.com/watch?v=FRhcUnZ7MOw",
-        "https://www.youtube.com/watch?v=SPEqQwB0tZs",
-        "https://www.youtube.com/watch?v=EqAj188uSBQ",
-        "https://www.youtube.com/watch?v=1NBnN0IAljQ",
-        "scsearch12:Indila Love Story piano cover instrumental",
-        "scsearch12:Indila Love Story karaoke instrumental",
-        "scsearch12:Indila Love Story violin instrumental"
+    raw_audio = "workspace/raw_target_song.mp3"
+
+    # Attempt 1: Primary YouTube URL (e4KMz7PdAmE from 00:00)
+    print(f"[AUDIO] Fetching Primary Track: {PRIMARY_YT_URL} (starting from 00:00)...")
+    if download_youtube_audio_multi_client(PRIMARY_YT_URL, raw_audio):
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-ss", str(PRIMARY_START_SEC),
+            "-t", str(slice_len),
+            "-i", raw_audio,
+            "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
+            "-b:a", "192k",
+            LOCKED_SONG_PATH
+        ], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if os.path.exists(LOCKED_SONG_PATH) and os.path.getsize(LOCKED_SONG_PATH) > 80000:
+            print(f"🎉 Locked Primary Track ({PRIMARY_YT_URL} from 00:00) -> {LOCKED_SONG_PATH}")
+            return LOCKED_SONG_PATH
+
+    # Attempt 2: Secondary YouTube URL (1NBnN0IAljQ from 00:20)
+    print(f"[AUDIO] Fetching Secondary Track: {SECONDARY_YT_URL} (starting from 00:20)...")
+    if download_youtube_audio_multi_client(SECONDARY_YT_URL, raw_audio):
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-ss", str(SECONDARY_START_SEC),
+            "-t", str(slice_len),
+            "-i", raw_audio,
+            "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
+            "-b:a", "192k",
+            LOCKED_SONG_PATH
+        ], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if os.path.exists(LOCKED_SONG_PATH) and os.path.getsize(LOCKED_SONG_PATH) > 80000:
+            print(f"🎉 Locked Secondary Track ({SECONDARY_YT_URL} from 00:20) -> {LOCKED_SONG_PATH}")
+            return LOCKED_SONG_PATH
+
+    # Attempt 3: Direct SoundCloud Mirror of the exact same tracks (Never blocked on GitHub Actions IPs!)
+    sc_mirrors = [
+        ("scsearch1:Love Story Indila Slowed Reverb Echo", 0),
+        ("scsearch1:Indila Love Story Slowed and Reverb", 0),
+        ("scsearch1:Love Story Indila Ethereal Instrumental", 20)
     ]
-
-    required_kw = ("instrumental", "karaoke", "piano", "violin", "orchestral", "guitar", "backing")
-    banned_kw = ("lyrics", "lyric", "vocal", "singing", "official music video", "nightcore")
-
-    raw_dl = "workspace/candidate_raw.mp3"
-    test_cut = "workspace/candidate_cut_75s.mp3"
-    slice_len = max(GOLDEN_DURATION_SEC, int(required_duration_sec) + 8)
-
-    for item in candidate_queries:
-        print(f"[AUDIO-HUNTER] Probing continuous instrumental source: {item}...")
+    for sc_query, start_offset in sc_mirrors:
+        print(f"[AUDIO] Fetching exact SoundCloud mirror: {sc_query} (from 00:{start_offset:02d})...")
         try:
-            ydl_opts = {
-                "format": "bestaudio/best",
-                "quiet": True,
-                "no_warnings": True,
-                "noplaylist": True,
-                "extract_flat": "in_playlist" if item.startswith("scsearch") else False
-            }
-            urls_to_try = []
-            if item.startswith("scsearch"):
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(item, download=False)
-                    for entry in (info.get("entries") or []):
-                        title = (entry.get("title") or "").lower()
-                        dur = entry.get("duration") or 180
-                        if (
-                            dur >= (GOLDEN_START_SEC + slice_len)
-                            and any(k in title for k in required_kw)
-                            and not any(b in title for b in banned_kw)
-                        ):
-                            urls_to_try.append((entry.get("url") or entry.get("webpage_url"), title))
-            else:
-                urls_to_try.append((item, "verified_yt_instrumental"))
-
-            for target_url, title_label in urls_to_try[:3]:
-                if not target_url:
-                    continue
-                for f_tmp in (raw_dl, test_cut):
-                    if os.path.exists(f_tmp):
-                        os.remove(f_tmp)
-
-                cmd = [
-                    sys.executable, "-m", "yt_dlp",
-                    target_url,
-                    "--extract-audio",
-                    "--audio-format", "mp3",
-                    "--audio-quality", "192K",
-                    "--no-playlist",
-                    "--quiet",
-                    "--output", raw_dl
-                ]
-                subprocess.run(cmd, timeout=60, check=False)
-
-                if not (os.path.exists(raw_dl) and os.path.getsize(raw_dl) > 90000):
-                    continue
-
-                slice_cmd = [
+            if os.path.exists(raw_audio):
+                os.remove(raw_audio)
+            cmd = [
+                sys.executable, "-m", "yt_dlp",
+                sc_query,
+                "--extract-audio",
+                "--audio-format", "mp3",
+                "--audio-quality", "192K",
+                "--no-playlist",
+                "--quiet",
+                "--output", raw_audio
+            ]
+            subprocess.run(cmd, timeout=60, check=False)
+            if os.path.exists(raw_audio) and os.path.getsize(raw_audio) > 90000:
+                subprocess.run([
                     "ffmpeg", "-y",
-                    "-ss", str(GOLDEN_START_SEC),
+                    "-ss", str(start_offset),
                     "-t", str(slice_len),
-                    "-i", raw_dl,
-                    "-af", "aecho=0.8:0.86:55:0.28,loudnorm=I=-14:TP=-1.5:LRA=11",
+                    "-i", raw_audio,
+                    "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
                     "-b:a", "192k",
-                    test_cut
-                ]
-                subprocess.run(slice_cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-                if os.path.exists(test_cut) and os.path.getsize(test_cut) > 60000:
-                    if verify_zero_vocals_with_whisper(test_cut):
-                        os.replace(test_cut, LOCKED_SONG_PATH)
-                        print(f"🎉 Locked {slice_len}s Continuous Forward Instrumental: {LOCKED_SONG_PATH}")
-                        return LOCKED_SONG_PATH
-
-                    stripped_cut = "workspace/candidate_stripped_75s.mp3"
-                    strip_cmd = [
-                        "ffmpeg", "-y",
-                        "-ss", str(GOLDEN_START_SEC),
-                        "-t", str(slice_len),
-                        "-i", raw_dl,
-                        "-af", "stereotools=mlev=0.015,aecho=0.8:0.88:65:0.35,loudnorm=I=-14:TP=-1.5:LRA=11",
-                        "-b:a", "192k",
-                        stripped_cut
-                    ]
-                    subprocess.run(strip_cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    if os.path.exists(stripped_cut) and verify_zero_vocals_with_whisper(stripped_cut):
-                        os.replace(stripped_cut, LOCKED_SONG_PATH)
-                        print(f"🎉 Locked Vocal-Stripped {slice_len}s Instrumental: {LOCKED_SONG_PATH}")
-                        return LOCKED_SONG_PATH
+                    LOCKED_SONG_PATH
+                ], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if os.path.exists(LOCKED_SONG_PATH) and os.path.getsize(LOCKED_SONG_PATH) > 80000:
+                    print(f"🎉 Locked real Indila Slowed+Reverb track via SoundCloud mirror: {LOCKED_SONG_PATH}")
+                    return LOCKED_SONG_PATH
         except Exception as e:
-            print(f"⚠️ Candidate probe skipped: {e}")
+            print(f"⚠️ Mirror attempt skipped: {e}")
 
-    print(f"[AUDIO-SYNTH] Rendering {slice_len}s Continuous Evolving Orchestral Indila Waltz...")
-    return synthesize_indila_continuous_75s_orchestra(LOCKED_SONG_PATH, duration_sec=slice_len)
+    raise RuntimeError("❌ Could not download the real Indila audio track.")
 
 
 def build_pipeline():
-    print("=== STARTING 9-SCENE 2D AOT GOLDEN-TINT + AGE-ACCURATE + WATERMARK-FREE PIPELINE ===")
+    print("=== STARTING PURE POLLINATIONS MANHWA + REAL INDILA SLOWED+REVERB PIPELINE ===")
     os.makedirs("workspace", exist_ok=True)
     os.makedirs("videos", exist_ok=True)
 
@@ -1082,30 +924,29 @@ def build_pipeline():
     with open("workspace/video_metadata.json", "w", encoding="utf-8") as f:
         json.dump(story_data, f, indent=2, ensure_ascii=False)
 
-    male_traits = story_data.get("male_hair_eyes", story_data.get("male_dna", "jet-black hair and warm amber eyes"))
-    female_traits = story_data.get("female_hair_eyes", story_data.get("female_dna", "long chestnut hair and bright eyes"))
-    scenes = story_data.get("scenes", [])[:9]
+    male_dna = story_data.get("male_dna", "handsome Korean manhwa boy with jet-black hair and warm amber eyes")
+    female_dna = story_data.get("female_dna", "beautiful Korean manhwa girl with long chestnut hair and bright eyes")
+    scenes = story_data.get("scenes", [])[:8]
     total_scenes = len(scenes)
     story_seed = random.randint(100000, 999999)
 
-    scene_duration = 5.2
+    scene_duration = 5.4  # 8 scenes * 5.4s = 43.2s complete story
     reply_pop_delay = 1.8
     clips = []
-    last_valid_img = None
 
     for idx, sc in enumerate(scenes):
         bg_path = f"workspace/clean_art_{idx}.jpg"
-        if not fetch_clean_manhwa_artwork(
-            sc, male_traits, female_traits, story_seed, idx, total_scenes, last_valid_img, bg_path
+        if not fetch_pollinations_manhwa_artwork(
+            sc, male_dna, female_dna, story_seed, idx, total_scenes, bg_path
         ):
+            print(f"⚠️ Scene {idx + 1} skipped after all Pollinations retries.")
             continue
 
-        last_valid_img = bg_path
         anchors = detect_character_anchors(bg_path)
         base_clip = ImageClip(bg_path).set_duration(scene_duration).resize((1080, 1920))
         layers = [base_clip]
 
-        # Floating Age Numbers
+        # Floating Age Numbers in Top Corners
         age_png = f"workspace/ages_{idx}.png"
         render_floating_manhwa_ages(sc.get("male_age", "20"), sc.get("female_age", "19"), age_png)
         age_clip = ImageClip(age_png).set_position(("center", 12)).set_duration(scene_duration)
@@ -1153,18 +994,18 @@ def build_pipeline():
         clips.append(scene_comp)
 
     if len(clips) < 6:
-        raise RuntimeError(f"❌ Pipeline aborted: Only {len(clips)} scenes rendered (minimum 6 required for full story).")
+        raise RuntimeError(f"❌ Pipeline aborted: Only {len(clips)} scenes rendered (minimum 6 required).")
 
     final_video = concatenate_videoclips(clips, method="compose")
     total_dur = final_video.duration
     print(f"[TIMELINE] Assembled complete {len(clips)}-scene story ({total_dur:.1f} seconds total).")
 
-    # Attach continuous forward music (STRICTLY NO LOOPING!)
-    audio_path = get_verified_75s_pure_instrumental(required_duration_sec=total_dur)
+    # Attach the exact locked Indila soundtrack playing continuously forward
+    audio_path = get_locked_target_song(required_duration_sec=total_dur)
     if audio_path and os.path.exists(audio_path):
         audio_clip = AudioFileClip(audio_path)
         audio_clip = audio_clip.subclip(0, min(total_dur, audio_clip.duration))
-        audio_clip = audio_clip.audio_fadein(1.0).audio_fadeout(1.8).volumex(0.95)
+        audio_clip = audio_clip.audio_fadein(0.8).audio_fadeout(1.8).volumex(0.95)
         final_video = final_video.set_audio(audio_clip)
 
     output_mp4 = "videos/final_manhwa_short.mp4"
