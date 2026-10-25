@@ -20,7 +20,7 @@ for pkg in ("yt-dlp", "pytubefix", "numpy"):
 import numpy as np
 import yt_dlp
 from groq import Groq
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 from moviepy.editor import (
     ImageClip,
     AudioFileClip,
@@ -29,31 +29,26 @@ from moviepy.editor import (
 )
 
 HISTORY_FILE = "story_history.json"
-# New v6 path so old synthetic piano MP3s are purged and replaced with the real song
-LOCKED_SONG_PATH = "assets/indila_love_story_real_v6.mp3"
-LOCKED_SONG_TITLE = "Love Story - Indila (Slowed + Reverb)"
+# v7 cache path for the 100% vocal-free Ethereal Instrumental starting at 00:20
+LOCKED_SONG_PATH = "assets/indila_love_story_ethereal_inst_v7.mp3"
+LOCKED_SONG_TITLE = "Love Story - Indila (Ethereal Instrumental Slowed & Reverb)"
 
-# Exact YouTube Audio Sources requested:
-# 1) https://youtu.be/e4KMz7PdAmE -> starts right at 00:00
-# 2) https://youtu.be/1NBnN0IAljQ -> skips first 20s, starts at 00:20
-PRIMARY_YT_URL = "https://youtu.be/e4KMz7PdAmE"
-PRIMARY_START_SEC = 0
+# Primary: 100% Pure Ethereal Instrumental (https://youtu.be/1NBnN0IAljQ) starting at 00:20 where the magic starts!
+PRIMARY_YT_URL = "https://youtu.be/1NBnN0IAljQ"
+PRIMARY_START_SEC = 20
 
-SECONDARY_YT_URL = "https://youtu.be/1NBnN0IAljQ"
-SECONDARY_START_SEC = 20
+# Secondary: Slowed+Reverb+Echo (https://youtu.be/e4KMz7PdAmE) with FFmpeg center-vocal stripper applied
+SECONDARY_YT_URL = "https://youtu.be/e4KMz7PdAmE"
+SECONDARY_START_SEC = 0
 
-MASTER_AUDIO_DURATION = 75  # Continuous 75s forward cut (zero looping)
+MASTER_AUDIO_DURATION = 75
 
-# Complete, emotional multi-act Korean Manhwa romance storylines
+# Rich multi-year 2D Webtoon storylines inspired by 'Hidden Love' & 'Silent Blossom'
 STORY_CONCEPTS = [
-    "Uncherished to Cherished by True Future Love: For 3 years her cold fiancé ignored her birthday and left her waiting in the rain; when she walks away, his protective older brother steps in with an umbrella and cherishes her like a queen while her ex begs in regret",
-    "Childhood Friends to Soulmates: From sharing strawberries across next-door balconies as kids, to walking home under cherry blossoms in high school, to a jealous rain confession, to a tearful rooftop marriage proposal",
-    "Intense Jealousy in Secret Love: The cold student council president claims he only sees her as a junior, until a handsome transfer student makes her laugh—shattering his calm mask as he pulls her aside at sunset to confess",
-    "Contract Marriage to Real Obsession: Married on paper with a strict rule to never fall in love; when she prepares to leave thinking he loves someone else, he tears up the contract in the rain and begs her to stay",
-    "Academic Rivals to Midnight Confidants: Competing for #1 rank every semester while bickering daily, until he discovers her crying on the library balcony at dusk and stays beside her every evening",
-    "The Forgotten Childhood Promise: Separated at age 10 when she moved away, she doesn't recognize the popular university senior—until she spots the braided red bracelet she made 10 years ago still on his wrist",
-    "Ignored by Crush, Treasured by the Quiet Protector: She always brought lunch for the popular captain who took her for granted, while the quiet art prodigy secretly filled his sketchbook with her smile before stepping forward",
-    "7 AM Subway Strangers to Soulmates: Standing in the same train car every morning in silence for a year until a sudden storm stops the train and he finally pulls her close to protect her"
+    "Older Brother's Best Friend Age-Gap Romance (Ages 19 & 13 -> 24 & 18 Airport Goodbye -> 3 Years Later Reunion at 27 & 21 -> 28 & 22 Wedding Embrace): He watched her grow up from a tiny middle-school girl whose backpack he carried, to the woman he kneels before to put on her silver heel and marries",
+    "Childhood Next-Door Neighbours to Forever (Ages 16 & 12 -> 21 & 17 Train Commute -> 3 Years Later Reunion at 24 & 20 -> 26 & 22 Proposal): He always patted her head and called her shortie under the cherry blossoms, until they reunite years later and he confesses she was always his only one",
+    "Uncherished Fiancée Rescued by the Quiet Older Brother (Ages 22 & 18 -> 24 & 20 Rain Rescue -> 2 Years Later at 26 & 22 -> 27 & 23 Wedding): Ignored by her cold crush, she is sheltered under an umbrella by his gentle older brother who cherishes every detail about her",
+    "Campus Senior & Shy Freshman Across the Years (Ages 21 & 17 Elevator Meet -> 23 & 19 Night Balcony -> 3 Years Later at 26 & 22 -> 27 & 23): From sharing snacks in an apartment elevator and holding the same bus strap to an emotional airport reunion and sunlit wedding"
 ]
 
 
@@ -73,7 +68,7 @@ def save_history(history):
 
 
 def get_comic_font(size):
-    """Loads clean bold font for comic lettering."""
+    """Loads clean bold font for crisp webtoon lettering."""
     candidates = [
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
@@ -90,27 +85,47 @@ def clean_english_text(text):
     return " ".join(allowed.split()) or "..."
 
 
+def enhance_bright_pastel_webtoon_look(pil_img):
+    """
+    Ensures every generated frame has the bright, airy, high-key 2D pastel watercolor & cel-shaded look
+    of 'Hidden Love' (Silent Blossom's benchmark video)—never dark, murky, or muddy!
+    """
+    rgb = pil_img.convert("RGB")
+    arr = np.array(rgb, dtype=np.float32) / 255.0
+
+    # If the frame is dark/muddy (mean luminance < 0.52), lift shadows gently using a soft gamma curve
+    mean_lum = float(np.mean(arr))
+    if mean_lum < 0.55:
+        gamma = max(0.74, min(0.92, mean_lum / 0.58))
+        arr = np.power(np.clip(arr, 0.0, 1.0), gamma)
+
+    # Soft pastel highlight lift (creamy whites and soft peach/sky tones)
+    arr = np.clip(arr * 1.04 + 0.02, 0.0, 1.0)
+    out = Image.fromarray((arr * 255.0).astype(np.uint8), mode="RGB")
+    out = ImageEnhance.Color(out).enhance(1.12)
+    out = ImageEnhance.Sharpness(out).enhance(1.15)
+    return out
+
+
 def clean_watermark_and_fit_9_16(raw_bytes, output_path):
     """
-    Preserves 100% of Pollinations Flux's natural, vibrant Korean Manhwa beauty (ZERO artificial color filters!).
-    1. Trims 3.8% off the bottom edge to cleanly remove any 'pollinations.ai' corner watermark.
-    2. Trims 1.9% off the left and right edges to preserve the exact 9:16 aspect ratio with ZERO stretching.
-    3. Resizes cleanly to 1080x1920 with LANCZOS interpolation.
+    1. Trims 4.0% off the bottom edge to remove any 'pollinations.ai' corner watermark.
+    2. Center-crops to exact 9:16 aspect ratio with ZERO vertical or horizontal stretching.
+    3. Applies the High-Key Pastel Webtoon brightness guard so frames never look dark or muddy.
     """
     with Image.open(io.BytesIO(raw_bytes)) as im:
         rgb = im.convert("RGB")
         w, h = rgb.size
 
-        # Trim bottom 3.8% watermark strip and proportional side margins
-        x0 = int(w * 0.019)
-        x1 = int(w * 0.981)
+        x0 = int(w * 0.02)
+        x1 = int(w * 0.98)
         y0 = int(h * 0.005)
-        y1 = int(h * 0.962)
+        y1 = int(h * 0.960)
 
         cropped = rgb.crop((x0, y0, x1, y1))
         cw, ch = cropped.size
 
-        target_aspect = 1080.0 / 1920.0  # 0.5625
+        target_aspect = 1080.0 / 1920.0
         current_aspect = cw / float(ch)
 
         if abs(current_aspect - target_aspect) > 0.02:
@@ -123,14 +138,15 @@ def clean_watermark_and_fit_9_16(raw_bytes, output_path):
                 top = max(0, (ch - new_h) // 3)
                 cropped = cropped.crop((0, top, cw, top + new_h))
 
-        final_img = cropped.resize((1080, 1920), Image.LANCZOS)
-        final_img.save(output_path, "JPEG", quality=96)
+        fitted = cropped.resize((1080, 1920), Image.LANCZOS)
+        bright_webtoon = enhance_bright_pastel_webtoon_look(fitted)
+        bright_webtoon.save(output_path, "JPEG", quality=96)
 
     return output_path
 
 
-def is_valid_colorful_artwork(raw_bytes):
-    """Verifies the downloaded bytes form a valid, non-blank, colorful image."""
+def is_valid_2d_webtoon_image(raw_bytes):
+    """Verifies the downloaded image is valid, non-blank, and not a dark/corrupt frame."""
     if not raw_bytes or len(raw_bytes) < 15000:
         return False
     try:
@@ -138,8 +154,7 @@ def is_valid_colorful_artwork(raw_bytes):
             arr = np.array(im.convert("RGB"), dtype=np.float32)
             if arr.shape[0] < 500 or arr.shape[1] < 400:
                 return False
-            # Reject blank/solid frames
-            if np.std(arr) < 20.0:
+            if np.std(arr) < 18.0:
                 return False
         return True
     except Exception:
@@ -148,47 +163,48 @@ def is_valid_colorful_artwork(raw_bytes):
 
 def detect_character_anchors(img_path):
     """
-    Computer-Vision Head & Mouth Locator:
     Detects the Boy (left half) and Girl (right half) head-tops and mouth coordinates
-    so bubbles sit cleanly above their hair without covering their eyes.
+    across full-body, medium, and kneeling scenes so age badges sit right above their heads
+    and bubbles sit cleanly near them!
     """
     default_anchors = {
-        "boy_head_top": (280, 430),
-        "boy_mouth": (335, 640),
-        "girl_head_top": (800, 460),
-        "girl_mouth": (735, 670)
+        "boy_head_top": (300, 390),
+        "boy_mouth": (335, 560),
+        "girl_head_top": (760, 510),
+        "girl_mouth": (725, 665)
     }
     try:
         with Image.open(img_path) as im:
             rgb = np.array(im.convert("RGB").resize((1080, 1920)), dtype=np.float32)
 
         r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
+        # Pastel 2D webtoon peach/ivory skin tone detector
         skin_mask = (
-            (r > 165) & (g > 120) & (b > 95) &
-            ((r - g) > 10) & ((r - b) > 20) & ((r - b) < 115) &
+            (r > 175) & (g > 135) & (b > 110) &
+            ((r - g) > 8) & ((r - b) > 18) & ((r - b) < 105) &
             (g > b)
         )
-        y_min, y_max = 320, 1020
+        y_min, y_max = 220, 1250
 
         def find_side_face(x_start, x_end, is_left):
             sub_mask = skin_mask[y_min:y_max, x_start:x_end]
             ys, xs = np.where(sub_mask)
-            if len(ys) < 380:
+            if len(ys) < 300:
                 return None
 
             face_cx = int(x_start + np.median(xs))
-            face_top_y = int(y_min + np.percentile(ys, 12))
-            face_bot_y = int(y_min + np.percentile(ys, 88))
-            face_h = max(130, min(300, face_bot_y - face_top_y))
+            face_top_y = int(y_min + np.percentile(ys, 10))
+            face_bot_y = int(y_min + np.percentile(ys, 85))
+            face_h = max(110, min(280, face_bot_y - face_top_y))
 
-            head_top_y = max(320, face_top_y - int(face_h * 0.45))
-            inward_shift = int(face_h * 0.16) if is_left else -int(face_h * 0.16)
+            head_top_y = max(220, face_top_y - int(face_h * 0.52))
+            inward_shift = int(face_h * 0.15) if is_left else -int(face_h * 0.15)
             mouth_x = max(120, min(960, face_cx + inward_shift))
-            mouth_y = min(980, face_top_y + int(face_h * 0.68))
+            mouth_y = min(1180, face_top_y + int(face_h * 0.65))
             return (face_cx, head_top_y), (mouth_x, mouth_y)
 
-        left_res = find_side_face(50, 530, is_left=True)
-        right_res = find_side_face(550, 1030, is_left=False)
+        left_res = find_side_face(45, 535, is_left=True)
+        right_res = find_side_face(545, 1035, is_left=False)
 
         if left_res:
             default_anchors["boy_head_top"], default_anchors["boy_mouth"] = left_res
@@ -200,8 +216,47 @@ def detect_character_anchors(img_path):
     return default_anchors
 
 
+def render_head_tracked_ages_layer(male_age, female_age, boy_head_top, girl_head_top, output_path):
+    """
+    Renders the character ages directly above each character's head—matching Silent Blossom's
+    'z2vhEqQi1Gs' style:
+    - Boy's Age in Glowing Aqua-Cyan (#28F0E8) with crisp black comic stroke right above his hair.
+    - Girl's Age in Glowing Rose-Pink (#FF6888) with crisp black comic stroke right above her hair.
+    """
+    scale = 2
+    W, H = 1080 * scale, 1920 * scale
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    font_age = get_comic_font(56 * scale)
+
+    def draw_age_on_head(hx, hy, age_val, fill_rgb):
+        txt = "".join(c for c in str(age_val) if c.isdigit())[:2]
+        if not txt:
+            return
+        cx = max(110 * scale, min(W - 110 * scale, hx * scale))
+        cy = max(85 * scale, min(H - 300 * scale, (hy - 32) * scale))
+
+        # Crisp black comic outline + vibrant cyan/pink fill (exact z2vhEqQi1Gs look)
+        draw.text(
+            (cx, cy),
+            txt,
+            font=font_age,
+            fill=fill_rgb + (255,),
+            anchor="mm",
+            stroke_width=6 * scale,
+            stroke_fill=(12, 14, 18, 255)
+        )
+
+    if male_age:
+        draw_age_on_head(boy_head_top[0], boy_head_top[1], male_age, (40, 240, 232))
+    if female_age:
+        draw_age_on_head(girl_head_top[0], girl_head_top[1], female_age, (255, 104, 136))
+
+    img.resize((1080, 1920), Image.LANCZOS).save(output_path, "PNG")
+    return output_path
+
+
 def quad_bezier_points(p0, p1, p2, steps=32):
-    """Generates smooth points along a Quadratic Bezier curve from p0 to p2 via control point p1."""
     pts = []
     for i in range(steps + 1):
         t = i / float(steps)
@@ -214,12 +269,12 @@ def quad_bezier_points(p0, p1, p2, steps=32):
 
 def render_webtoon_bubble_layer(text, bubble_type, side, head_top, mouth_pt, output_path):
     """
-    Renders professional comic bubbles at 2x supersampled resolution (2160x3840):
-    - Positioned in the upper headroom band (cy = 195..255) so faces and eyes are NEVER covered.
-    - 'speech'  -> Smooth horizontal egg + solid curved Bezier tail pointing toward speaker.
-    - 'thought' -> Fluffy scalloped cloud + 4 detached shrinking circular thought bubbles (Garfield style).
-    - 'whisper' -> Smooth horizontal egg with dashed border for soft/shy confessions.
-    - 'shout'   -> Spiky comic starburst for intense jealousy or dramatic moments.
+    Renders sleek, compact comic bubbles at 2x supersampled resolution (2160x3840)
+    so they never overpower the beautiful 2D webtoon scenery:
+    - 'speech'  -> Compact horizontal oval + solid curved Bezier tail pointing to speaker.
+    - 'thought' -> Soft scalloped cloud + 4 detached shrinking circular thought bubbles (Garfield style).
+    - 'whisper' -> Dashed-border oval for shy/soft lines.
+    - 'shout'   -> Starburst oval for urgent calling out (like 'W-WAIT!' in the airport scene).
     """
     scale = 2
     W, H = 1080 * scale, 1920 * scale
@@ -232,26 +287,26 @@ def render_webtoon_bubble_layer(text, bubble_type, side, head_top, mouth_pt, out
     wrapped_lines = textwrap.wrap(clean_txt, width=18)[:3]
     multiline_str = "\n".join(wrapped_lines)
 
-    font = get_comic_font(32 * scale)
+    font = get_comic_font(31 * scale)
     dummy = Image.new("L", (10, 10))
     d_draw = ImageDraw.Draw(dummy)
-    bbox = d_draw.multiline_textbbox((0, 0), multiline_str, font=font, align="center", spacing=8 * scale)
+    bbox = d_draw.multiline_textbbox((0, 0), multiline_str, font=font, align="center", spacing=7 * scale)
     tw = bbox[2] - bbox[0]
     th = bbox[3] - bbox[1]
 
-    rx = max(145 * scale, int(tw * 0.5 + 52 * scale))
-    ry = max(76 * scale, int(th * 0.5 + 40 * scale))
+    rx = max(136 * scale, int(tw * 0.5 + 46 * scale))
+    ry = max(70 * scale, int(th * 0.5 + 36 * scale))
 
     hx, hy = head_top[0] * scale, head_top[1] * scale
     mx, my = mouth_pt[0] * scale, mouth_pt[1] * scale
 
-    # Keep bubble bodies in the upper sky/headroom zone (y: 195..255) so they never cover faces!
+    # Place bubble in the upper sky/headroom zone above the age badge so faces & scenery stay clear
     if side == "left":
-        cx = max(rx + 26 * scale, min(515 * scale - rx, hx - 10 * scale))
-        cy = max(ry + 110 * scale, min(hy - ry - 25 * scale, 215 * scale))
+        cx = max(rx + 24 * scale, min(520 * scale - rx, hx - 8 * scale))
+        cy = max(ry + 95 * scale, min((hy - 78 * scale) - ry, 195 * scale))
     else:
-        cx = max(565 * scale + rx, min(W - rx - 26 * scale, hx + 10 * scale))
-        cy = max(ry + 135 * scale, min(hy - ry - 20 * scale, 250 * scale))
+        cx = max(560 * scale + rx, min(W - rx - 24 * scale, hx + 8 * scale))
+        cy = max(ry + 125 * scale, min((hy - 78 * scale) - ry, 235 * scale))
 
     raw_tx = mx + (-18 * scale if side == "left" else 18 * scale)
     tx = max(cx - rx + 20 * scale, min(cx + rx - 20 * scale, raw_tx))
@@ -260,14 +315,13 @@ def render_webtoon_bubble_layer(text, bubble_type, side, head_top, mouth_pt, out
     else:
         tx = min(tx, cx - int(rx * 0.16))
 
-    tail_bottom_limit = cy + ry + 120 * scale
-    ty = max(cy + ry + 64 * scale, min(tail_bottom_limit, my - 60 * scale))
+    tail_bottom_limit = cy + ry + 110 * scale
+    ty = max(cy + ry + 58 * scale, min(tail_bottom_limit, my - 65 * scale))
 
     mask = Image.new("L", (W, H), 0)
     m_draw = ImageDraw.Draw(mask)
 
     if b_type == "thought":
-        # Scalloped Cloud Body + 4 Detached Shrinking Circular Bubbles (Garfield Style)
         m_draw.ellipse(
             [cx - rx + 14 * scale, cy - ry + 12 * scale, cx + rx - 14 * scale, cy + ry - 12 * scale],
             fill=255
@@ -277,19 +331,19 @@ def render_webtoon_bubble_layer(text, bubble_type, side, head_top, mouth_pt, out
             ang = (2.0 * math.pi * i) / num_puffs
             px = cx + (rx - 12 * scale) * math.cos(ang)
             py = cy + (ry - 8 * scale) * math.sin(ang)
-            pr = (28 if i % 2 == 0 else 23) * scale
+            pr = (26 if i % 2 == 0 else 22) * scale
             m_draw.ellipse([px - pr, py - pr, px + pr, py + pr], fill=255)
 
         start_x = cx + (int(rx * 0.14) if side == "left" else -int(rx * 0.14))
-        start_y = cy + ry + 24 * scale
-        ctrl_x = (start_x + tx) * 0.5 + (-14 * scale if side == "left" else 14 * scale)
+        start_y = cy + ry + 22 * scale
+        ctrl_x = (start_x + tx) * 0.5 + (-12 * scale if side == "left" else 12 * scale)
         ctrl_y = start_y + (ty - start_y) * 0.52
 
         dot_specs = [
-            (0.08, 14.0 * scale),
-            (0.40, 10.0 * scale),
-            (0.70, 7.0 * scale),
-            (0.96, 4.8 * scale)
+            (0.08, 13.0 * scale),
+            (0.40, 9.5 * scale),
+            (0.70, 6.5 * scale),
+            (0.96, 4.5 * scale)
         ]
         for t_val, r_dot in dot_specs:
             inv = 1.0 - t_val
@@ -311,9 +365,9 @@ def render_webtoon_bubble_layer(text, bubble_type, side, head_top, mouth_pt, out
         base_x = cx + (int(rx * 0.12) if side == "left" else -int(rx * 0.12))
         base_y = cy + int(ry * 0.85)
         tail_poly = [
-            (base_x - 20 * scale, base_y),
+            (base_x - 18 * scale, base_y),
             (tx, ty),
-            (base_x + 20 * scale, base_y)
+            (base_x + 18 * scale, base_y)
         ]
         m_draw.polygon(tail_poly, fill=255)
 
@@ -331,7 +385,7 @@ def render_webtoon_bubble_layer(text, bubble_type, side, head_top, mouth_pt, out
 
         base_x = cx + (int(rx * 0.12) if side == "left" else -int(rx * 0.12))
         base_y = cy + ry - 8 * scale
-        half_base = (14 if b_type == "whisper" else 19) * scale
+        half_base = (13 if b_type == "whisper" else 18) * scale
 
         p_left = (base_x - half_base, base_y)
         p_right = (base_x + half_base, base_y)
@@ -346,17 +400,17 @@ def render_webtoon_bubble_layer(text, bubble_type, side, head_top, mouth_pt, out
 
     stroke_px = 7
     outer_mask = mask.filter(ImageFilter.MaxFilter(stroke_px))
-    shadow_mask = outer_mask.filter(ImageFilter.GaussianBlur(7 * scale))
+    shadow_mask = outer_mask.filter(ImageFilter.GaussianBlur(6 * scale))
 
     canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
 
-    shadow_layer = Image.new("RGBA", (W, H), (12, 15, 24, 55))
-    canvas.paste(shadow_layer, (0, 6 * scale), mask=shadow_mask)
+    shadow_layer = Image.new("RGBA", (W, H), (12, 15, 24, 50))
+    canvas.paste(shadow_layer, (0, 5 * scale), mask=shadow_mask)
 
     ink_layer = Image.new("RGBA", (W, H), (24, 24, 30, 255))
     canvas.paste(ink_layer, (0, 0), mask=outer_mask)
 
-    fill_layer = Image.new("RGBA", (W, H), (253, 253, 254, 255))
+    fill_layer = Image.new("RGBA", (W, H), (254, 254, 255, 255))
     canvas.paste(fill_layer, (0, 0), mask=mask)
 
     c_draw = ImageDraw.Draw(canvas)
@@ -369,7 +423,7 @@ def render_webtoon_bubble_layer(text, bubble_type, side, head_top, mouth_pt, out
             dx = cx + rx * math.cos(ang)
             dy = cy + ry * math.sin(ang)
             r_gap = 5 * scale
-            c_draw.ellipse([dx - r_gap, dy - r_gap, dx + r_gap, dy + r_gap], fill=(253, 253, 254, 255))
+            c_draw.ellipse([dx - r_gap, dy - r_gap, dx + r_gap, dy + r_gap], fill=(254, 254, 255, 255))
 
     text_color = (42, 46, 58, 255) if b_type in ("thought", "whisper") else (18, 18, 22, 255)
     c_draw.multiline_text(
@@ -379,45 +433,22 @@ def render_webtoon_bubble_layer(text, bubble_type, side, head_top, mouth_pt, out
         fill=text_color,
         align="center",
         anchor="mm",
-        spacing=8 * scale
+        spacing=7 * scale
     )
 
     canvas.resize((1080, 1920), Image.LANCZOS).save(output_path, "PNG")
     return output_path
 
 
-def render_floating_manhwa_ages(male_age, female_age, output_path):
-    """Renders sleek floating Manhwa age numbers in the top corners."""
-    scale = 2
-    W, H = 1080 * scale, 170 * scale
-    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+def render_timeskip_card(text, output_path):
+    """
+    Renders the dramatic black time-skip card ('3 yrs later..') seen at 0:39 in z2vhEqQi1Gs.
+    """
+    img = Image.new("RGB", (1080, 1920), (8, 8, 10))
     draw = ImageDraw.Draw(img)
-    font_age = get_comic_font(60 * scale)
-
-    def draw_stylized_age(cx, cy, age_val, main_color, glow_color):
-        txt = "".join(c for c in str(age_val) if c.isdigit())[:2] or "19"
-        glow_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        g_draw = ImageDraw.Draw(glow_layer)
-        g_draw.text(
-            (cx, cy), txt, font=font_age,
-            fill=glow_color + (160,), anchor="mm",
-            stroke_width=10 * scale, stroke_fill=glow_color + (160,)
-        )
-        glow_layer = glow_layer.filter(ImageFilter.GaussianBlur(6 * scale))
-        img.alpha_composite(glow_layer)
-
-        draw.text(
-            (cx, cy), txt, font=font_age,
-            fill=main_color + (255,), anchor="mm",
-            stroke_width=5 * scale, stroke_fill=(15, 18, 26, 255)
-        )
-
-    if male_age:
-        draw_stylized_age(90 * scale, 70 * scale, male_age, (75, 180, 255), (30, 120, 255))
-    if female_age:
-        draw_stylized_age(990 * scale, 70 * scale, female_age, (255, 85, 135), (255, 40, 100))
-
-    img.resize((1080, 170), Image.LANCZOS).save(output_path, "PNG")
+    font = get_comic_font(54)
+    draw.text((540, 960), clean_english_text(text), font=font, fill=(245, 245, 250), anchor="mm")
+    img.save(output_path, "JPEG", quality=95)
     return output_path
 
 
@@ -460,49 +491,49 @@ def get_valid_groq_chat_models(client):
 def build_story_prompts(concept, used_titles, used_dialogues):
     entropy = f"{int(time.time())}-{random.randint(10000, 99999)}"
     system_prompt = (
-        "You are an elite Korean Romance Manhwa & Webtoon scriptwriter. "
-        "You write complete, emotionally captivating 8-scene vertical romance Shorts (~43 seconds total) "
-        "with a clear beginning, emotional turning point, and deeply satisfying resolution. "
-        "You use comic bubble types ('speech', 'thought', 'whisper', 'shout') like a master webtoon artist. "
-        "Output strictly valid JSON."
+        "You are an elite 2D Romance Manhua/Webtoon Director modeled on 'Hidden Love' (Toutou Cang Buzhu) "
+        "and the viral channel 'Silent Blossom'. You design 9-scene multi-year love stories with rich, "
+        "specific everyday scenery, clear height differences, and a time-skip reunion. Output strictly valid JSON."
     )
-    user_prompt = f"""Write a brand-new, complete 8-scene vertical Korean Manhwa romance Short script.
+    user_prompt = f"""Write a brand-new, deeply romantic 9-scene vertical 2D Webtoon Short script.
 Run Seed: {entropy}
 Story Concept: "{concept}"
 Previously Used Titles (NEVER REPEAT): {json.dumps(used_titles[-10:])}
 Previously Used Lines (NEVER REPEAT): {json.dumps(used_dialogues[-15:])}
 
-COMPLETE 8-SCENE STORY ARC (~43 SECONDS TOTAL):
-- Scenes 1 & 2 (Act I - The Setup): Establish the male and female lead, their ages, and the emotional hook.
-- Scenes 3 & 4 (Act II - Heartbreak / Tension): Jealousy, unspoken feelings, or being left in the rain.
-- Scenes 5 & 6 (Act III - The Turning Point): The dramatic umbrella rescue, protective confrontation, or sudden closeness.
-- Scenes 7 & 8 (Act IV - Confession & Payoff): Raw emotional confession and unforgettable romantic resolution (proposal, embrace, or kiss).
-
-COMIC WRITER BUBBLE RULES:
-- Choose the exact right bubble type for each character in every scene:
-  * "speech"  -> Spoken out loud (solid curved tail).
-  * "thought" -> Secret inner thoughts or silent realization (cloud with detached circular thought dots).
-  * "whisper" -> Shy, trembling, or soft confession (dashed border).
-  * "shout"   -> Jealousy, shock, or urgent protective call (spiky burst).
-- Keep "male_line" and "female_line" between 4 and 8 natural English words.
+CRITICAL SCENERY & VISUAL RULES (LIKE 'HIDDEN LOVE' / 'SILENT BLOSSOM'):
+1. NEVER write generic 'standing face-to-face against a wall' scenes! Every scene MUST have a rich, specific real-world environment and physical interaction:
+   - Scene 1 (Early Youth, e.g. Ages 19 & 13): Full-body sunlit street sidewalk under green/cherry trees—tall boy holding or carrying the smaller girl's school backpack.
+   - Scene 2 (Ages 20 & 14): Bright pastel cherry-blossom sky—tall boy patting or ruffling the top of the shorter girl's head while she blushes.
+   - Scene 3 (Ages 21 & 15): Inside a bright modern building elevator—tall boy in a casual black t-shirt looking down fondly at the shorter girl holding a snack or drink.
+   - Scene 4 (Ages 22 & 16): Inside a bright sunlit bus or train car—both holding the overhead white handrail strap, hands touching as she smiles shyly.
+   - Scene 5 (Ages 24 & 18 - The Departure): Full-body glass-walled airport or station lounge framed by pink flowers—girl sitting on bench looking sad while the tall boy in a long coat kneels on one knee in front of her.
+   - Scene 6 (Ages 24 & 18 - Airport/Station Chase): Bright sunlit airport terminal with geometric skylight roof—girl running to call out to him before he leaves ('3 years later...' time-skip follows this scene!).
+   - Scene 7 (Ages 27 & 21 - The Reunion Hug): Tight, emotional full-heart embrace at the station—grown-up girl wrapping both arms around his neck, burying her face in his coat shoulder.
+   - Scene 8 (Ages 27 & 21 - The Cinderella Moment): Romantic night park bench under a starry sky—girl sitting in an evening dress while he kneels on one knee putting a silver high-heel shoe onto her foot.
+   - Scene 9 (Ages 28 & 22 - The Wedding Finale): Golden sunlit wedding embrace—bride in a white wedding dress and veil hugging the groom in a black tuxedo.
+2. Keep "male_line" and "female_line" between 3 and 7 natural, emotionally punchy English words.
 
 Return ONLY valid JSON matching this exact schema:
 {{
   "trope": "Short catchy story theme",
   "recommended_yt_song": "{LOCKED_SONG_TITLE}",
   "video_title": "Emotional viral English title with emojis #Shorts #manhwa #lovestory",
-  "male_dna": "handsome Korean manhwa boy with jet-black tousled hair and warm amber eyes",
-  "female_dna": "beautiful Korean manhwa girl with long wavy chestnut-brown hair and bright eyes",
+  "male_traits": "tall slender 2D anime boy with messy jet-black hair and warm dark eyes",
+  "female_traits": "petite cute 2D anime girl with long soft honey-brown hair and big bright eyes",
+  "timeskip_after_scene_index": 5,
+  "timeskip_text": "3 yrs later..",
   "scenes": [
     {{
       "male_age": "19",
-      "female_age": "18",
+      "female_age": "13",
       "male_bubble_type": "speech",
-      "male_line": "Why are you standing in the rain?",
-      "female_bubble_type": "thought",
-      "female_line": "He actually came looking for me...",
-      "lighting_and_atmosphere": "soft pastel rain reflections, warm streetlamp bokeh, romantic webtoon glow",
-      "scene_setting_and_pose": "standing side-by-side under a transparent umbrella on an evening street with cherry trees above"
+      "male_line": "Give me that, I'll hold it!",
+      "female_bubble_type": "whisper",
+      "female_line": "Thank you...",
+      "camera_framing": "full-body wide vertical 2D webtoon shot",
+      "scenery_background": "sunlit neighborhood sidewalk with warm pastel walls, green trees, and soft morning sunlight",
+      "character_pose_and_action": "tall 19yo anime boy in rolled-up white shirt and black pants reaching down to hold the light-blue school backpack of a tiny 13yo middle-school girl in a pleated skirt, clear height difference"
     }}
   ]
 }}"""
@@ -510,50 +541,94 @@ Return ONLY valid JSON matching this exact schema:
 
 
 def generate_complete_fallback_story(history):
-    """Complete 8-scene multi-act Korean Manhwa romance fallback generator."""
+    """
+    Complete 9-scene multi-year 'Hidden Love / Silent Blossom' visual story arc
+    with rich environmental scenery and the '3 yrs later..' time-skip card.
+    """
     run_id = history.get("total_videos", 0) + random.randint(100, 999)
-    m_hair = random.choice(["silver-white tousled", "jet-black", "ash-brown", "dark navy"])
-    f_hair = random.choice(["long wavy chestnut-brown", "silky raven-black", "soft caramel", "dark cherry"])
-
-    story_templates = [
-        {
-            "trope": f"Uncherished to Treasured by True Love #{run_id}",
-            "video_title": f"He Left Her In The Rain… So His Brother Stepped In 💔☔ #{run_id} #Shorts #manhwa #lovestory",
-            "scenes": [
-                {"male_age": "21", "female_age": "19", "male_bubble_type": "speech", "male_line": "Wait outside. I'm busy right now.", "female_bubble_type": "thought", "female_line": "He forgot my birthday again...", "lighting_and_atmosphere": "soft blue evening twilight outside a glowing cafe", "scene_setting_and_pose": "boy in dark jacket looking coldly at cute girl holding a small birthday cake box"},
-                {"male_age": "23", "female_age": "19", "male_bubble_type": "thought", "male_line": "How can my brother ignore her tears?", "female_bubble_type": "whisper", "female_line": "It's fine... I'm used to waiting.", "lighting_and_atmosphere": "warm streetlamp bokeh as gentle rain begins to fall", "scene_setting_and_pose": "tall handsome older brother in a tailored coat approaching the shivering girl"},
-                {"male_age": "23", "female_age": "19", "male_bubble_type": "speech", "male_line": "Take my umbrella. Come with me.", "female_bubble_type": "thought", "female_line": "Why is his gaze so warm?", "lighting_and_atmosphere": "cinematic rain droplets and soft pastel neon reflections", "scene_setting_and_pose": "standing side-by-side under a large umbrella in the rain, looking into each other's eyes"},
-                {"male_age": "23", "female_age": "20", "male_bubble_type": "speech", "male_line": "I bought every cake you missed.", "female_bubble_type": "thought", "female_line": "No one ever treasured me like this...", "lighting_and_atmosphere": "warm candlelit penthouse dining room with city skyline view", "scene_setting_and_pose": "boy smiling gently over birthday candles while girl covers her blushing cheeks"},
-                {"male_age": "24", "female_age": "20", "male_bubble_type": "shout", "male_line": "Don't touch her! You lost your chance!", "female_bubble_type": "thought", "female_line": "He stepped right in front of me...", "lighting_and_atmosphere": "dramatic crystal chandelier lighting in a grand hall", "scene_setting_and_pose": "protective older brother shielding the girl behind his shoulder"},
-                {"male_age": "24", "female_age": "20", "male_bubble_type": "whisper", "male_line": "I've loved you in silence for years.", "female_bubble_type": "speech", "female_line": "Stay with me. Never let go.", "lighting_and_atmosphere": "starry night balcony with floating golden bokeh lights", "scene_setting_and_pose": "standing close on a night balcony, boy gently cupping the blushing girl's cheek"},
-                {"male_age": "25", "female_age": "21", "male_bubble_type": "speech", "male_line": "Marry me and be my whole world.", "female_bubble_type": "speech", "female_line": "Yes! Only you, forever.", "lighting_and_atmosphere": "dreamy pink sunset garden with falling cherry blossom petals", "scene_setting_and_pose": "handsome man holding a velvet ring box under cherry blossoms, girl smiling with happy tears"},
-                {"male_age": "26", "female_age": "22", "male_bubble_type": "thought", "male_line": "I'll protect her smile for life.", "female_bubble_type": "thought", "female_line": "Losing the wrong one led me to you.", "lighting_and_atmosphere": "soft pastel sunset glow and floating cherry blossom petals", "scene_setting_and_pose": "couple holding hands and embracing tenderly under blooming cherry trees"}
-            ]
-        },
-        {
-            "trope": f"Childhood Friends to Forever #{run_id}",
-            "video_title": f"From Next-Door Neighbours To Forever 🥺🌸 #{run_id} #Shorts #manhwa #lovestory",
-            "scenes": [
-                {"male_age": "10", "female_age": "9", "male_bubble_type": "speech", "male_line": "Stop crying! I saved you strawberries.", "female_bubble_type": "thought", "female_line": "He always knows how to make me smile...", "lighting_and_atmosphere": "bright sunny summer afternoon with soft green leaves", "scene_setting_and_pose": "two cute childhood kids smiling across adjacent bedroom balconies"},
-                {"male_age": "15", "female_age": "14", "male_bubble_type": "speech", "male_line": "Walk on the inside of the street.", "female_bubble_type": "thought", "female_line": "Since when did he get so tall?", "lighting_and_atmosphere": "warm afternoon sunlight with floating cherry blossom petals", "scene_setting_and_pose": "two middle school teens in uniforms walking side-by-side under cherry trees"},
-                {"male_age": "17", "female_age": "16", "male_bubble_type": "thought", "male_line": "Why is that guy talking to her?", "female_bubble_type": "speech", "female_line": "Wait, why are you holding my wrist?", "lighting_and_atmosphere": "sunlit high school hallway with pastel window light", "scene_setting_and_pose": "jealous handsome high school boy gently holding blushing girl's wrist"},
-                {"male_age": "18", "female_age": "17", "male_bubble_type": "speech", "male_line": "Take my coat. Your hands are freezing.", "female_bubble_type": "thought", "female_line": "His coat feels so warm and safe...", "lighting_and_atmosphere": "soft white snow falling under glowing streetlamps", "scene_setting_and_pose": "boy draping his winter coat over the blushing girl's shoulders at a snowy bus stop"},
-                {"male_age": "19", "female_age": "18", "male_bubble_type": "shout", "male_line": "Don't date anyone else! Look at me!", "female_bubble_type": "thought", "female_line": "His heart is beating so fast...", "lighting_and_atmosphere": "evening rain with glowing pastel reflections", "scene_setting_and_pose": "sheltering together under an umbrella in the rain, intense romantic eye contact"},
-                {"male_age": "19", "female_age": "18", "male_bubble_type": "whisper", "male_line": "I've loved you since we were kids.", "female_bubble_type": "whisper", "female_line": "I loved you from the very start...", "lighting_and_atmosphere": "starry night rooftop with dreamy blue and pink bokeh", "scene_setting_and_pose": "standing close on a starry rooftop, boy gently resting his forehead against hers"},
-                {"male_age": "22", "female_age": "21", "male_bubble_type": "speech", "male_line": "From next-door neighbours to my wife?", "female_bubble_type": "speech", "female_line": "Yes! A thousand times yes!", "lighting_and_atmosphere": "magical sunset rooftop with glowing fairy lights", "scene_setting_and_pose": "handsome man in suit proposing with a diamond ring box, girl smiling with happy tears"},
-                {"male_age": "23", "female_age": "22", "male_bubble_type": "thought", "male_line": "Forever starts right now with her.", "female_bubble_type": "thought", "female_line": "My childhood friend is my whole world.", "lighting_and_atmosphere": "sparkling night fireworks and floating petals", "scene_setting_and_pose": "couple embracing happily under colorful fireworks in the night sky"}
-            ]
-        }
-    ]
-
-    picked = random.choice(story_templates)
     return {
-        "trope": picked["trope"],
+        "trope": f"Between Goodbye and Forever #{run_id}",
         "recommended_yt_song": LOCKED_SONG_TITLE,
-        "video_title": picked["video_title"],
-        "male_dna": f"handsome Korean manhwa boy with {m_hair} hair and warm amber eyes",
-        "female_dna": f"beautiful Korean manhwa girl with {f_hair} hair and bright expressive eyes",
-        "scenes": picked["scenes"]
+        "video_title": f"Somewhere Between Goodbye and Forever.. 👉🏻👈🏻💗🦋 #{run_id} #Shorts #manhwa #lovestory",
+        "male_traits": "tall slender 2D anime boy with messy jet-black hair and warm dark eyes",
+        "female_traits": "petite cute 2D anime girl with long soft honey-brown hair and big bright eyes",
+        "timeskip_after_scene_index": 5,
+        "timeskip_text": "3 yrs later..",
+        "scenes": [
+            {
+                "male_age": "19", "female_age": "13",
+                "male_bubble_type": "speech", "male_line": "Give me that, I'll hold it!",
+                "female_bubble_type": "whisper", "female_line": "Hmm.. thank you.",
+                "camera_framing": "full-body vertical 2D webtoon illustration",
+                "scenery_background": "bright sunlit neighborhood street sidewalk with warm cream walls and soft green trees",
+                "character_pose_and_action": "tall 19yo boy in white collared shirt and black trousers reaching down to hold the light-blue school backpack of a petite 13yo girl in school blouse and pleated skirt, cute height difference"
+            },
+            {
+                "male_age": "20", "female_age": "14",
+                "male_bubble_type": "speech", "male_line": "Okay, shortie! Walk faster.",
+                "female_bubble_type": "speech", "female_line": "Stop calling me shortie!",
+                "camera_framing": "medium-full vertical 2D webtoon illustration",
+                "scenery_background": "dreamy pastel blue and pink sky with floating cherry blossom petals",
+                "character_pose_and_action": "tall 20yo boy affectionately patting the top of the shorter 14yo girl's head as they walk side-by-side"
+            },
+            {
+                "male_age": "21", "female_age": "15",
+                "male_bubble_type": "speech", "male_line": "What are you eating? Save me some?",
+                "female_bubble_type": "speech", "female_line": "Do you want a bite?",
+                "camera_framing": "three-quarter vertical 2D webtoon illustration",
+                "scenery_background": "bright clean modern silver apartment elevator interior with soft overhead lighting",
+                "character_pose_and_action": "tall 21yo boy in a casual black t-shirt looking down fondly at the petite 15yo girl in a light-blue pinafore dress holding a snack"
+            },
+            {
+                "male_age": "22", "female_age": "16",
+                "male_bubble_type": "speech", "male_line": "Hold onto my sleeve so you don't fall.",
+                "female_bubble_type": "thought", "female_line": "He is always so gentle with me...",
+                "camera_framing": "medium vertical 2D webtoon illustration",
+                "scenery_background": "bright sunlit commuter bus interior with large windows and soft blue sky outside",
+                "character_pose_and_action": "tall 22yo boy in a light-blue plaid shirt over white tee and petite 16yo girl in a pastel ribbon blouse both holding the white overhead bus strap, hands touching"
+            },
+            {
+                "male_age": "24", "female_age": "18",
+                "male_bubble_type": "speech", "male_line": "Hey... are you crying?",
+                "female_bubble_type": "speech", "female_line": "Are you really leaving next month?",
+                "camera_framing": "full-body wide vertical 2D webtoon illustration",
+                "scenery_background": "bright glass-walled airport waiting lounge with blue sky outside and blooming pink flowers in foreground",
+                "character_pose_and_pose": "18yo girl in dark school blazer sitting on a bench looking down sadly while the tall 24yo man in a long grey coat kneels on one knee in front of her looking up tenderly",
+                "character_pose_and_action": "18yo girl sitting on a bench looking sad while the tall 24yo man in a long grey coat kneels on one knee in front of her looking up at her face"
+            },
+            {
+                "male_age": "24", "female_age": "18",
+                "male_bubble_type": "thought", "male_line": "Wait for me until I return.",
+                "female_bubble_type": "shout", "female_line": "Wait! Don't dare forget me!",
+                "camera_framing": "full-body dynamic vertical 2D webtoon illustration",
+                "scenery_background": "grand sunlit airport terminal hall with warm geometric skylight ceiling panels",
+                "character_pose_and_action": "18yo girl in blue cardigan and white dress running forward calling out toward the tall 24yo man in a dark coat"
+            },
+            {
+                "male_age": "27", "female_age": "21",
+                "male_bubble_type": "thought", "male_line": "She has no idea how much I missed her.",
+                "female_bubble_type": "speech", "female_line": "You're finally back in my arms!",
+                "camera_framing": "close medium vertical 2D webtoon illustration",
+                "scenery_background": "soft bright sunlit station concourse with warm pastel bokeh",
+                "character_pose_and_action": "emotional reunion hug, 21yo woman wrapping both arms tightly around the neck of the tall 27yo man in a beige trench coat, burying her blushing face in his shoulder"
+            },
+            {
+                "male_age": "27", "female_age": "21",
+                "male_bubble_type": "speech", "male_line": "Hold still. Let me put it on for you.",
+                "female_bubble_type": "thought", "female_line": "He still treats me like a princess...",
+                "camera_framing": "full-body vertical 2D webtoon illustration",
+                "scenery_background": "romantic night park garden bench under a deep blue starry sky and soft greenery",
+                "character_pose_and_action": "21yo woman in an emerald evening dress sitting on a wrought-iron park bench while the 27yo man in a crisp white shirt kneels on one knee putting a silver high-heel shoe onto her foot"
+            },
+            {
+                "male_age": "28", "female_age": "22",
+                "male_bubble_type": "speech", "male_line": "I love you. Forever starts today.",
+                "female_bubble_type": "speech", "female_line": "I love you too, my forever.",
+                "camera_framing": "medium vertical 2D webtoon illustration",
+                "scenery_background": "magical glowing golden-white wedding sunlight with soft floating sparkles and floral lace",
+                "character_pose_and_action": "passionate wedding embrace, 22yo bride in a white wedding dress, floral hairpiece, and flowing veil wrapping her arms around the neck of the 28yo groom in a black tuxedo"
+            }
+        ]
     }
 
 
@@ -573,17 +648,17 @@ def generate_fresh_story(history):
             candidate_models = get_valid_groq_chat_models(client)
             for model in candidate_models[:4]:
                 try:
-                    print(f"[STORY-ENGINE] Writing complete 8-scene script via Groq ({model})...")
+                    print(f"[STORY-ENGINE] Writing 9-scene 'Hidden Love' style webtoon script via Groq ({model})...")
                     res = client.chat.completions.create(
                         model=model,
                         messages=[{"role": "system", "content": sys_p}, {"role": "user", "content": usr_p}],
                         response_format={"type": "json_object"},
-                        temperature=0.85
+                        temperature=0.82
                     )
                     data = json.loads(res.choices[0].message.content.strip())
                     if "scenes" in data and len(data["scenes"]) >= 7:
                         data["archetype_used"] = chosen_concept
-                        print(f"✅ Complete {len(data['scenes'])}-Scene Script Ready: {data.get('video_title')}")
+                        print(f"✅ Complete {len(data['scenes'])}-Scene Webtoon Script Ready: {data.get('video_title')}")
                         return data
                 except Exception as model_err:
                     print(f"⚠️ Model {model} skipped ({model_err}). Trying next chat model...")
@@ -591,81 +666,45 @@ def generate_fresh_story(history):
         except Exception as e:
             print(f"⚠️ Groq client fallback ({e})...")
 
-    try:
-        print("[STORY-ENGINE] Trying secondary Pollinations OpenAI Text LLM...")
-        resp = requests.post(
-            "https://text.pollinations.ai/openai",
-            json={
-                "model": "openai",
-                "messages": [{"role": "system", "content": sys_p}, {"role": "user", "content": usr_p}],
-                "response_format": {"type": "json_object"},
-                "temperature": 0.85
-            },
-            timeout=50
-        )
-        if resp.status_code == 200:
-            raw = resp.json()["choices"][0]["message"]["content"].strip()
-            if raw.startswith("```"):
-                raw = raw.split("```")[1].lstrip("json").strip()
-            data = json.loads(raw)
-            if "scenes" in data and len(data["scenes"]) >= 7:
-                data["archetype_used"] = chosen_concept
-                print(f"✅ Complete {len(data['scenes'])}-Scene Script Ready via Secondary LLM!")
-                return data
-    except Exception as e:
-        print(f"⚠️ Secondary LLM skipped ({e})...")
-
     return generate_complete_fallback_story(history)
 
 
-def build_age_matched_manhwa_character(age_str, is_male, base_dna):
+def fetch_2d_hidden_love_webtoon_scene(scene, male_traits, female_traits, story_seed, idx, total_scenes, output_path):
     """
-    Ensures the character's visual age matches the numeric age badge while keeping
-    the gorgeous Korean Manhwa / Webtoon aesthetic.
-    """
-    digits = "".join(c for c in str(age_str) if c.isdigit())
-    age = int(digits) if digits else 19
-
-    if age <= 11:
-        role = f"cute {age}-year-old child boy with small kid proportions" if is_male else f"cute {age}-year-old child girl with small kid proportions"
-        return f"{role} ({base_dna})"
-    elif age <= 15:
-        role = f"{age}-year-old middle-school teen boy in uniform" if is_male else f"{age}-year-old middle-school teen girl in uniform"
-        return f"{role} ({base_dna})"
-    elif age <= 18:
-        role = f"handsome {age}-year-old high-school boy in blazer uniform" if is_male else f"cute {age}-year-old high-school girl in cardigan uniform"
-        return f"{role} ({base_dna})"
-    else:
-        role = f"handsome {age}-year-old young man in stylish jacket" if is_male else f"beautiful {age}-year-old young woman in stylish outfit"
-        return f"{role} ({base_dna})"
-
-
-def fetch_pollinations_manhwa_artwork(scene, male_dna, female_dna, story_seed, idx, total_scenes, output_path):
-    """
-    100% Pure Pollinations Korean Manhwa / Webtoon Artwork Generator (Zero Hugging Face, Zero Filters):
-    - Uses the exact vibrant Korean Manhwa / Makoto Shinkai webtoon style that made the 2nd video look beautiful.
-    - Respects Pollinations' token-bucket rate limit with smart cooldowns so all 8 scenes succeed natively.
+    Generates pure 2D 'Hidden Love' (偷偷藏不住) / Silent Blossom style pastel webtoon panels:
+    - ZERO words like 'Korean man/woman' or 'portrait' (which caused the ugly 3D CGI faces in S14xWkKTuks).
+    - Uses explicit 2D manhua/webtoon lineart, pastel watercolor cel-shading, and full environmental framing.
     """
     api_key = os.getenv("POLLINATIONS_API_KEY")
-    m_age = scene.get("male_age", "19")
-    f_age = scene.get("female_age", "18")
-    atmos = scene.get("lighting_and_atmosphere", "soft pastel sunset lighting and glowing cherry blossom petals")
-    pose = scene.get("scene_setting_and_pose", "standing side-by-side looking warmly into each other's eyes")
+    m_age = scene.get("male_age", "21")
+    f_age = scene.get("female_age", "15")
+    framing = scene.get("camera_framing", "full-body vertical 2D webtoon illustration")
+    scenery = scene.get("scenery_background", "bright sunlit street with pastel buildings and cherry blossom trees")
+    action = scene.get("character_pose_and_action", "tall anime boy looking fondly at shorter anime girl")
 
-    male_desc = build_age_matched_manhwa_character(m_age, True, male_dna)
-    female_desc = build_age_matched_manhwa_character(f_age, False, female_dna)
+    # Age-appropriate 2D anime character descriptions with clear height difference
+    f_age_num = int("".join(c for c in str(f_age) if c.isdigit()) or "16")
+    if f_age_num <= 14:
+        girl_desc = f"petite {f_age_num}yo 2D anime middle-school girl with small kid-teen height ({female_traits})"
+    elif f_age_num <= 18:
+        girl_desc = f"petite shorter {f_age_num}yo 2D anime high-school girl ({female_traits})"
+    else:
+        girl_desc = f"slender {f_age_num}yo 2D anime young woman ({female_traits})"
+
+    boy_desc = f"tall slender {m_age}yo 2D anime boy ({male_traits})"
 
     prompt = (
-        f"Masterpiece Korean romance manhwa webtoon illustration, Makoto Shinkai anime aesthetic, "
-        f"vibrant luminous colors, clean detailed lineart, soft romantic lighting. "
-        f"Wide composition with clean sky or ceiling headroom in the top 25 percent above their heads: "
-        f"On the left is {male_desc}; on the right is {female_desc}. "
-        f"Scene: {pose}, {atmos}. "
-        f"Natural front-facing posture, expressive eyes, strictly no text, no speech bubbles, no numbers, no watermark."
+        f"2D romance manhua webtoon illustration in the exact art style of Hidden Love (Toutou Cang Buzhu), "
+        f"clean delicate 2D hand-drawn ink lineart, bright airy high-key pastel watercolor and cel-shading, "
+        f"soft luminous lighting, flat 2D anime art, NOT 3D, zero photorealism. "
+        f"Framing: {framing} with generous sky or ceiling headroom at the top. "
+        f"Scenery: {scenery}. "
+        f"Characters: On the left is {boy_desc}; on the right is {girl_desc}. "
+        f"Action: {action}. "
+        f"Strictly 2 characters only, no extra background faces, no text, no speech bubbles, no watermark."
     )
     encoded = urllib.parse.quote(prompt)
 
-    # Pace requests between scenes so Pollinations' IP burst limiter stays green
     if idx > 0:
         time.sleep(9.0)
 
@@ -675,11 +714,10 @@ def fetch_pollinations_manhwa_artwork(scene, male_dna, female_dna, story_seed, i
         "Mozilla/5.0 (X11; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0"
     ]
 
-    print(f"[POLLINATIONS-ART] Generating Scene {idx + 1}/{total_scenes} (Ages {m_age} & {f_age})...")
+    print(f"[2D-WEBTOON-ART] Generating Scene {idx + 1}/{total_scenes} (Ages {m_age} & {f_age}): {scenery[:55]}...")
 
     for attempt in range(7):
-        seed = story_seed + (idx * 317) + (attempt * 43)
-        # Rotate between exact 9:16 Pollinations Flux endpoints
+        seed = story_seed + (idx * 347) + (attempt * 53)
         if attempt % 3 == 0:
             url = f"https://image.pollinations.ai/prompt/{encoded}?width=768&height=1344&model=flux&seed={seed}&nologo=true"
         elif attempt % 3 == 1:
@@ -694,14 +732,13 @@ def fetch_pollinations_manhwa_artwork(scene, male_dna, female_dna, story_seed, i
         try:
             res = requests.get(url, headers=headers, timeout=85)
             ctype = res.headers.get("Content-Type", "")
-            if res.status_code == 200 and "image" in ctype and is_valid_colorful_artwork(res.content):
+            if res.status_code == 200 and "image" in ctype and is_valid_2d_webtoon_image(res.content):
                 clean_watermark_and_fit_9_16(res.content, output_path)
-                print(f"✅ Scene {idx + 1}/{total_scenes} saved in pure Pollinations Manhwa quality: {output_path}")
+                print(f"✅ Scene {idx + 1}/{total_scenes} saved in bright 2D 'Hidden Love' webtoon style: {output_path}")
                 return True
             else:
-                # Token-bucket refill wait (15s-24s) so the next request succeeds cleanly
                 cooldown = 15 + (attempt * 3)
-                print(f"   ⏳ Pollinations cooldown (status {res.status_code}). Waiting {cooldown}s for token bucket refill...")
+                print(f"   ⏳ Pollinations cooldown (status {res.status_code}). Waiting {cooldown}s...")
                 time.sleep(cooldown)
         except Exception as e:
             cooldown = 12 + (attempt * 3)
@@ -712,20 +749,13 @@ def fetch_pollinations_manhwa_artwork(scene, male_dna, female_dna, story_seed, i
 
 
 def download_youtube_audio_multi_client(yt_url, out_raw_path):
-    """
-    Downloads audio from a specific YouTube URL on GitHub Actions using 3 sequential bypass layers:
-    1) pytubefix with ANDROID_VR / IOS / TV / WEB_EMBED clients
-    2) yt-dlp with android_vr / ios / tv_embedded player clients
-    3) Invidious / Piped public stream API mirrors
-    """
+    """Downloads audio from a specific YouTube URL using pytubefix, yt-dlp, and stream mirrors."""
     video_id = yt_url.split("/")[-1].split("?")[0].replace("watch?v=", "")
 
-    # Layer 1: pytubefix multi-client bypass
     try:
         from pytubefix import YouTube
         for client_name in ("ANDROID_VR", "IOS", "TV", "MWEB", "WEB_EMBED"):
             try:
-                print(f"   [AUDIO-DL] Trying pytubefix ({client_name}) for {yt_url}...")
                 yt = YouTube(yt_url, client=client_name)
                 stream = yt.streams.get_audio_only()
                 if stream:
@@ -739,10 +769,8 @@ def download_youtube_audio_multi_client(yt_url, out_raw_path):
     except Exception:
         pass
 
-    # Layer 2: yt-dlp with player_client spoofing
     for client_arg in ("youtube:player_client=android_vr", "youtube:player_client=ios,tv_embedded", "youtube:player_client=mweb"):
         try:
-            print(f"   [AUDIO-DL] Trying yt-dlp ({client_arg}) for {yt_url}...")
             if os.path.exists(out_raw_path):
                 os.remove(out_raw_path)
             cmd = [
@@ -763,7 +791,6 @@ def download_youtube_audio_multi_client(yt_url, out_raw_path):
         except Exception:
             continue
 
-    # Layer 3: Piped / Invidious Direct Audio Stream Mirrors
     mirror_apis = [
         f"https://pipedapi.kavin.rocks/streams/{video_id}",
         f"https://pipedapi.tokhmi.xyz/streams/{video_id}",
@@ -792,22 +819,23 @@ def download_youtube_audio_multi_client(yt_url, out_raw_path):
 
 def get_locked_target_song(required_duration_sec):
     """
-    Fetches and slices the exact requested song:
-    1) Primary: https://youtu.be/e4KMz7PdAmE from 00:00 (Love Story - Indila Slowed+Reverb+Echo)
-    2) Secondary: https://youtu.be/1NBnN0IAljQ from 00:20 (Love Story by Indila Ethereal Instrumental)
-    3) Direct SoundCloud Mirror of the exact same Slowed+Reverb+Echo / Ethereal track if YouTube blocks datacenter IPs.
-    Never uses any synthetic computer piano!
+    Locks the 100% Vocal-Free Ethereal Instrumental of Indila's Love Story:
+    1) Primary: https://youtu.be/1NBnN0IAljQ starting at 00:20 (100% pure ethereal instrumental, zero French vocals!).
+    2) Secondary: https://youtu.be/e4KMz7PdAmE with FFmpeg center-channel vocal cancellation (`stereotools=mlev=0.015`)
+       so the French vocals at 0:19 are stripped out completely.
+    3) SoundCloud pure instrumental mirrors.
     """
     os.makedirs("assets", exist_ok=True)
     os.makedirs("workspace", exist_ok=True)
 
-    # Purge any old synthetic or short audio files
+    # Purge old v1-v6 cached files (including v6 which had French vocals at 0:19)
     for old_f in (
         "assets/indila_love_story_magical_cut.mp3",
         "assets/indila_love_story_instrumental_v2.mp3",
         "assets/indila_love_story_pure_instrumental_v3.mp3",
         "assets/indila_love_story_pure_inst_v4.mp3",
-        "assets/indila_love_story_pure_inst_75s_v5.mp3"
+        "assets/indila_love_story_pure_inst_75s_v5.mp3",
+        "assets/indila_love_story_real_v6.mp3"
     ):
         if os.path.exists(old_f):
             try:
@@ -823,53 +851,53 @@ def get_locked_target_song(required_duration_sec):
             dur = clip.duration
             clip.close()
             if dur >= required_duration_sec:
-                print(f"✅ Using cached real Indila soundtrack ({dur:.1f}s): {LOCKED_SONG_PATH}")
+                print(f"✅ Using cached vocal-free Ethereal Instrumental ({dur:.1f}s): {LOCKED_SONG_PATH}")
                 return LOCKED_SONG_PATH
         except Exception:
             pass
 
     raw_audio = "workspace/raw_target_song.mp3"
 
-    # Attempt 1: Primary YouTube URL (e4KMz7PdAmE from 00:00)
-    print(f"[AUDIO] Fetching Primary Track: {PRIMARY_YT_URL} (starting from 00:00)...")
+    # Attempt 1: Primary 100% Vocal-Free Ethereal Instrumental (https://youtu.be/1NBnN0IAljQ from 00:20)
+    print(f"[AUDIO] Fetching Primary Pure Instrumental: {PRIMARY_YT_URL} (from 00:20)...")
     if download_youtube_audio_multi_client(PRIMARY_YT_URL, raw_audio):
         subprocess.run([
             "ffmpeg", "-y",
             "-ss", str(PRIMARY_START_SEC),
             "-t", str(slice_len),
             "-i", raw_audio,
-            "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
+            "-af", "aecho=0.8:0.86:50:0.22,loudnorm=I=-14:TP=-1.5:LRA=11",
             "-b:a", "192k",
             LOCKED_SONG_PATH
         ], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if os.path.exists(LOCKED_SONG_PATH) and os.path.getsize(LOCKED_SONG_PATH) > 80000:
-            print(f"🎉 Locked Primary Track ({PRIMARY_YT_URL} from 00:00) -> {LOCKED_SONG_PATH}")
+            print(f"🎉 Locked Primary Vocal-Free Ethereal Instrumental ({PRIMARY_YT_URL} from 00:20)!")
             return LOCKED_SONG_PATH
 
-    # Attempt 2: Secondary YouTube URL (1NBnN0IAljQ from 00:20)
-    print(f"[AUDIO] Fetching Secondary Track: {SECONDARY_YT_URL} (starting from 00:20)...")
+    # Attempt 2: Secondary Slowed+Reverb Track (https://youtu.be/e4KMz7PdAmE) with Center-Vocal Cancellation
+    print(f"[AUDIO] Fetching Secondary Track with Vocal Remover: {SECONDARY_YT_URL}...")
     if download_youtube_audio_multi_client(SECONDARY_YT_URL, raw_audio):
         subprocess.run([
             "ffmpeg", "-y",
             "-ss", str(SECONDARY_START_SEC),
             "-t", str(slice_len),
             "-i", raw_audio,
-            "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
+            "-af", "stereotools=mlev=0.015,aecho=0.8:0.88:60:0.30,loudnorm=I=-14:TP=-1.5:LRA=11",
             "-b:a", "192k",
             LOCKED_SONG_PATH
         ], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if os.path.exists(LOCKED_SONG_PATH) and os.path.getsize(LOCKED_SONG_PATH) > 80000:
-            print(f"🎉 Locked Secondary Track ({SECONDARY_YT_URL} from 00:20) -> {LOCKED_SONG_PATH}")
+            print(f"🎉 Locked Vocal-Stripped Slowed+Reverb Track ({SECONDARY_YT_URL})!")
             return LOCKED_SONG_PATH
 
-    # Attempt 3: Direct SoundCloud Mirror of the exact same tracks (Never blocked on GitHub Actions IPs!)
+    # Attempt 3: SoundCloud Pure Instrumental Mirrors
     sc_mirrors = [
-        ("scsearch1:Love Story Indila Slowed Reverb Echo", 0),
-        ("scsearch1:Indila Love Story Slowed and Reverb", 0),
-        ("scsearch1:Love Story Indila Ethereal Instrumental", 20)
+        ("scsearch1:Love Story Indila Ethereal Instrumental", 20),
+        ("scsearch1:Indila Love Story Extended Instrumental Slowed Reverb", 20),
+        ("scsearch1:Indila Love Story Piano Instrumental Slowed Reverb", 0)
     ]
     for sc_query, start_offset in sc_mirrors:
-        print(f"[AUDIO] Fetching exact SoundCloud mirror: {sc_query} (from 00:{start_offset:02d})...")
+        print(f"[AUDIO] Fetching SoundCloud Instrumental Mirror: {sc_query} (from 00:{start_offset:02d})...")
         try:
             if os.path.exists(raw_audio):
                 os.remove(raw_audio)
@@ -890,21 +918,21 @@ def get_locked_target_song(required_duration_sec):
                     "-ss", str(start_offset),
                     "-t", str(slice_len),
                     "-i", raw_audio,
-                    "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
+                    "-af", "stereotools=mlev=0.02,aecho=0.8:0.86:55:0.25,loudnorm=I=-14:TP=-1.5:LRA=11",
                     "-b:a", "192k",
                     LOCKED_SONG_PATH
                 ], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if os.path.exists(LOCKED_SONG_PATH) and os.path.getsize(LOCKED_SONG_PATH) > 80000:
-                    print(f"🎉 Locked real Indila Slowed+Reverb track via SoundCloud mirror: {LOCKED_SONG_PATH}")
+                    print(f"🎉 Locked Vocal-Free Indila Instrumental via SoundCloud mirror: {LOCKED_SONG_PATH}")
                     return LOCKED_SONG_PATH
         except Exception as e:
             print(f"⚠️ Mirror attempt skipped: {e}")
 
-    raise RuntimeError("❌ Could not download the real Indila audio track.")
+    raise RuntimeError("❌ Could not download the Indila instrumental audio track.")
 
 
 def build_pipeline():
-    print("=== STARTING PURE POLLINATIONS MANHWA + REAL INDILA SLOWED+REVERB PIPELINE ===")
+    print("=== STARTING 2D 'HIDDEN LOVE' PASTEL WEBTOON SCENERY + HEAD-TRACKED AGES PIPELINE ===")
     os.makedirs("workspace", exist_ok=True)
     os.makedirs("videos", exist_ok=True)
 
@@ -924,35 +952,44 @@ def build_pipeline():
     with open("workspace/video_metadata.json", "w", encoding="utf-8") as f:
         json.dump(story_data, f, indent=2, ensure_ascii=False)
 
-    male_dna = story_data.get("male_dna", "handsome Korean manhwa boy with jet-black hair and warm amber eyes")
-    female_dna = story_data.get("female_dna", "beautiful Korean manhwa girl with long chestnut hair and bright eyes")
-    scenes = story_data.get("scenes", [])[:8]
+    male_traits = story_data.get("male_traits", story_data.get("male_dna", "tall slender 2D anime boy with messy jet-black hair and warm dark eyes"))
+    female_traits = story_data.get("female_traits", story_data.get("female_dna", "petite cute 2D anime girl with long soft honey-brown hair and big bright eyes"))
+    timeskip_idx = int(story_data.get("timeskip_after_scene_index", 5))
+    timeskip_txt = story_data.get("timeskip_text", "3 yrs later..")
+
+    scenes = story_data.get("scenes", [])[:9]
     total_scenes = len(scenes)
     story_seed = random.randint(100000, 999999)
 
-    scene_duration = 5.4  # 8 scenes * 5.4s = 43.2s complete story
-    reply_pop_delay = 1.8
+    scene_duration = 5.0
+    reply_pop_delay = 1.7
     clips = []
 
     for idx, sc in enumerate(scenes):
         bg_path = f"workspace/clean_art_{idx}.jpg"
-        if not fetch_pollinations_manhwa_artwork(
-            sc, male_dna, female_dna, story_seed, idx, total_scenes, bg_path
+        if not fetch_2d_hidden_love_webtoon_scene(
+            sc, male_traits, female_traits, story_seed, idx, total_scenes, bg_path
         ):
-            print(f"⚠️ Scene {idx + 1} skipped after all Pollinations retries.")
+            print(f"⚠️ Scene {idx + 1} skipped after retries.")
             continue
 
         anchors = detect_character_anchors(bg_path)
         base_clip = ImageClip(bg_path).set_duration(scene_duration).resize((1080, 1920))
         layers = [base_clip]
 
-        # Floating Age Numbers in Top Corners
+        # 1. Head-Tracked Ages (Cyan #28F0E8 right above Boy's head, Pink #FF6888 right above Girl's head)
         age_png = f"workspace/ages_{idx}.png"
-        render_floating_manhwa_ages(sc.get("male_age", "20"), sc.get("female_age", "19"), age_png)
-        age_clip = ImageClip(age_png).set_position(("center", 12)).set_duration(scene_duration)
+        render_head_tracked_ages_layer(
+            sc.get("male_age", "21"),
+            sc.get("female_age", "15"),
+            anchors["boy_head_top"],
+            anchors["girl_head_top"],
+            age_png
+        )
+        age_clip = ImageClip(age_png).set_position((0, 0)).set_duration(scene_duration)
         layers.append(age_clip)
 
-        # Left Character Bubble (Speech = Solid Tail, Thought = Detached Circular Dot Chain)
+        # 2. Left Character Bubble (Speech = Solid Tail, Thought = Detached Circular Dot Chain)
         m_line = sc.get("male_line", "")
         m_type = sc.get("male_bubble_type", "speech").lower()
         if m_line:
@@ -968,7 +1005,7 @@ def build_pipeline():
             m_clip = ImageClip(m_png).set_position((0, 0)).set_start(0.0).set_duration(scene_duration)
             layers.append(m_clip)
 
-        # Right Character Bubble (Pops in at 1.8s)
+        # 3. Right Character Bubble (Pops in at 1.7s)
         f_line = sc.get("female_line", "")
         f_type = sc.get("female_bubble_type", "thought").lower()
         if f_line:
@@ -989,18 +1026,26 @@ def build_pipeline():
             )
             layers.append(f_clip)
 
+        # Smooth dynamic zoom-in like Silent Blossom's edits
         scene_comp = CompositeVideoClip(layers, size=(1080, 1920)).set_duration(scene_duration)
-        scene_comp = scene_comp.resize(lambda t: 1.0 + (0.015 * t))
+        scene_comp = scene_comp.resize(lambda t: 1.0 + (0.016 * t))
         clips.append(scene_comp)
 
+        # Insert the dramatic black "3 yrs later.." time-skip transition card after the departure scene!
+        if idx == timeskip_idx:
+            ts_path = "workspace/timeskip_card.jpg"
+            render_timeskip_card(timeskip_txt, ts_path)
+            ts_clip = ImageClip(ts_path).set_duration(2.2).resize((1080, 1920))
+            clips.append(ts_clip)
+
     if len(clips) < 6:
-        raise RuntimeError(f"❌ Pipeline aborted: Only {len(clips)} scenes rendered (minimum 6 required).")
+        raise RuntimeError(f"❌ Pipeline aborted: Only {len(clips)} clips rendered.")
 
     final_video = concatenate_videoclips(clips, method="compose")
     total_dur = final_video.duration
-    print(f"[TIMELINE] Assembled complete {len(clips)}-scene story ({total_dur:.1f} seconds total).")
+    print(f"[TIMELINE] Assembled complete {len(clips)}-clip story ({total_dur:.1f} seconds total).")
 
-    # Attach the exact locked Indila soundtrack playing continuously forward
+    # Attach the vocal-free Ethereal Instrumental playing continuously forward
     audio_path = get_locked_target_song(required_duration_sec=total_dur)
     if audio_path and os.path.exists(audio_path):
         audio_clip = AudioFileClip(audio_path)
@@ -1018,7 +1063,7 @@ def build_pipeline():
         preset="medium",
         ffmpeg_params=["-crf", "18", "-pix_fmt", "yuv420p"]
     )
-    print(f"🎉 COMPLETE {total_dur:.1f}s MANHWA SHORT READY: {output_mp4}")
+    print(f"🎉 COMPLETE {total_dur:.1f}s 2D WEBTOON SHORT READY: {output_mp4}")
 
 
 if __name__ == "__main__":
