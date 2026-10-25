@@ -35,7 +35,7 @@ jobs:
         pip install requests groq yt-dlp pytubefix numpy Pillow==9.5.0 "moviepy<2.0"
         pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
 
-    - name: Generate Complete Manhwa Short with Pure Pollinations Art & Real Indila Audio
+    - name: Generate 2D Hidden-Love Style Webtoon Short with Vocal-Free Instrumental
       env:
         GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
@@ -48,19 +48,19 @@ jobs:
       run: |
         python upload_script.py
 
-    - name: Persist Story History & Real Indila Audio Cut
+    - name: Persist Story History & Vocal-Free Ethereal Instrumental Cut
       if: always()
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
-        git rm -f --ignore-unmatch assets/indila_love_story_magical_cut.mp3 assets/indila_love_story_instrumental_v2.mp3 assets/indila_love_story_pure_instrumental_v3.mp3 assets/indila_love_story_pure_inst_v4.mp3 assets/indila_love_story_pure_inst_75s_v5.mp3 || true
+        git rm -f --ignore-unmatch assets/indila_love_story_magical_cut.mp3 assets/indila_love_story_instrumental_v2.mp3 assets/indila_love_story_pure_instrumental_v3.mp3 assets/indila_love_story_pure_inst_v4.mp3 assets/indila_love_story_pure_inst_75s_v5.mp3 assets/indila_love_story_real_v6.mp3 || true
         if [ -f story_history.json ]; then
           git add story_history.json
         fi
-        if [ -f assets/indila_love_story_real_v6.mp3 ]; then
-          git add assets/indila_love_story_real_v6.mp3
+        if [ -f assets/indila_love_story_ethereal_inst_v7.mp3 ]; then
+          git add assets/indila_love_story_ethereal_inst_v7.mp3
         fi
-        git diff --staged --quiet || git commit -m "chore: update story history and real Indila audio [skip ci]"
+        git diff --staged --quiet || git commit -m "chore: update story history and vocal-free ethereal instrumental [skip ci]"
         git push || true
 
     - name: Save Video Artifact
