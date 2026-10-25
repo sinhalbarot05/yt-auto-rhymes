@@ -1,1 +1,11 @@
-PLACEHOLDER
+requests
+urllib3
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2
+numpy==1.26.4
+Pillow>=9.5.0,<10.1
+moviepy==1.0.3
+yt-dlp
+pytubefix
+groq
