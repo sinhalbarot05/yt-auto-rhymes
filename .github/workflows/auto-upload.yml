@@ -12,7 +12,7 @@ permissions:
 jobs:
   build-and-upload:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 45
 
     steps:
     - name: Checkout Repository
@@ -29,22 +29,16 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y ffmpeg fonts-liberation fonts-dejavu-core
 
-    - name: Install Python Packages (latest yt-dlp critical for YouTube)
+    - name: Install Python Packages
       run: |
         pip install --upgrade pip
-        pip install -U "yt-dlp[default]" pytubefix
-        pip install requests groq numpy "Pillow>=9.5.0,<10.1" "moviepy<2.0"
+        pip install requests groq "yt-dlp[default]" numpy Pillow==9.5.0 "moviepy<2.0"
         pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
-        yt-dlp --version
 
     - name: Generate 2D Hidden-Love Style Webtoon Short with Vocal-Free Instrumental
       env:
         GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
-        # Optional: base64-encoded Netscape cookies.txt (or raw content) from a spare Google account.
-        # Export via browser extension while logged into YouTube, then base64 -w0 cookies.txt
-        # and store as repository secret YOUTUBE_COOKIES. Strongly recommended for Actions.
-        YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
       run: |
         python generate_vids.py
 
@@ -66,8 +60,7 @@ jobs:
         if [ -f assets/indila_love_story_ethereal_inst_v7.mp3 ]; then
           git add assets/indila_love_story_ethereal_inst_v7.mp3
         fi
-        git diff --staged --quiet || git commit -m "chore: update story history and vocal-free ethereal instrumental [skip ci]"
-        git push || true
+        git diff --staged --quiet || (git commit -m "chore: update story history and vocal-free ethereal instrumental [skip ci]" && git pull --rebase origin main && git push) || true
 
     - name: Save Video Artifact
       if: always()
