@@ -1,71 +1,70 @@
 name: Autonomous Manhwa Shorts Factory
 
 on:
-  workflow_dispatch:
-  schedule:
-    # Runs automatically every day at 14:00 UTC (7:30 PM IST)
-    - cron: '0 14 * * *'
+workflow_dispatch:
+schedule:
+# Runs automatically every day at 14:00 UTC (7:30 PM IST)
+- cron: '0 14 * * *'
 
 permissions:
-  contents: write
+contents: write
 
 jobs:
-  build-and-upload:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+build-and-upload:
+runs-on: ubuntu-latest
+timeout-minutes: 45
 
-    steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+steps:
+- name: Checkout Repository
+  uses: actions/checkout@v4
 
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-        cache: 'pip'
+- name: Set up Python 3.11
+  uses: actions/setup-python@v5
+  with:
+    python-version: '3.11'
+    cache: 'pip'
 
-    - name: Install FFmpeg & Clean English Fonts
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y ffmpeg fonts-liberation fonts-dejavu-core
+- name: Install FFmpeg & Clean English Fonts
+  run: |
+    sudo apt-get update
+    sudo apt-get install -y ffmpeg fonts-liberation fonts-dejavu-core
 
-    - name: Install Python Packages
-      run: |
-        pip install --upgrade pip
-        pip install requests groq "yt-dlp[default]" numpy Pillow==9.5.0 "moviepy<2.0"
-        pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
+- name: Install Python Packages
+  run: |
+    pip install --upgrade pip
+    pip install requests groq "yt-dlp[default]" numpy Pillow==9.5.0 "moviepy<2.0"
+    pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
 
-    - name: Generate 2D Hidden-Love Style Webtoon Short with Vocal-Free Instrumental
-      env:
-        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-        POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
-      run: |
-        python generate_vids.py
+- name: Generate Complete 8-Scene gXlmlO4comg-Style Manhwa Short
+  env:
+    GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+    POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
+  run: |
+    python generate_vids.py
 
-    - name: Upload Video to YouTube Shorts
-      env:
-        YOUTUBE_TOKEN_JSON_B64: ${{ secrets.YOUTUBE_TOKEN_JSON_B64 }}
-      run: |
-        python upload_script.py
+- name: Upload Video to YouTube Shorts
+  env:
+    YOUTUBE_TOKEN_JSON_B64: ${{ secrets.YOUTUBE_TOKEN_JSON_B64 }}
+  run: |
+    python upload_script.py
 
-    - name: Persist Story History & Vocal-Free Ethereal Instrumental Cut
-      if: always()
-      run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        git rm -f --ignore-unmatch assets/indila_love_story_magical_cut.mp3 assets/indila_love_story_instrumental_v2.mp3 assets/indila_love_story_pure_instrumental_v3.mp3 assets/indila_love_story_pure_inst_v4.mp3 assets/indila_love_story_pure_inst_75s_v5.mp3 assets/indila_love_story_real_v6.mp3 || true
-        if [ -f story_history.json ]; then
-          git add story_history.json
-        fi
-        if [ -f assets/indila_love_story_ethereal_inst_v7.mp3 ]; then
-          git add assets/indila_love_story_ethereal_inst_v7.mp3
-        fi
-        git diff --staged --quiet || (git commit -m "chore: update story history and vocal-free ethereal instrumental [skip ci]" && git pull --rebase origin main && git push) || true
+- name: Persist Story History & Cached Master Audio
+  if: always()
+  run: |
+    git config user.name "github-actions[bot]"
+    git config user.email "github-actions[bot]@users.noreply.github.com"
+    if [ -f story_history.json ]; then
+      git add story_history.json
+    fi
+    if [ -f assets/indila_love_story_master_75s.mp3 ]; then
+      git add assets/indila_love_story_master_75s.mp3
+    fi
+    git diff --staged --quiet || (git commit -m "chore: update story history and master audio [skip ci]" && git pull --rebase origin main && git push) || true
 
-    - name: Save Video Artifact
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: generated-manhwa-short
-        path: videos/*.mp4
-        retention-days: 3
+- name: Save Video Artifact
+  if: always()
+  uses: actions/upload-artifact@v4
+  with:
+    name: generated-manhwa-short
+    path: videos/*.mp4
+    retention-days: 3
