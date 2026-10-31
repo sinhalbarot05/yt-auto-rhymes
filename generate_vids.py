@@ -171,7 +171,6 @@ def detect_character_anchors(img_path):
             face_bot_y = int(y_min + np.percentile(ys, 88))
             face_h = max(140, min(280, face_bot_y - face_top_y))
 
-            # Strictly clamp horizontal & vertical anchors so background objects never pull bubbles into blank space
             if is_left:
                 face_cx = max(210, min(380, raw_cx))
                 head_top_y = max(430, min(560, face_top_y - int(face_h * 0.45)))
@@ -263,7 +262,6 @@ def render_webtoon_bubble_layer(text, bubble_type, side, head_top, mouth_pt, out
     m_draw = ImageDraw.Draw(mask)
 
     if b_type == "thought":
-        # Scalloped Cloud Body + 4 Detached Shrinking Circular Bubbles
         m_draw.ellipse(
             [cx - rx + 14 * scale, cy - ry + 12 * scale, cx + rx - 14 * scale, cy + ry - 12 * scale],
             fill=255
@@ -564,7 +562,7 @@ def generate_unique_combinatorial_story(history):
         },
         {
             "titles": [
-                "SheTore Up The Marriage Contract… So He Panicked 💍💔 #Shorts #manhwa #lovestory",
+                "She Tore Up The Marriage Contract… So He Panicked 💍💔 #Shorts #manhwa #lovestory",
                 "Our Fake Marriage Turned Into His Real Obsession 🥺🔥 #Shorts #manhwa #lovestory",
                 "The Cold CEO Broke His Own Rule The Night She Left 🌧️❤️ #Shorts #manhwa #lovestory"
             ],
@@ -623,7 +621,6 @@ def generate_fresh_story(history):
             for model in candidate_models:
                 try:
                     print(f"[STORY-ENGINE] Writing complete 8-scene script via Groq ({model})...")
-                    # max_tokens=880 is strictly under the 1,000 OTPM limit on qwen/qwen3.8-27b!
                     res = client.chat.completions.create(
                         model=model,
                         messages=[{"role": "system", "content": sys_p}, {"role": "user", "content": usr_p}],
@@ -648,7 +645,6 @@ def generate_fresh_story(history):
         except Exception as e:
             print(f"⚠️ Groq client fallback ({e})...")
 
-    # Tier 2: Pollinations OpenAI Text Endpoint
     try:
         print("[STORY-ENGINE] Trying secondary Pollinations OpenAI Text LLM...")
         resp = requests.post(
@@ -720,7 +716,6 @@ def fetch_clean_manhwa_artwork(scene, male_dna, female_dna, story_seed, idx, tot
     )
     encoded = urllib.parse.quote(prompt[:490])
 
-    # Pace requests cleanly so Pollinations' public Flux gateway never drops scenes
     if idx > 0:
         time.sleep(12.0)
 
