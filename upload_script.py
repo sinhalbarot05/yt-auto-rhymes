@@ -62,15 +62,19 @@ def upload_short():
     target_video = max(mp4_files, key=os.path.getctime)
 
     meta = load_story_metadata()
-    raw_title = meta.get("video_title", "He Left Her In The Rain… So His Brother Stepped In 💔☔ #Shorts #manhwa #lovestory")
+    raw_title = meta.get("video_title", "When Her Fiancé Stood Up, His Brother Saved Her 🌂❤️ #Shorts #manhwa #lovestory")
     if "#Shorts" not in raw_title and "#shorts" not in raw_title:
         raw_title = f"{raw_title} #Shorts"
     title = raw_title[:100]
 
-    trope_name = meta.get("trope", "Korean Manhwa Love Story")
+    trope_name = meta.get("trope", "Korean Manhwa Romance Story")
+    scenes = meta.get("scenes", [])
+    opening_quote = scenes[0].get("male_line", "") if scenes else ""
+    turning_quote = scenes[min(2, len(scenes) - 1)].get("female_line", "") if scenes else ""
 
     description = (
-        f"{trope_name} 💗🥀\n\n"
+        f"{trope_name} 💗🥀\n"
+        f"\"{opening_quote}\" — \"{turning_quote}\"\n\n"
         f"🎵 Music: Love Story (Instrumental Slowed & Reverb) - Indila\n"
         f"✨ Subscribe for daily complete Manhwa love stories!\n\n"
         f"#Shorts #manhwa #webtoon #lovestory #indila #romance #anime #manga #viralshort #fyp"
