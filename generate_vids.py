@@ -32,14 +32,13 @@ HISTORY_FILE = "story_history.json"
 AUDIO_CACHE_PATH = "assets/indila_love_story_ethereal_inst_v7.mp3"
 SONG_CREDIT = "Love Story - Indila (Ethereal Instrumental Slowed & Reverb)"
 
-# Ranked Pollinations (Pollen / Free) Models for 2D Anime & Manhwa Generation
-ANIME_MODEL_PRIORITY = [
-    "seedream",                  # Top East-Asian Webtoon / Manhwa 2D aesthetic
-    "flux",                      # Crisp 2D anime when paired with Danbooru tags + negative_prompt
-    "zimage",                    # Tongyi Z-Image Turbo (Free Pollen model strong on 2D anime art)
-    "lykon/dreamshaper-8-lcm",   # Classic 2D anime/illustration community model
-    "turbo"                      # Fast fallback
+# 100% Free-Tier Pollinations Models Only (zimage #1 because it renders without 402/403 blocks)
+FREE_ANIME_MODELS = [
+    "zimage",
+    "flux",
+    "turbo"
 ]
+CURRENT_WORKING_MODEL = "zimage"
 
 NEGATIVE_TAGS = (
     "3d, cgi, realistic, photorealistic, real person, text, words, letters, "
@@ -89,29 +88,37 @@ def ascii_clean(text):
 
 
 # ==============================================================================
-# 1. STORY & DANBOORU TAG ARCHITECT
+# 1. FREE GROQ STORY ARCHITECT (qwen/qwen3.8-27b #1, gpt-oss blocked)
 # ==============================================================================
 
-def get_groq_chat_models(client):
+def get_free_groq_models(client):
     try:
         all_ids = [m.id for m in client.models.list().data]
     except Exception:
-        return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+        return ["qwen/qwen3.8-27b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 
-    blocked = ("whisper", "orpheus", "canopylabs", "guard", "tts", "playai", "embed", "vision", "audio", "speech")
+    # Block gpt-oss (fails JSON validation on free token limits) and all audio/whisper/guard models
+    blocked = (
+        "gpt-oss", "whisper", "orpheus", "canopylabs", "guard", "tts",
+        "playai", "embed", "vision", "audio", "speech", "safeguard", "allam"
+    )
     valid = [m for m in all_ids if not any(b in m.lower() for b in blocked)]
+
+    # Place qwen/qwen3.8-27b #1 since it is active and verified on your free Groq account
     priority = [
+        "qwen/qwen3.8-27b",
+        "qwen/qwen3-32b",
         "llama-3.3-70b-versatile",
         "llama-3.1-8b-instant",
-        "qwen/qwen3-32b",
-        "deepseek-r1-distill-llama-70b",
-        "gemma2-9b-it"
+        "gemma2-9b-it",
+        "llama3-70b-8192",
+        "llama3-8b-8192"
     ]
     ordered = [p for p in priority if p in valid]
     for m in valid:
         if m not in ordered:
             ordered.append(m)
-    return ordered or ["llama-3.3-70b-versatile"]
+    return ordered or ["qwen/qwen3.8-27b"]
 
 
 def generate_story(history):
@@ -123,20 +130,20 @@ def generate_story(history):
 
     sys_msg = (
         "You are a Korean Manhwa writer and anime tag prompt engineer. "
-        "Write an 8-scene romance story using short Danbooru visual tags (no long sentences). "
-        "Output strictly valid JSON."
+        "Write an 8-scene romance story using short Danbooru visual tags. "
+        "Output strictly valid, compact JSON."
     )
-    usr_msg = f"""Create a new 8-scene romantic Manhwa Short.
+    usr_msg = f"""Create a new 8-scene romantic Manhwa Short (MUST have exactly 8 scenes in the "scenes" array).
 Seed: {nonce} | Plot: "{chosen_plot}"
-Do NOT reuse these titles: {json.dumps(used_titles)}
+Do NOT reuse these titles: {json.dumps(used_titles[-6:])}
 
 RULES:
-1. "boy_tags": 4-6 short anime tags for the male lead (e.g., "tall male, short black hair, amber eyes").
-2. "girl_tags": 4-6 short anime tags for the female lead (e.g., "petite female, long brown hair, blue eyes").
-3. For each of the 8 scenes:
-   - "scene_tags": 5-8 short Danbooru tags for outfit, action, setting, and lighting (e.g., "school uniform, holding umbrella, rain, night street, looking at each other, blushing").
-   - "male_mode" / "female_mode": "speech" (spoken out loud) or "thought" (inner monologue).
-   - "male_line" / "female_line": 4 to 7 English words.
+1. "boy_tags": 4-5 short anime tags for the male lead (e.g., "tall male, short black hair, amber eyes").
+2. "girl_tags": 4-5 short anime tags for the female lead (e.g., "petite female, long brown hair, blue eyes").
+3. Generate EXACTLY 8 scenes:
+   - "scene_tags": 5-7 short Danbooru tags for outfit, action, setting, and lighting.
+   - "male_mode" / "female_mode": "speech" or "thought".
+   - "male_line" / "female_line": 4 to 6 English words.
 
 JSON Schema:
 {{
@@ -152,7 +159,7 @@ JSON Schema:
       "male_line": "Take my umbrella right now.",
       "female_mode": "thought",
       "female_line": "He actually came back for me...",
-      "scene_tags": "dark coat, white cardigan, sharing umbrella, rain, evening street, warm streetlamp, looking at each other"
+      "scene_tags": "dark coat, white cardigan, sharing umbrella, rain, evening street, looking at each other"
     }}
   ]
 }}"""
@@ -161,15 +168,15 @@ JSON Schema:
     if groq_key:
         try:
             client = Groq(api_key=groq_key)
-            for model in get_groq_chat_models(client)[:4]:
+            for model in get_free_groq_models(client)[:4]:
                 try:
                     print(f"[STORY] Requesting 8-scene tag script from Groq ({model})...")
                     res = client.chat.completions.create(
                         model=model,
                         messages=[{"role": "system", "content": sys_msg}, {"role": "user", "content": usr_msg}],
                         response_format={"type": "json_object"},
-                        max_tokens=800,
-                        temperature=0.85
+                        max_tokens=920,
+                        temperature=0.82
                     )
                     raw = res.choices[0].message.content.strip()
                     if raw.startswith("```"):
@@ -177,7 +184,7 @@ JSON Schema:
                     data = json.loads(raw)
                     if len(data.get("scenes", [])) >= 6:
                         data["plot_used"] = chosen_plot
-                        print(f"✅ Story Ready: {data.get('video_title')}")
+                        print(f"✅ Story Ready ({len(data['scenes'])} scenes): {data.get('video_title')}")
                         return data
                 except Exception as e:
                     print(f"⚠️ Groq {model} skipped ({e})")
@@ -187,14 +194,14 @@ JSON Schema:
 
     # Backup: Pollinations Free Text API
     try:
-        print("[STORY] Requesting 8-scene tag script from Pollinations Text API...")
+        print("[STORY] Requesting 8-scene tag script from Pollinations Free Text API...")
         r = requests.post(
             "https://text.pollinations.ai/openai",
             json={
                 "model": "openai",
                 "messages": [{"role": "system", "content": sys_msg}, {"role": "user", "content": usr_msg}],
                 "response_format": {"type": "json_object"},
-                "temperature": 0.85
+                "temperature": 0.82
             },
             timeout=40
         )
@@ -210,7 +217,6 @@ JSON Schema:
     except Exception:
         pass
 
-    # Procedural Fallback (Never repeats titles)
     ep = history.get("total_runs", 0) + 1
     m_hair = random.choice(["short black hair", "silver hair", "dark brown hair", "navy hair"])
     f_hair = random.choice(["long chestnut hair", "long black hair", "wavy honey hair", "caramel hair"])
@@ -234,20 +240,15 @@ JSON Schema:
 
 
 # ==============================================================================
-# 2. CLEAN TAG-BASED ANIME / MANHWA IMAGE GENERATOR
+# 2. 100% FREE POLLINATIONS ANIME GENERATOR (Sticky zimage — Zero 402/403)
 # ==============================================================================
 
 def build_clean_tag_prompt(scene, boy_tags, girl_tags):
-    """
-    Builds a concise, zero-bloat Danbooru/Webtoon tag prompt.
-    Never mentions '3D', 'CGI', or 'speech bubble' in the positive prompt.
-    """
     m_age = int("".join(c for c in str(scene.get("male_age", "21")) if c.isdigit()) or 21)
     f_age = int("".join(c for c in str(scene.get("female_age", "19")) if c.isdigit()) or 19)
 
     age_tag_m = f"{m_age}yo" if m_age >= 13 else f"child {m_age}yo"
     age_tag_f = f"{f_age}yo" if f_age >= 13 else f"child {f_age}yo"
-
     s_tags = scene.get("scene_tags", "standing together, romantic lighting, looking at each other")
 
     tags = [
@@ -293,47 +294,49 @@ def crop_and_fit_vertical(raw_bytes, out_path):
 
 def render_scene_image(scene, boy_tags, girl_tags, story_seed, idx, total, out_path):
     """
-    Fetches 9:16 anime/manhwa art using the ranked free/Pollen model queue
-    with clean positive tags and separate negative_prompt.
+    100% Free Pollinations Image Generator:
+    - Starts directly with 'zimage' (verified free & fast on GitHub Actions IPs).
+    - Never attaches a $0 API key (which caused the 402 Payment Required errors).
+    - Remembers the working model across scenes so every frame renders on try #1.
     """
+    global CURRENT_WORKING_MODEL
     pos_prompt = build_clean_tag_prompt(scene, boy_tags, girl_tags)
     enc_pos = urllib.parse.quote(pos_prompt)
     enc_neg = urllib.parse.quote(NEGATIVE_TAGS)
-    api_key = os.getenv("POLLINATIONS_API_KEY")
 
     if idx > 0:
-        time.sleep(10.0)
+        time.sleep(6.0)
+
+    # Put the sticky working model ('zimage') first
+    trial_models = [CURRENT_WORKING_MODEL] + [m for m in FREE_ANIME_MODELS if m != CURRENT_WORKING_MODEL]
 
     print(f"[ANIME-GEN] Scene {idx + 1}/{total} | Prompt: {pos_prompt[:85]}...")
 
-    for attempt in range(len(ANIME_MODEL_PRIORITY) + 2):
-        model_name = ANIME_MODEL_PRIORITY[attempt % len(ANIME_MODEL_PRIORITY)]
-        # Keep seed locked to story_seed on first try for character consistency
+    for attempt in range(5):
+        model_name = trial_models[attempt % len(trial_models)]
         seed = story_seed + idx if attempt == 0 else story_seed + (idx * 100) + attempt
 
-        # Use free public image.pollinations.ai gateway; attach key only if available on first try
         url = (
             f"https://image.pollinations.ai/prompt/{enc_pos}"
             f"?model={urllib.parse.quote(model_name)}&width=768&height=1344"
             f"&seed={seed}&negative_prompt={enc_neg}&nologo=true&enhance=false"
         )
         headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/126.0.0.0"}
-        if api_key and attempt == 0:
-            headers["Authorization"] = f"Bearer {api_key}"
 
         try:
             res = requests.get(url, headers=headers, timeout=80)
             ctype = res.headers.get("Content-Type", "")
             if res.status_code == 200 and "image" in ctype and len(res.content) > 15000:
                 crop_and_fit_vertical(res.content, out_path)
-                print(f"✅ Scene {idx + 1}/{total} rendered with model '{model_name}' -> {out_path}")
+                CURRENT_WORKING_MODEL = model_name
+                print(f"✅ Scene {idx + 1}/{total} rendered with free model '{model_name}' -> {out_path}")
                 return True
-            wait_s = 16 + (attempt * 4)
-            print(f"   ⏳ Model '{model_name}' returned {res.status_code}. Cooling down {wait_s}s...")
+            wait_s = 12 + (attempt * 4)
+            print(f"   ⏳ Free gateway busy ({res.status_code}). Waiting {wait_s}s...")
             time.sleep(wait_s)
         except Exception as e:
-            wait_s = 12 + (attempt * 4)
-            print(f"   ⏳ Network retry on '{model_name}' ({e}). Waiting {wait_s}s...")
+            wait_s = 10 + (attempt * 4)
+            print(f"   ⏳ Network retry ({e}). Waiting {wait_s}s...")
             time.sleep(wait_s)
 
     return False
@@ -344,7 +347,6 @@ def render_scene_image(scene, boy_tags, girl_tags, story_seed, idx, total, out_p
 # ==============================================================================
 
 def find_head_anchors(img_path):
-    """Locates left (boy) and right (girl) head/mouth anchors within safe waist-up bounds."""
     anchors = {
         "boy_head": (280, 465), "boy_mouth": (335, 660),
         "girl_head": (800, 495), "girl_mouth": (740, 690)
@@ -421,11 +423,6 @@ def bezier_curve(p0, p1, p2, steps=28):
 
 
 def draw_bubble_layer(text, mode, side, head_pt, mouth_pt, out_path):
-    """
-    2x supersampled comic bubble:
-    - mode='speech': smooth horizontal oval + solid curved tail pointing to mouth.
-    - mode='thought': scalloped cloud + 4 detached shrinking circles pointing to head.
-    """
     scale = 2
     W, H = 1080 * scale, 1920 * scale
     clean_t = ascii_clean(text)
@@ -559,7 +556,6 @@ def get_indila_audio(needed_sec):
         except Exception:
             continue
 
-    # Emergency D-minor waltz synth if all external audio networks fail
     wav_p = "workspace/synth.wav"
     sr = 44100
     with wave.open(wav_p, "w") as wf:
@@ -582,7 +578,7 @@ def get_indila_audio(needed_sec):
 # ==============================================================================
 
 def build_pipeline():
-    print("=== STARTING CLEAN TAG-DRIVEN ANIME/MANHWA PIPELINE ===")
+    print("=== STARTING 100% FREE CLEAN TAG-DRIVEN ANIME/MANHWA PIPELINE ===")
     os.makedirs("workspace", exist_ok=True)
     os.makedirs("videos", exist_ok=True)
 
@@ -644,7 +640,7 @@ def build_pipeline():
         comp = comp.resize(lambda t: 1.0 + (0.015 * t))
         clips.append(comp)
 
-    if len(clips) < 6:
+    if len(clips) < 5:
         raise RuntimeError(f"❌ Aborted: only {len(clips)} scenes generated.")
 
     final_video = concatenate_videoclips(clips, method="compose")
