@@ -52,6 +52,30 @@ def load_story_metadata():
     return {}
 
 
+def build_unique_description(meta):
+    """Builds a unique, story-specific description from the generated scenes so no two uploads look identical."""
+    trope_name = meta.get("trope", "Original Korean Manhwa Romance")
+    scenes = meta.get("scenes", [])
+
+    teaser_lines = []
+    if scenes:
+        first_sc = scenes[0]
+        if first_sc.get("male_line"):
+            teaser_lines.append(f"💬 Him: \"{first_sc['male_line']}\"")
+        if first_sc.get("female_line"):
+            teaser_lines.append(f"💭 Her: \"{first_sc['female_line']}\"")
+
+    teaser_block = "\n".join(teaser_lines) if teaser_lines else "A complete original romantic webtoon short story."
+
+    return (
+        f"📖 Story: {trope_name} 💗🥀\n\n"
+        f"{teaser_block}\n\n"
+        f"🎵 Music: Love Story (Ethereal Instrumental Slowed & Reverb) - Indila\n"
+        f"✨ Subscribe for daily original Manhwa & Webtoon love stories!\n\n"
+        f"#Shorts #manhwa #webtoon #lovestory #indila #romance #anime #manga #viralshort #fyp"
+    )
+
+
 def upload_short():
     print("=== STARTING AUTOMATED YOUTUBE SHORTS UPLOAD ===")
     youtube = get_authenticated_service()
@@ -62,23 +86,12 @@ def upload_short():
     target_video = max(mp4_files, key=os.path.getctime)
 
     meta = load_story_metadata()
-    raw_title = meta.get("video_title", "When Her Fiancé Stood Up, His Brother Saved Her 🌂❤️ #Shorts #manhwa #lovestory")
+    raw_title = meta.get("video_title", "When Her Fiancé Stood Her Up, His Brother Saved Her 🌂❤️ #Shorts #manhwa")
     if "#Shorts" not in raw_title and "#shorts" not in raw_title:
         raw_title = f"{raw_title} #Shorts"
     title = raw_title[:100]
 
-    trope_name = meta.get("trope", "Korean Manhwa Romance Story")
-    scenes = meta.get("scenes", [])
-    opening_quote = scenes[0].get("male_line", "") if scenes else ""
-    turning_quote = scenes[min(2, len(scenes) - 1)].get("female_line", "") if scenes else ""
-
-    description = (
-        f"{trope_name} 💗🥀\n"
-        f"\"{opening_quote}\" — \"{turning_quote}\"\n\n"
-        f"🎵 Music: Love Story (Instrumental Slowed & Reverb) - Indila\n"
-        f"✨ Subscribe for daily complete Manhwa love stories!\n\n"
-        f"#Shorts #manhwa #webtoon #lovestory #indila #romance #anime #manga #viralshort #fyp"
-    )
+    description = build_unique_description(meta)
 
     body = {
         "snippet": {
@@ -100,7 +113,7 @@ def upload_short():
     media = MediaFileUpload(target_video, chunksize=1024 * 1024 * 4, resumable=True, mimetype="video/mp4")
     request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
 
-    print(f"[UPLOAD] Uploading {target_video} to YouTube Shorts...")
+    print(f"[UPLOAD] Uploading '{title}' ({target_video}) to YouTube Shorts...")
     response = None
     while response is None:
         status, response = request.next_chunk()
