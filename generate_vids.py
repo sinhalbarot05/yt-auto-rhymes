@@ -733,10 +733,16 @@ def build_pipeline():
 
         comp = CompositeVideoClip(layers, size=(1080, 1920)).set_duration(scene_dur)
         if idx % 2 == 0:
-            comp = comp.resize(lambda t: 1.0 + (0.014 * t))
+            zoomed = comp.resize(lambda t: 1.0 + (0.014 * t))
         else:
-            comp = comp.resize(lambda t: 1.075 - (0.014 * t))
-        clips.append(comp)
+            zoomed = comp.resize(lambda t: 1.074 - (0.014 * t))
+
+        # Lock every scene to an even 1080x1920 canvas so libx264 never fails on odd dimensions
+        scene_clip = (
+            CompositeVideoClip([zoomed.set_position("center")], size=(1080, 1920))
+            .set_duration(scene_dur)
+        )
+        clips.append(scene_clip)
 
     if len(clips) < 5:
         raise RuntimeError(f"❌ Aborted: only {len(clips)} scenes generated.")
