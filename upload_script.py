@@ -1,6 +1,7 @@
 import os
 import glob
 import json
+import time
 import base64
 import pickle
 from google.oauth2.credentials import Credentials
@@ -57,7 +58,7 @@ def upload_short():
         title = f"{title} #Shorts"
     title = title[:100]
 
-    trope = meta.get("trope", "Original Korean Manhwa Romance")
+    trope = meta.get("trope", "Original Manhwa Romance")
     scenes = meta.get("scenes", [])
     quote_block = ""
     if scenes:
@@ -71,14 +72,14 @@ def upload_short():
         f"{quote_block}"
         f"🎵 Music: Love Story (Ethereal Instrumental Slowed & Reverb) - Indila\n"
         f"✨ Subscribe for daily original Manhwa love stories!\n\n"
-        f"#Shorts #manhwa #webtoon #lovestory #anime #romance #manga #viralshort #fyp"
+        f"#Shorts #manhwa #lovestory #romance #manga #viralshort #fyp"
     )
 
     body = {
         "snippet": {
             "title": title,
             "description": description,
-            "tags": ["Shorts", "manhwa", "webtoon", "love story", "anime romance", "indila love story"],
+            "tags": ["Shorts", "manhwa", "love story", "manhwa romance", "indila love story"],
             "categoryId": "1"
         },
         "status": {
@@ -92,10 +93,18 @@ def upload_short():
     req = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
 
     response = None
+    retries = 0
     while response is None:
-        status, response = req.next_chunk()
-        if status:
-            print(f"   ↳ Uploaded {int(status.progress() * 100)}%")
+        try:
+            status, response = req.next_chunk(num_retries=3)
+            if status:
+                print(f"   ↳ Uploaded {int(status.progress() * 100)}%")
+        except Exception as e:
+            retries += 1
+            if retries > 4:
+                raise
+            print(f"   ⚠️ Chunk retry {retries}/4 ({e})...")
+            time.sleep(3 * retries)
 
     print(f"🎉 UPLOADED: https://youtube.com/shorts/{response.get('id')}")
 
