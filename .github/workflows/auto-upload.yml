@@ -2,6 +2,11 @@ name: Autonomous Manhwa Shorts Factory
 
 on:
   workflow_dispatch:
+    inputs:
+      story_theme:
+        description: 'Optional custom romance theme (leave blank for automatic random story)'
+        required: false
+        default: ''
   push:
     branches:
       - main
@@ -23,6 +28,15 @@ jobs:
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Clean Stray Web-Edit Branches
+      run: |
+        git fetch --prune origin
+        for br in $(git branch -r | grep 'origin/fast-gen-upload-' | sed 's|origin/||'); do
+          git push origin --delete "$br" || true
+        done
 
     - name: Set up Python 3.11
       uses: actions/setup-python@v5
@@ -44,6 +58,7 @@ jobs:
     - name: Clean Workspace & Generate Manhwa Short
       env:
         GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        CUSTOM_STORY_THEME: ${{ github.event.inputs.story_theme }}
       run: |
         rm -rf workspace videos
         python generate_vids.py
