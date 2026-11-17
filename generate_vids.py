@@ -30,9 +30,8 @@ from moviepy.editor import (
 
 HISTORY_FILE = "story_history.json"
 AUDIO_CACHE_PATH = "assets/indila_love_story_ethereal_inst_v7.mp3"
-SONG_CREDIT = "Love Story - Indila (Ethereal Instrumental Slowed & Reverb)"
 
-# 100% Free-Tier Pollinations Models Only (zimage #1 because it renders without 402/403 blocks)
+# 100% Free-Tier Pollinations Models (zimage #1 for fast, clean Manhwa generation)
 FREE_ANIME_MODELS = [
     "zimage",
     "flux",
@@ -53,7 +52,9 @@ ROMANCE_PLOTS = [
     "Two strangers on the 7 AM subway train share an umbrella during a thunderstorm and become soulmates",
     "Quiet art prodigy secretly sketches the girl who was ignored by her crush, winning her heart under cherry blossoms",
     "Separated childhood friends reunite at university when she recognizes the red ribbon still tied on his wrist",
-    "Time-leap romance where a regretful husband wakes up five years earlier in college to cherish his wife from day one"
+    "Time-leap romance where a regretful husband wakes up five years earlier in college to cherish his wife from day one",
+    "Overworked young CEO pretends to hate coffee breaks just to talk to the shy bakery girl across the street every morning",
+    "Bodyguard hired to protect a runaway heiress breaks his own strict rules when she cries alone under fireworks"
 ]
 
 
@@ -64,10 +65,13 @@ def load_history():
                 return json.load(f)
         except Exception:
             pass
-    return {"used_titles": [], "used_plots": [], "total_runs": 0}
+    return {"used_titles": [], "used_plots": [], "used_dialogues": [], "total_runs": 0}
 
 
 def save_history(history):
+    history["used_titles"] = history.get("used_titles", [])[-25:]
+    history["used_plots"] = history.get("used_plots", [])[-8:]
+    history["used_dialogues"] = history.get("used_dialogues", [])[-30:]
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(history, f, indent=2, ensure_ascii=False)
 
@@ -87,8 +91,19 @@ def ascii_clean(text):
     return " ".join(cleaned.split()) or "..."
 
 
+def sanitize_tags(raw_tags, fallback):
+    """Strips redundant style words or bloat from LLM-generated tags."""
+    if not raw_tags:
+        return fallback
+    cleaned = str(raw_tags).lower()
+    for redundant in ("manhwa style", "korean webtoon", "2d anime illustration", "2d anime", "3d", "cgi", "realistic"):
+        cleaned = cleaned.replace(redundant, "")
+    parts = [p.strip() for p in cleaned.split(",") if p.strip()]
+    return ", ".join(parts[:8]) if parts else fallback
+
+
 # ==============================================================================
-# 1. FREE GROQ STORY ARCHITECT (qwen/qwen3.8-27b #1, gpt-oss blocked)
+# 1. FREE GROQ STORY & TAG ARCHITECT
 # ==============================================================================
 
 def get_free_groq_models(client):
@@ -97,14 +112,12 @@ def get_free_groq_models(client):
     except Exception:
         return ["qwen/qwen3.8-27b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 
-    # Block gpt-oss (fails JSON validation on free token limits) and all audio/whisper/guard models
     blocked = (
         "gpt-oss", "whisper", "orpheus", "canopylabs", "guard", "tts",
         "playai", "embed", "vision", "audio", "speech", "safeguard", "allam"
     )
     valid = [m for m in all_ids if not any(b in m.lower() for b in blocked)]
 
-    # Place qwen/qwen3.8-27b #1 since it is active and verified on your free Groq account
     priority = [
         "qwen/qwen3.8-27b",
         "qwen/qwen3-32b",
@@ -121,27 +134,83 @@ def get_free_groq_models(client):
     return ordered or ["qwen/qwen3.8-27b"]
 
 
+def generate_procedural_story(history, chosen_plot):
+    """Multi-plot deduplicated fallback generator if external LLMs are temporarily unavailable."""
+    ep = history.get("total_runs", 0) + 1
+    used_titles = set(history.get("used_titles", []))
+    m_hair = random.choice(["short black hair", "silver hair", "dark brown hair", "navy hair"])
+    f_hair = random.choice(["long chestnut hair", "long black hair", "wavy honey hair", "caramel hair"])
+
+    templates = [
+        {
+            "trope": "Rescued By His Older Brother",
+            "title": f"Left In The Rain… Until His Brother Stepped In ☔💔 Ep.{ep} #Shorts #manhwa #lovestory",
+            "scenes": [
+                {"male_age": "21", "female_age": "19", "male_mode": "speech", "male_line": "Wait outside. I'm busy tonight.", "female_mode": "thought", "female_line": "He forgot my birthday again...", "scene_tags": "suit jacket, pastel dress, holding small cake box, evening sidewalk, cold expression, sad eyes"},
+                {"male_age": "24", "female_age": "19", "male_mode": "thought", "male_line": "How can my brother ignore her tears?", "female_mode": "speech", "female_line": "It's okay, I'm used to waiting.", "scene_tags": "long dark coat, shivering in rain, streetlamp glow, concerned gaze, teardrops"},
+                {"male_age": "24", "female_age": "19", "male_mode": "speech", "male_line": "Take my umbrella. Come with me.", "female_mode": "thought", "female_line": "Why is his gaze so warm?", "scene_tags": "sharing black umbrella, heavy rain, night city lights, close together, blushing"},
+                {"male_age": "24", "female_age": "20", "male_mode": "speech", "male_line": "I bought every cake you missed.", "female_mode": "thought", "female_line": "No one ever treasured me like this...", "scene_tags": "white shirt, cardigan, birthday cake with candles, warm dining room, gentle smile"},
+                {"male_age": "25", "female_age": "20", "male_mode": "speech", "male_line": "Step back. You lost your chance.", "female_mode": "thought", "female_line": "He stood right in front of me!", "scene_tags": "tailored suit, evening gown, grand hall chandelier, protective posture, holding her hand"},
+                {"male_age": "25", "female_age": "20", "male_mode": "speech", "male_line": "I've loved you in silence for years.", "female_mode": "speech", "female_line": "Stay with me. Never let go.", "scene_tags": "night balcony, starry sky, city bokeh, touching her cheek, tender eye contact"},
+                {"male_age": "26", "female_age": "21", "male_mode": "speech", "male_line": "Marry me and be my whole world.", "female_mode": "speech", "female_line": "Yes! Only you, forever.", "scene_tags": "holding ring box, cherry blossom trees, sunset light, happy tears, smiling"},
+                {"male_age": "27", "female_age": "22", "male_mode": "thought", "male_line": "I'll protect her smile for life.", "female_mode": "thought", "female_line": "Losing the wrong one led me to you.", "scene_tags": "black tuxedo, white wedding veil, hugging, sunlit garden, floating petals"}
+            ]
+        },
+        {
+            "trope": "Academic Rivals to Rooftop Lovers",
+            "title": f"He Fought Me For #1 Rank… Just To Talk To Me 📚💗 Ep.{ep} #Shorts #manhwa #lovestory",
+            "scenes": [
+                {"male_age": "17", "female_age": "17", "male_mode": "speech", "male_line": "First place is mine again.", "female_mode": "thought", "female_line": "Why does he always tease me?", "scene_tags": "school blazer, school uniform, exam board, sunlit hallway, soft smirk, pouting"},
+                {"male_age": "17", "female_age": "17", "male_mode": "speech", "male_line": "Why are you crying up here?", "female_mode": "thought", "female_line": "He found my secret spot...", "scene_tags": "school rooftop, sunset sky, offering handkerchief, tearful eyes, warm breeze"},
+                {"male_age": "18", "female_age": "18", "male_mode": "speech", "male_line": "Rest on my shoulder for a bit.", "female_mode": "thought", "female_line": "His shoulder feels so safe...", "scene_tags": "library desk, stacked books, evening lamp light, draping blazer over her, blushing"},
+                {"male_age": "18", "female_age": "18", "male_mode": "speech", "male_line": "Don't let him walk you home.", "female_mode": "speech", "female_line": "Wait, are you actually jealous?", "scene_tags": "school courtyard, autumn leaves, holding her wrist, serious gaze, sunset shadows"},
+                {"male_age": "19", "female_age": "19", "male_mode": "speech", "male_line": "I studied hard just to stay near you.", "female_mode": "thought", "female_line": "My heart is racing so fast!", "scene_tags": "university campus, cherry blossoms, spring sunlight, standing close, shy smile"},
+                {"male_age": "20", "female_age": "20", "male_mode": "speech", "male_line": "Every margin note was about you.", "female_mode": "speech", "female_line": "I liked you since high school.", "scene_tags": "rainy evening, transparent umbrella, cafe lights, touching her cheek, warm smile"},
+                {"male_age": "22", "female_age": "22", "male_mode": "speech", "male_line": "Be my partner for life?", "female_mode": "speech", "female_line": "Yes, my favourite rival!", "scene_tags": "starry rooftop, fairy lights, holding ring box, joyful tears, romantic night"},
+                {"male_age": "23", "female_age": "23", "male_mode": "thought", "male_line": "Winning her heart was my real prize.", "female_mode": "thought", "female_line": "From rivals to soulmates forever.", "scene_tags": "golden sunrise, city skyline, holding hands, loving gaze, warm light"}
+            ]
+        }
+    ]
+
+    picked = random.choice(templates)
+    title = picked["title"]
+    if title in used_titles:
+        title = f"{picked['trope']} ❤️✨ Part {ep} #Shorts #manhwa #lovestory"
+
+    return {
+        "trope": picked["trope"],
+        "plot_used": chosen_plot,
+        "video_title": title,
+        "boy_tags": f"tall male, {m_hair}, amber eyes",
+        "girl_tags": f"petite female, {f_hair}, bright eyes",
+        "scenes": picked["scenes"]
+    }
+
+
 def generate_story(history):
     used_plots = history.get("used_plots", [])[-5:]
-    used_titles = history.get("used_titles", [])[-12:]
+    used_titles = history.get("used_titles", [])[-10:]
+    used_lines = history.get("used_dialogues", [])[-12:]
+
     candidates = [p for p in ROMANCE_PLOTS if p not in used_plots] or ROMANCE_PLOTS
     chosen_plot = random.choice(candidates)
     nonce = f"{int(time.time())}-{random.randint(1000, 9999)}"
 
     sys_msg = (
-        "You are a Korean Manhwa writer and anime tag prompt engineer. "
-        "Write an 8-scene romance story using short Danbooru visual tags. "
+        "You are a Korean Manhwa writer and tag prompt engineer. "
+        "Write an 8-scene romance story using short visual tags. "
         "Output strictly valid, compact JSON."
     )
-    usr_msg = f"""Create a new 8-scene romantic Manhwa Short (MUST have exactly 8 scenes in the "scenes" array).
+    usr_msg = f"""Create a new 8-scene romantic Manhwa Short (MUST have 8 scenes in "scenes").
 Seed: {nonce} | Plot: "{chosen_plot}"
-Do NOT reuse these titles: {json.dumps(used_titles[-6:])}
+Avoid titles: {json.dumps(used_titles[-5:])}
+Avoid lines: {json.dumps(used_lines[-8:])}
 
 RULES:
-1. "boy_tags": 4-5 short anime tags for the male lead (e.g., "tall male, short black hair, amber eyes").
-2. "girl_tags": 4-5 short anime tags for the female lead (e.g., "petite female, long brown hair, blue eyes").
-3. Generate EXACTLY 8 scenes:
-   - "scene_tags": 5-7 short Danbooru tags for outfit, action, setting, and lighting.
+1. "boy_tags": 3-5 visual tags for male lead (e.g., "tall male, short black hair, amber eyes").
+2. "girl_tags": 3-5 visual tags for female lead (e.g., "petite female, long brown hair, blue eyes").
+3. For each of the 8 scenes:
+   - "scene_tags": 5-7 short visual tags for outfit, action, setting, and lighting (do NOT include style names).
    - "male_mode" / "female_mode": "speech" or "thought".
    - "male_line" / "female_line": 4 to 6 English words.
 
@@ -170,7 +239,7 @@ JSON Schema:
             client = Groq(api_key=groq_key)
             for model in get_free_groq_models(client)[:4]:
                 try:
-                    print(f"[STORY] Requesting 8-scene tag script from Groq ({model})...")
+                    print(f"[STORY] Requesting 8-scene script from Groq ({model})...")
                     res = client.chat.completions.create(
                         model=model,
                         messages=[{"role": "system", "content": sys_msg}, {"role": "user", "content": usr_msg}],
@@ -192,9 +261,8 @@ JSON Schema:
         except Exception:
             pass
 
-    # Backup: Pollinations Free Text API
     try:
-        print("[STORY] Requesting 8-scene tag script from Pollinations Free Text API...")
+        print("[STORY] Requesting 8-scene script from Pollinations Free Text API...")
         r = requests.post(
             "https://text.pollinations.ai/openai",
             json={
@@ -217,55 +285,67 @@ JSON Schema:
     except Exception:
         pass
 
-    ep = history.get("total_runs", 0) + 1
-    m_hair = random.choice(["short black hair", "silver hair", "dark brown hair", "navy hair"])
-    f_hair = random.choice(["long chestnut hair", "long black hair", "wavy honey hair", "caramel hair"])
-    return {
-        "trope": f"Rescued By His Older Brother #{ep}",
-        "plot_used": chosen_plot,
-        "video_title": f"Left In The Rain… Until His Brother Stepped In ☔💔 Ep.{ep} #Shorts #manhwa #lovestory",
-        "boy_tags": f"tall male, {m_hair}, amber eyes",
-        "girl_tags": f"petite female, {f_hair}, bright eyes",
-        "scenes": [
-            {"male_age": "21", "female_age": "19", "male_mode": "speech", "male_line": "Wait outside. I'm busy tonight.", "female_mode": "thought", "female_line": "He forgot my birthday again...", "scene_tags": "suit jacket, pastel dress, holding small cake box, evening sidewalk, cold expression, sad eyes"},
-            {"male_age": "24", "female_age": "19", "male_mode": "thought", "male_line": "How can my brother ignore her tears?", "female_mode": "speech", "female_line": "It's okay, I'm used to waiting.", "scene_tags": "long dark coat, shivering in rain, streetlamp glow, concerned gaze, teardrops"},
-            {"male_age": "24", "female_age": "19", "male_mode": "speech", "male_line": "Take my umbrella. Come with me.", "female_mode": "thought", "female_line": "Why is his gaze so warm?", "scene_tags": "sharing black umbrella, heavy rain, night city lights, close together, blushing"},
-            {"male_age": "24", "female_age": "20", "male_mode": "speech", "male_line": "I bought every cake you missed.", "female_mode": "thought", "female_line": "No one ever treasured me like this...", "scene_tags": "white shirt, cardigan, birthday cake with candles, warm dining room, gentle smile"},
-            {"male_age": "25", "female_age": "20", "male_mode": "speech", "male_line": "Step back. You lost your chance.", "female_mode": "thought", "female_line": "He stood right in front of me!", "scene_tags": "tailored suit, evening gown, grand hall chandelier, protective posture, holding her hand"},
-            {"male_age": "25", "female_age": "20", "male_mode": "speech", "male_line": "I've loved you in silence for years.", "female_mode": "speech", "female_line": "Stay with me. Never let go.", "scene_tags": "night balcony, starry sky, city bokeh, touching her cheek, tender eye contact"},
-            {"male_age": "26", "female_age": "21", "male_mode": "speech", "male_line": "Marry me and be my whole world.", "female_mode": "speech", "female_line": "Yes! Only you, forever.", "scene_tags": "holding ring box, cherry blossom trees, sunset light, happy tears, smiling"},
-            {"male_age": "27", "female_age": "22", "male_mode": "thought", "male_line": "I'll protect her smile for life.", "female_mode": "thought", "female_line": "Losing the wrong one led me to you.", "scene_tags": "black tuxedo, white wedding veil, hugging, sunlit garden, floating petals"}
-        ]
-    }
+    return generate_procedural_story(history, chosen_plot)
 
 
 # ==============================================================================
-# 2. 100% FREE POLLINATIONS ANIME GENERATOR (Sticky zimage — Zero 402/403)
+# 2. CLEAN 'MANHWA STYLE' IMAGE GENERATOR (100% FREE TIER)
 # ==============================================================================
 
 def build_clean_tag_prompt(scene, boy_tags, girl_tags):
+    """
+    Lean, high-signal prompt: 'manhwa style' alone defines the aesthetic cleanly
+    without redundant style tags or broken weight syntax.
+    """
     m_age = int("".join(c for c in str(scene.get("male_age", "21")) if c.isdigit()) or 21)
     f_age = int("".join(c for c in str(scene.get("female_age", "19")) if c.isdigit()) or 19)
 
-    age_tag_m = f"{m_age}yo" if m_age >= 13 else f"child {m_age}yo"
-    age_tag_f = f"{f_age}yo" if f_age >= 13 else f"child {f_age}yo"
-    s_tags = scene.get("scene_tags", "standing together, romantic lighting, looking at each other")
+    age_m = f"{m_age}yo" if m_age >= 13 else f"child {m_age}yo"
+    age_f = f"{f_age}yo" if f_age >= 13 else f"child {f_age}yo"
+
+    clean_boy = sanitize_tags(boy_tags, "tall male, short black hair, amber eyes")
+    clean_girl = sanitize_tags(girl_tags, "petite female, long chestnut hair, bright eyes")
+    clean_scene = sanitize_tags(
+        scene.get("scene_tags", ""),
+        "standing together, romantic lighting, looking at each other"
+    )
 
     tags = [
         "manhwa style",
-        "korean webtoon",
-        "2d anime illustration",
         "1boy",
         "1girl",
-        f"({boy_tags} {age_tag_m}:1.1)",
-        f"({girl_tags} {age_tag_f}:1.1)",
-        s_tags,
+        "boy on left",
+        "girl on right",
+        clean_boy,
+        age_m,
+        clean_girl,
+        age_f,
+        clean_scene,
         "upper body two-shot",
         "clean sky headroom at top",
         "masterpiece",
         "best quality"
     ]
     return ", ".join(tags)
+
+
+def is_valid_artwork(raw_bytes):
+    """Validates image integrity and rejects flat rate-limit/placeholder banners."""
+    if not raw_bytes or len(raw_bytes) < 16000:
+        return False
+    try:
+        with Image.open(io.BytesIO(raw_bytes)) as im:
+            rgb = im.convert("RGB")
+            w, h = rgb.size
+            if w < 450 or h < 600:
+                return False
+            arr = np.array(rgb, dtype=np.float32)
+            # Reject blank or flat text-banner images
+            if np.std(arr) < 22.0:
+                return False
+        return True
+    except Exception:
+        return False
 
 
 def crop_and_fit_vertical(raw_bytes, out_path):
@@ -292,25 +372,18 @@ def crop_and_fit_vertical(raw_bytes, out_path):
     return out_path
 
 
-def render_scene_image(scene, boy_tags, girl_tags, story_seed, idx, total, out_path):
-    """
-    100% Free Pollinations Image Generator:
-    - Starts directly with 'zimage' (verified free & fast on GitHub Actions IPs).
-    - Never attaches a $0 API key (which caused the 402 Payment Required errors).
-    - Remembers the working model across scenes so every frame renders on try #1.
-    """
+def render_scene_image(session, scene, boy_tags, girl_tags, story_seed, idx, total, out_path):
+    """Renders a 9:16 Manhwa panel using free-tier Pollinations models with sticky model routing."""
     global CURRENT_WORKING_MODEL
     pos_prompt = build_clean_tag_prompt(scene, boy_tags, girl_tags)
     enc_pos = urllib.parse.quote(pos_prompt)
     enc_neg = urllib.parse.quote(NEGATIVE_TAGS)
 
     if idx > 0:
-        time.sleep(6.0)
+        time.sleep(4.5)
 
-    # Put the sticky working model ('zimage') first
     trial_models = [CURRENT_WORKING_MODEL] + [m for m in FREE_ANIME_MODELS if m != CURRENT_WORKING_MODEL]
-
-    print(f"[ANIME-GEN] Scene {idx + 1}/{total} | Prompt: {pos_prompt[:85]}...")
+    print(f"[MANHWA-GEN] Scene {idx + 1}/{total} | Prompt: {pos_prompt}")
 
     for attempt in range(5):
         model_name = trial_models[attempt % len(trial_models)]
@@ -321,18 +394,17 @@ def render_scene_image(scene, boy_tags, girl_tags, story_seed, idx, total, out_p
             f"?model={urllib.parse.quote(model_name)}&width=768&height=1344"
             f"&seed={seed}&negative_prompt={enc_neg}&nologo=true&enhance=false"
         )
-        headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/126.0.0.0"}
 
         try:
-            res = requests.get(url, headers=headers, timeout=80)
+            res = session.get(url, timeout=80)
             ctype = res.headers.get("Content-Type", "")
-            if res.status_code == 200 and "image" in ctype and len(res.content) > 15000:
+            if res.status_code == 200 and "image" in ctype and is_valid_artwork(res.content):
                 crop_and_fit_vertical(res.content, out_path)
                 CURRENT_WORKING_MODEL = model_name
-                print(f"✅ Scene {idx + 1}/{total} rendered with free model '{model_name}' -> {out_path}")
+                print(f"✅ Scene {idx + 1}/{total} saved ({model_name}) -> {out_path}")
                 return True
             wait_s = 12 + (attempt * 4)
-            print(f"   ⏳ Free gateway busy ({res.status_code}). Waiting {wait_s}s...")
+            print(f"   ⏳ Gateway busy ({res.status_code}). Cooling down {wait_s}s...")
             time.sleep(wait_s)
         except Exception as e:
             wait_s = 10 + (attempt * 4)
@@ -343,13 +415,13 @@ def render_scene_image(scene, boy_tags, girl_tags, story_seed, idx, total, out_p
 
 
 # ==============================================================================
-# 3. COMIC BUBBLE & AGE OVERLAY ENGINE
+# 3. COLLISION-FREE COMIC BUBBLE & AGE OVERLAY ENGINE
 # ==============================================================================
 
 def find_head_anchors(img_path):
     anchors = {
-        "boy_head": (280, 465), "boy_mouth": (335, 660),
-        "girl_head": (800, 495), "girl_mouth": (740, 690)
+        "boy_head": (275, 465), "boy_mouth": (330, 660),
+        "girl_head": (805, 495), "girl_mouth": (745, 690)
     }
     try:
         with Image.open(img_path) as im:
@@ -367,14 +439,14 @@ def find_head_anchors(img_path):
             bot_y = int(y0 + np.percentile(ys, 88))
             fh = max(130, min(270, bot_y - top_y))
             if is_left:
-                cx = max(210, min(380, cx))
+                cx = max(210, min(375, cx))
                 hy = max(390, min(545, top_y - int(fh * 0.45)))
-                mx = max(240, min(430, cx + int(fh * 0.15)))
+                mx = max(240, min(425, cx + int(fh * 0.15)))
                 my = max(575, min(780, top_y + int(fh * 0.68)))
             else:
-                cx = max(700, min(870, cx))
+                cx = max(705, min(870, cx))
                 hy = max(410, min(570, top_y - int(fh * 0.45)))
-                mx = max(650, min(840, cx - int(fh * 0.15)))
+                mx = max(655, min(840, cx - int(fh * 0.15)))
                 my = max(595, min(800, top_y + int(fh * 0.68)))
             return (cx, hy), (mx, my)
 
@@ -423,28 +495,34 @@ def bezier_curve(p0, p1, p2, steps=28):
 
 
 def draw_bubble_layer(text, mode, side, head_pt, mouth_pt, out_path):
+    """
+    2x supersampled comic bubble with guaranteed center separation (zero overlap):
+    - Left bubble stays strictly in x=[24..515]
+    - Right bubble stays strictly in x=[565..1056]
+    """
     scale = 2
     W, H = 1080 * scale, 1920 * scale
     clean_t = ascii_clean(text)
-    wrapped = "\n".join(textwrap.wrap(clean_t, width=18)[:3])
+    wrapped = "\n".join(textwrap.wrap(clean_t, width=17)[:3])
 
-    font = load_font(32 * scale)
+    font = load_font(31 * scale)
     tmp = ImageDraw.Draw(Image.new("L", (8, 8)))
     bbox = tmp.multiline_textbbox((0, 0), wrapped, font=font, align="center", spacing=8 * scale)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
 
-    rx = max(145 * scale, int(tw * 0.5 + 52 * scale))
-    ry = max(76 * scale, int(th * 0.5 + 40 * scale))
+    # Clamp max horizontal radius so left & right bubbles never collide across center x=540
+    rx = max(140 * scale, min(232 * scale, int(tw * 0.5 + 48 * scale)))
+    ry = max(74 * scale, int(th * 0.5 + 38 * scale))
 
     hx, hy = head_pt[0] * scale, head_pt[1] * scale
     mx, my = mouth_pt[0] * scale, mouth_pt[1] * scale
 
     if side == "left":
-        cx = max(rx + 28 * scale, min(515 * scale - rx, hx - 10 * scale))
-        cy = max(ry + 115 * scale, min(hy - ry - 22 * scale, 255 * scale))
+        cx = max(rx + 24 * scale, min(515 * scale - rx, hx - 10 * scale))
+        cy = max(ry + 115 * scale, min(hy - ry - 22 * scale, 240 * scale))
     else:
-        cx = max(565 * scale + rx, min(W - rx - 28 * scale, hx + 10 * scale))
-        cy = max(ry + 145 * scale, min(hy - ry - 18 * scale, 300 * scale))
+        cx = max(565 * scale + rx, min(W - rx - 24 * scale, hx + 10 * scale))
+        cy = max(ry + 150 * scale, min(hy - ry - 18 * scale, 305 * scale))
 
     tx = max(cx - rx + 20 * scale, min(cx + rx - 20 * scale, mx + (-18 * scale if side == "left" else 18 * scale)))
     ty = max(cy + ry + 64 * scale, min(cy + ry + 120 * scale, my - 55 * scale))
@@ -458,7 +536,7 @@ def draw_bubble_layer(text, mode, side, head_pt, mouth_pt, out_path):
             ang = (2.0 * math.pi * i) / 16
             px = cx + (rx - 12 * scale) * math.cos(ang)
             py = cy + (ry - 8 * scale) * math.sin(ang)
-            pr = (28 if i % 2 == 0 else 23) * scale
+            pr = (27 if i % 2 == 0 else 22) * scale
             mdraw.ellipse([px - pr, py - pr, px + pr, py + pr], fill=255)
 
         sx = cx + (int(rx * 0.14) if side == "left" else -int(rx * 0.14))
@@ -533,9 +611,9 @@ def get_indila_audio(needed_sec):
     slice_len = max(75, int(needed_sec) + 6)
 
     for q, offset in [
-        ("scsearch1:Love Story by Indila Ethereal Instrumental Full Version", 20),
-        ("scsearch1:Indila Love Story Extended Instrumental Slowed Reverb", 20),
-        ("scsearch1:Indila Love Story Piano Instrumental Slowed Reverb", 0)
+        ("scsearch3:Love Story by Indila Ethereal Instrumental Full Version", 20),
+        ("scsearch3:Indila Love Story Extended Instrumental Slowed Reverb", 20),
+        ("scsearch3:Indila Love Story Piano Instrumental Slowed Reverb", 0)
     ]:
         try:
             if os.path.exists(raw_mp3):
@@ -543,6 +621,7 @@ def get_indila_audio(needed_sec):
             subprocess.run([
                 sys.executable, "-m", "yt_dlp", q,
                 "--extract-audio", "--audio-format", "mp3", "--audio-quality", "192K",
+                "--match-filter", "duration > 90", "--max-downloads", "1",
                 "--no-playlist", "--quiet", "--output", raw_mp3
             ], timeout=60, check=False)
             if os.path.exists(raw_mp3) and os.path.getsize(raw_mp3) > 90000:
@@ -578,7 +657,7 @@ def get_indila_audio(needed_sec):
 # ==============================================================================
 
 def build_pipeline():
-    print("=== STARTING 100% FREE CLEAN TAG-DRIVEN ANIME/MANHWA PIPELINE ===")
+    print("=== STARTING MANHWA STYLE FREE-TIER PIPELINE ===")
     os.makedirs("workspace", exist_ok=True)
     os.makedirs("videos", exist_ok=True)
 
@@ -587,6 +666,11 @@ def build_pipeline():
 
     history.setdefault("used_titles", []).append(story.get("video_title", ""))
     history.setdefault("used_plots", []).append(story.get("plot_used", ""))
+    for sc in story.get("scenes", []):
+        if sc.get("male_line"):
+            history.setdefault("used_dialogues", []).append(sc["male_line"])
+        if sc.get("female_line"):
+            history.setdefault("used_dialogues", []).append(sc["female_line"])
     history["total_runs"] = history.get("total_runs", 0) + 1
     save_history(history)
 
@@ -598,13 +682,16 @@ def build_pipeline():
     scenes = story.get("scenes", [])[:8]
     story_seed = random.randint(10000, 999999)
 
+    session = requests.Session()
+    session.headers.update({"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/126.0.0.0"})
+
     scene_dur = 5.3
     reply_delay = 1.8
     clips = []
 
     for idx, sc in enumerate(scenes):
         art_path = f"workspace/art_{idx}.jpg"
-        if not render_scene_image(sc, boy_tags, girl_tags, story_seed, idx, len(scenes), art_path):
+        if not render_scene_image(session, sc, boy_tags, girl_tags, story_seed, idx, len(scenes), art_path):
             continue
 
         anchors = find_head_anchors(art_path)
@@ -634,10 +721,15 @@ def build_pipeline():
                 .set_position((0, 0))
                 .set_start(reply_delay)
                 .set_duration(scene_dur - reply_delay)
+                .crossfadein(0.15)
             )
 
         comp = CompositeVideoClip(layers, size=(1080, 1920)).set_duration(scene_dur)
-        comp = comp.resize(lambda t: 1.0 + (0.015 * t))
+        # Alternate subtle zoom-in and zoom-out across scenes for dynamic motion
+        if idx % 2 == 0:
+            comp = comp.resize(lambda t: 1.0 + (0.014 * t))
+        else:
+            comp = comp.resize(lambda t: 1.075 - (0.014 * t))
         clips.append(comp)
 
     if len(clips) < 5:
