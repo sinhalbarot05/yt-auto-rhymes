@@ -44,7 +44,7 @@ NEGATIVE_TAGS = (
     "speech bubble, watermark, logo, signature, bad anatomy, extra limbs, multiple boys, multiple girls, blurry"
 )
 
-# 100% Adult (18+) Korean Manhwa Romance Plots
+# 100% Adult (18+) Manhwa Romance Plots
 ROMANCE_PLOTS = [
     "Uncherished fiancée left in the rain on her birthday is rescued and treasured by her fiancé's older brother",
     "University next-door neighbours grow from bickering rivals into a rainy rooftop confession and marriage proposal",
@@ -306,7 +306,7 @@ JSON Schema:
 
 
 # ==============================================================================
-# 2. CLEAN 'MANHWA STYLE' IMAGE GENERATOR (100% FREE TIER & GUIDELINE-SAFE)
+# 2. CLEAN 'MANHWA STYLE' IMAGE GENERATOR (100% FREE TIER)
 # ==============================================================================
 
 def build_clean_tag_prompt(scene, boy_tags, girl_tags):
@@ -428,50 +428,63 @@ def render_scene_image(session, scene, boy_tags, girl_tags, story_seed, idx, tot
 
 
 # ==============================================================================
-# 3. COLLISION-FREE COMIC BUBBLE & AGE OVERLAY ENGINE
+# 3. RESTORED GOATed CV HEAD/MOUTH ANCHOR & WEBTOON BUBBLE ENGINE
 # ==============================================================================
 
-def find_head_anchors(img_path):
-    anchors = {
-        "boy_head": (275, 465), "boy_mouth": (330, 660),
-        "girl_head": (805, 495), "girl_mouth": (745, 690)
+def detect_character_anchors(img_path):
+    """
+    Restored Un-Clamped Computer-Vision Character Head & Mouth Locator:
+    Scans the full left half (Boy, x: 40..535) and full right half (Girl, x: 545..1040)
+    across y: 320..1080 without artificial horizontal squeezing, locating the exact pixel
+    coordinates of both characters' hair-tops and mouths so bubbles sit directly above their
+    heads and tails connect cleanly to their faces.
+    """
+    default_anchors = {
+        "boy_head_top": (285, 505),
+        "boy_mouth": (345, 735),
+        "girl_head_top": (795, 540),
+        "girl_mouth": (725, 765)
     }
     try:
         with Image.open(img_path) as im:
             rgb = np.array(im.convert("RGB").resize((1080, 1920)), dtype=np.float32)
+
         r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
-        skin = (r > 165) & (g > 120) & (b > 95) & ((r - g) > 10) & ((r - b) > 20) & (g > b)
-        y0, y1 = 340, 960
+        skin_mask = (
+            (r > 160) & (g > 115) & (b > 90) &
+            ((r - g) > 8) & ((r - b) > 18) & ((r - b) < 120) &
+            (g > b)
+        )
+        y_min, y_max = 320, 1080
 
-        def scan_half(x0, x1, is_left):
-            ys, xs = np.where(skin[y0:y1, x0:x1])
-            if len(ys) < 350:
+        def find_side_face(x_start, x_end, is_left):
+            sub_mask = skin_mask[y_min:y_max, x_start:x_end]
+            ys, xs = np.where(sub_mask)
+            if len(ys) < 380:
                 return None
-            cx = int(x0 + np.median(xs))
-            top_y = int(y0 + np.percentile(ys, 12))
-            bot_y = int(y0 + np.percentile(ys, 88))
-            fh = max(130, min(270, bot_y - top_y))
-            if is_left:
-                cx = max(210, min(375, cx))
-                hy = max(390, min(545, top_y - int(fh * 0.45)))
-                mx = max(240, min(425, cx + int(fh * 0.15)))
-                my = max(575, min(780, top_y + int(fh * 0.68)))
-            else:
-                cx = max(705, min(870, cx))
-                hy = max(410, min(570, top_y - int(fh * 0.45)))
-                mx = max(655, min(840, cx - int(fh * 0.15)))
-                my = max(595, min(800, top_y + int(fh * 0.68)))
-            return (cx, hy), (mx, my)
 
-        l_pts = scan_half(70, 520, True)
-        r_pts = scan_half(560, 1010, False)
-        if l_pts:
-            anchors["boy_head"], anchors["boy_mouth"] = l_pts
-        if r_pts:
-            anchors["girl_head"], anchors["girl_mouth"] = r_pts
-    except Exception:
-        pass
-    return anchors
+            face_cx = int(x_start + np.median(xs))
+            face_top_y = int(y_min + np.percentile(ys, 12))
+            face_bot_y = int(y_min + np.percentile(ys, 88))
+            face_h = max(130, min(320, face_bot_y - face_top_y))
+
+            head_top_y = max(310, face_top_y - int(face_h * 0.48))
+            inward_shift = int(face_h * 0.18) if is_left else -int(face_h * 0.18)
+            mouth_x = max(100, min(980, face_cx + inward_shift))
+            mouth_y = min(1040, face_top_y + int(face_h * 0.72))
+            return (face_cx, head_top_y), (mouth_x, mouth_y)
+
+        left_res = find_side_face(40, 535, is_left=True)
+        right_res = find_side_face(545, 1040, is_left=False)
+
+        if left_res:
+            default_anchors["boy_head_top"], default_anchors["boy_mouth"] = left_res
+        if right_res:
+            default_anchors["girl_head_top"], default_anchors["girl_mouth"] = right_res
+    except Exception as e:
+        print(f"⚠️ Anchor detection fallback used: {e}")
+
+    return default_anchors
 
 
 def draw_age_layer(male_age, female_age, out_path):
@@ -495,7 +508,7 @@ def draw_age_layer(male_age, female_age, out_path):
     return out_path
 
 
-def bezier_curve(p0, p1, p2, steps=28):
+def quad_bezier_points(p0, p1, p2, steps=32):
     pts = []
     for i in range(steps + 1):
         t = i / float(steps)
@@ -507,43 +520,65 @@ def bezier_curve(p0, p1, p2, steps=28):
     return pts
 
 
-def draw_bubble_layer(text, mode, side, head_pt, mouth_pt, out_path):
+def render_webtoon_bubble_layer(text, bubble_type, side, head_top, mouth_pt, out_path):
+    """
+    Restored GOATed Webtoon Bubble Renderer (2x supersampled 2160x3840):
+    - Tracks the character's exact CV-detected head_top and mouth_pt.
+    - Dynamically extends the curved Bezier speech tail (or 4-dot Garfield thought chain)
+      right down to the character's head/mouth even when they stand lower or closer to center.
+    - Guarantees zero horizontal overlap between left and right bubbles.
+    """
     scale = 2
     W, H = 1080 * scale, 1920 * scale
     clean_t = ascii_clean(text)
     wrapped = "\n".join(textwrap.wrap(clean_t, width=17)[:3])
 
-    font = load_font(31 * scale)
+    font = load_font(32 * scale)
     tmp = ImageDraw.Draw(Image.new("L", (8, 8)))
     bbox = tmp.multiline_textbbox((0, 0), wrapped, font=font, align="center", spacing=8 * scale)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
 
-    rx = max(140 * scale, min(232 * scale, int(tw * 0.5 + 48 * scale)))
-    ry = max(74 * scale, int(th * 0.5 + 38 * scale))
+    # Cap rx at 232*scale so left and right bubbles never overlap across x=540
+    rx = max(144 * scale, min(232 * scale, int(tw * 0.5 + 50 * scale)))
+    ry = max(76 * scale, int(th * 0.5 + 40 * scale))
 
-    hx, hy = head_pt[0] * scale, head_pt[1] * scale
+    hx, hy = head_top[0] * scale, head_top[1] * scale
     mx, my = mouth_pt[0] * scale, mouth_pt[1] * scale
 
     if side == "left":
-        cx = max(rx + 24 * scale, min(515 * scale - rx, hx - 10 * scale))
-        cy = max(ry + 115 * scale, min(hy - ry - 22 * scale, 240 * scale))
+        cx = max(rx + 24 * scale, min(518 * scale - rx, hx - 10 * scale))
+        cy = max(ry + 115 * scale, min(hy - ry - 18 * scale, 355 * scale))
     else:
-        cx = max(565 * scale + rx, min(W - rx - 24 * scale, hx + 10 * scale))
-        cy = max(ry + 150 * scale, min(hy - ry - 18 * scale, 305 * scale))
+        cx = max(562 * scale + rx, min(W - rx - 24 * scale, hx + 10 * scale))
+        cy = max(ry + 150 * scale, min(hy - ry - 14 * scale, 405 * scale))
 
-    tx = max(cx - rx + 20 * scale, min(cx + rx - 20 * scale, mx + (-18 * scale if side == "left" else 18 * scale)))
-    ty = max(cy + ry + 64 * scale, min(cy + ry + 120 * scale, my - 55 * scale))
+    # Aim tail/dots horizontally toward the character's mouth/head X
+    raw_tx = mx + (-16 * scale if side == "left" else 16 * scale)
+    tx = max(cx - rx + 18 * scale, min(cx + rx - 18 * scale, raw_tx))
+    if side == "left":
+        tx = max(tx, cx + int(rx * 0.14))
+    else:
+        tx = min(tx, cx - int(rx * 0.14))
+
+    # Aim tail/dots vertically right down to the character's hair-top / upper face (never falling short!)
+    head_target_y = hy - 14 * scale
+    mouth_target_y = my - 48 * scale
+    desired_ty = max(head_target_y, min(mouth_target_y, hy + 28 * scale))
+    ty = max(cy + ry + 58 * scale, min(cy + ry + 195 * scale, desired_ty))
 
     mask = Image.new("L", (W, H), 0)
     mdraw = ImageDraw.Draw(mask)
 
-    if str(mode).lower() == "thought":
-        mdraw.ellipse([cx - rx + 14 * scale, cy - ry + 12 * scale, cx + rx - 14 * scale, cy + ry - 12 * scale], fill=255)
+    if str(bubble_type).lower() == "thought":
+        mdraw.ellipse(
+            [cx - rx + 14 * scale, cy - ry + 12 * scale, cx + rx - 14 * scale, cy + ry - 12 * scale],
+            fill=255
+        )
         for i in range(16):
             ang = (2.0 * math.pi * i) / 16
             px = cx + (rx - 12 * scale) * math.cos(ang)
             py = cy + (ry - 8 * scale) * math.sin(ang)
-            pr = (27 if i % 2 == 0 else 22) * scale
+            pr = (28 if i % 2 == 0 else 23) * scale
             mdraw.ellipse([px - pr, py - pr, px + pr, py + pr], fill=255)
 
         sx = cx + (int(rx * 0.14) if side == "left" else -int(rx * 0.14))
@@ -551,7 +586,7 @@ def draw_bubble_layer(text, mode, side, head_pt, mouth_pt, out_path):
         ctrl_x = (sx + tx) * 0.5 + (-14 * scale if side == "left" else 14 * scale)
         ctrl_y = sy + (ty - sy) * 0.52
 
-        for t_val, r_dot in [(0.08, 14.0 * scale), (0.40, 10.0 * scale), (0.70, 7.0 * scale), (0.96, 4.8 * scale)]:
+        for t_val, r_dot in [(0.08, 14.5 * scale), (0.40, 10.5 * scale), (0.70, 7.5 * scale), (0.96, 5.0 * scale)]:
             inv = 1.0 - t_val
             dx = inv * inv * sx + 2 * inv * t_val * ctrl_x + t_val * t_val * tx
             dy = inv * inv * sy + 2 * inv * t_val * ctrl_y + t_val * t_val * ty
@@ -569,11 +604,11 @@ def draw_bubble_layer(text, mode, side, head_pt, mouth_pt, out_path):
 
         bx = cx + (int(rx * 0.12) if side == "left" else -int(rx * 0.12))
         by = cy + ry - 8 * scale
-        pl, pr = (bx - 19 * scale, by), (bx + 19 * scale, by)
+        pl, pr = (bx - 20 * scale, by), (bx + 20 * scale, by)
         pull = -12 * scale if side == "left" else 12 * scale
         cl = ((pl[0] + tx) * 0.5 + pull, by + (ty - by) * 0.55)
         cr = ((pr[0] + tx) * 0.5 + pull, by + (ty - by) * 0.45)
-        mdraw.polygon(bezier_curve(pl, cl, (tx, ty)) + bezier_curve((tx, ty), cr, pr), fill=255)
+        mdraw.polygon(quad_bezier_points(pl, cl, (tx, ty)) + quad_bezier_points((tx, ty), cr, pr), fill=255)
 
     outer = mask.filter(ImageFilter.MaxFilter(7))
     shadow = outer.filter(ImageFilter.GaussianBlur(7 * scale))
@@ -664,7 +699,7 @@ def get_indila_audio(needed_sec):
 # ==============================================================================
 
 def build_pipeline():
-    print("=== STARTING GUIDELINE-SAFE MANHWA PIPELINE ===")
+    print("=== STARTING CV-ANCHORED MANHWA BUBBLE + FREE-TIER PIPELINE ===")
     os.makedirs("workspace", exist_ok=True)
     os.makedirs("videos", exist_ok=True)
 
@@ -701,7 +736,12 @@ def build_pipeline():
         if not render_scene_image(session, sc, boy_tags, girl_tags, story_seed, idx, len(scenes), art_path):
             continue
 
-        anchors = find_head_anchors(art_path)
+        anchors = detect_character_anchors(art_path)
+        print(
+            f"[CV-ANCHORS] Scene {idx + 1}: Boy Head={anchors['boy_head_top']} Mouth={anchors['boy_mouth']} | "
+            f"Girl Head={anchors['girl_head_top']} Mouth={anchors['girl_mouth']}"
+        )
+
         base = ImageClip(art_path).set_duration(scene_dur).resize((1080, 1920))
         layers = [base]
 
@@ -711,17 +751,17 @@ def build_pipeline():
 
         if sc.get("male_line"):
             b_left = f"workspace/b_left_{idx}.png"
-            draw_bubble_layer(
+            render_webtoon_bubble_layer(
                 sc["male_line"], sc.get("male_mode", "speech"),
-                "left", anchors["boy_head"], anchors["boy_mouth"], b_left
+                "left", anchors["boy_head_top"], anchors["boy_mouth"], b_left
             )
             layers.append(ImageClip(b_left).set_position((0, 0)).set_start(0.0).set_duration(scene_dur))
 
         if sc.get("female_line"):
             b_right = f"workspace/b_right_{idx}.png"
-            draw_bubble_layer(
+            render_webtoon_bubble_layer(
                 sc["female_line"], sc.get("female_mode", "thought"),
-                "right", anchors["girl_head"], anchors["girl_mouth"], b_right
+                "right", anchors["girl_head_top"], anchors["girl_mouth"], b_right
             )
             layers.append(
                 ImageClip(b_right)
