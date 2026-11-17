@@ -44,17 +44,18 @@ NEGATIVE_TAGS = (
     "speech bubble, watermark, logo, signature, bad anatomy, extra limbs, multiple boys, multiple girls, blurry"
 )
 
+# 100% Adult (18+) Korean Manhwa Romance Plots
 ROMANCE_PLOTS = [
     "Uncherished fiancée left in the rain on her birthday is rescued and treasured by her fiancé's older brother",
-    "Childhood next-door neighbours grow from teasing kids sharing strawberries into high-school crush and marriage proposal",
-    "Cold student council president hides his feelings until jealousy makes him confess to his academic rival in the rain",
+    "University next-door neighbours grow from bickering rivals into a rainy rooftop confession and marriage proposal",
+    "Cold university student council president hides his feelings until jealousy makes him confess in the rain",
     "Contract marriage couple with a strict no-love rule fall deeply in love when he tears up the divorce papers",
-    "Two strangers on the 7 AM subway train share an umbrella during a thunderstorm and become soulmates",
-    "Quiet art prodigy secretly sketches the girl who was ignored by her crush, winning her heart under cherry blossoms",
-    "Separated childhood friends reunite at university when she recognizes the red ribbon still tied on his wrist",
-    "Time-leap romance where a regretful husband wakes up five years earlier in college to cherish his wife from day one",
-    "Overworked young CEO pretends to hate coffee breaks just to talk to the shy bakery girl across the street every morning",
-    "Bodyguard hired to protect a runaway heiress breaks his own strict rules when she cries alone under fireworks"
+    "Two commuters on the 7 AM subway train share an umbrella during a thunderstorm and become soulmates",
+    "Quiet university art prodigy secretly sketches the girl ignored by her crush, winning her heart under cherry blossoms",
+    "Separated childhood friends reunite in college when she recognizes the red ribbon still tied on his wrist",
+    "Time-leap romance where a regretful husband wakes up five years earlier in university to cherish his wife from day one",
+    "Overworked young CEO pretends to hate coffee breaks just to talk to the shy bakery owner across the street every morning",
+    "Bodyguard hired to protect an adult heiress breaks his own strict rules when she cries alone under night fireworks"
 ]
 
 
@@ -91,12 +92,22 @@ def ascii_clean(text):
     return " ".join(cleaned.split()) or "..."
 
 
+def clamp_adult_age(raw_age, default_age=21):
+    """Enforces guideline-safe adult age tags (18 to 30) across all scenes."""
+    digits = "".join(c for c in str(raw_age) if c.isdigit())
+    val = int(digits) if digits else default_age
+    return str(max(18, min(30, val)))
+
+
 def sanitize_tags(raw_tags, fallback):
     """Strips redundant style words or bloat from LLM-generated tags."""
     if not raw_tags:
         return fallback
     cleaned = str(raw_tags).lower()
-    for redundant in ("manhwa style", "korean webtoon", "2d anime illustration", "2d anime", "3d", "cgi", "realistic"):
+    for redundant in (
+        "manhwa style", "korean webtoon", "2d anime illustration",
+        "2d anime", "3d", "cgi", "realistic", "child", "kid", "minor", "loli", "shota"
+    ):
         cleaned = cleaned.replace(redundant, "")
     parts = [p.strip() for p in cleaned.split(",") if p.strip()]
     return ", ".join(parts[:8]) if parts else fallback
@@ -157,17 +168,17 @@ def generate_procedural_story(history, chosen_plot):
             ]
         },
         {
-            "trope": "Academic Rivals to Rooftop Lovers",
+            "trope": "University Rivals to Rooftop Lovers",
             "title": f"He Fought Me For #1 Rank… Just To Talk To Me 📚💗 Ep.{ep} #Shorts #manhwa #lovestory",
             "scenes": [
-                {"male_age": "17", "female_age": "17", "male_mode": "speech", "male_line": "First place is mine again.", "female_mode": "thought", "female_line": "Why does he always tease me?", "scene_tags": "school blazer, school uniform, exam board, sunlit hallway, soft smirk, pouting"},
-                {"male_age": "17", "female_age": "17", "male_mode": "speech", "male_line": "Why are you crying up here?", "female_mode": "thought", "female_line": "He found my secret spot...", "scene_tags": "school rooftop, sunset sky, offering handkerchief, tearful eyes, warm breeze"},
-                {"male_age": "18", "female_age": "18", "male_mode": "speech", "male_line": "Rest on my shoulder for a bit.", "female_mode": "thought", "female_line": "His shoulder feels so safe...", "scene_tags": "library desk, stacked books, evening lamp light, draping blazer over her, blushing"},
-                {"male_age": "18", "female_age": "18", "male_mode": "speech", "male_line": "Don't let him walk you home.", "female_mode": "speech", "female_line": "Wait, are you actually jealous?", "scene_tags": "school courtyard, autumn leaves, holding her wrist, serious gaze, sunset shadows"},
-                {"male_age": "19", "female_age": "19", "male_mode": "speech", "male_line": "I studied hard just to stay near you.", "female_mode": "thought", "female_line": "My heart is racing so fast!", "scene_tags": "university campus, cherry blossoms, spring sunlight, standing close, shy smile"},
-                {"male_age": "20", "female_age": "20", "male_mode": "speech", "male_line": "Every margin note was about you.", "female_mode": "speech", "female_line": "I liked you since high school.", "scene_tags": "rainy evening, transparent umbrella, cafe lights, touching her cheek, warm smile"},
-                {"male_age": "22", "female_age": "22", "male_mode": "speech", "male_line": "Be my partner for life?", "female_mode": "speech", "female_line": "Yes, my favourite rival!", "scene_tags": "starry rooftop, fairy lights, holding ring box, joyful tears, romantic night"},
-                {"male_age": "23", "female_age": "23", "male_mode": "thought", "male_line": "Winning her heart was my real prize.", "female_mode": "thought", "female_line": "From rivals to soulmates forever.", "scene_tags": "golden sunrise, city skyline, holding hands, loving gaze, warm light"}
+                {"male_age": "19", "female_age": "19", "male_mode": "speech", "male_line": "First place is mine again.", "female_mode": "thought", "female_line": "Why does he always tease me?", "scene_tags": "university blazer, white shirt, exam board, sunlit hallway, soft smirk, pouting"},
+                {"male_age": "19", "female_age": "19", "male_mode": "speech", "male_line": "Why are you crying up here?", "female_mode": "thought", "female_line": "He found my secret spot...", "scene_tags": "campus rooftop, sunset sky, offering handkerchief, tearful eyes, warm breeze"},
+                {"male_age": "20", "female_age": "20", "male_mode": "speech", "male_line": "Rest on my shoulder for a bit.", "female_mode": "thought", "female_line": "His shoulder feels so safe...", "scene_tags": "library desk, stacked books, evening lamp light, draping blazer over her, blushing"},
+                {"male_age": "20", "female_age": "20", "male_mode": "speech", "male_line": "Don't let him walk you home.", "female_mode": "speech", "female_line": "Wait, are you actually jealous?", "scene_tags": "campus courtyard, autumn leaves, holding her wrist, serious gaze, sunset shadows"},
+                {"male_age": "21", "female_age": "21", "male_mode": "speech", "male_line": "I studied hard just to stay near you.", "female_mode": "thought", "female_line": "My heart is racing so fast!", "scene_tags": "university garden, cherry blossoms, spring sunlight, standing close, shy smile"},
+                {"male_age": "21", "female_age": "21", "male_mode": "speech", "male_line": "Every margin note was about you.", "female_mode": "speech", "female_line": "I liked you since freshman year.", "scene_tags": "rainy evening, transparent umbrella, cafe lights, touching her cheek, warm smile"},
+                {"male_age": "23", "female_age": "23", "male_mode": "speech", "male_line": "Be my partner for life?", "female_mode": "speech", "female_line": "Yes, my favourite rival!", "scene_tags": "starry rooftop, fairy lights, holding ring box, joyful tears, romantic night"},
+                {"male_age": "24", "female_age": "24", "male_mode": "thought", "male_line": "Winning her heart was my real prize.", "female_mode": "thought", "female_line": "From rivals to soulmates forever.", "scene_tags": "golden sunrise, city skyline, holding hands, loving gaze, warm light"}
             ]
         }
     ]
@@ -192,13 +203,18 @@ def generate_story(history):
     used_titles = history.get("used_titles", [])[-10:]
     used_lines = history.get("used_dialogues", [])[-12:]
 
-    candidates = [p for p in ROMANCE_PLOTS if p not in used_plots] or ROMANCE_PLOTS
-    chosen_plot = random.choice(candidates)
+    custom_topic = os.getenv("CUSTOM_STORY_THEME", "").strip()
+    if custom_topic:
+        chosen_plot = custom_topic
+    else:
+        candidates = [p for p in ROMANCE_PLOTS if p not in used_plots] or ROMANCE_PLOTS
+        chosen_plot = random.choice(candidates)
+
     nonce = f"{int(time.time())}-{random.randint(1000, 9999)}"
 
     sys_msg = (
         "You are a Korean Manhwa writer and tag prompt engineer. "
-        "Write an 8-scene romance story using short visual tags. "
+        "Write an 8-scene adult romance story (all characters ages 19 to 28) using short visual tags. "
         "Output strictly valid, compact JSON."
     )
     usr_msg = f"""Create a new 8-scene romantic Manhwa Short (MUST have 8 scenes in "scenes").
@@ -207,9 +223,10 @@ Avoid titles: {json.dumps(used_titles[-5:])}
 Avoid lines: {json.dumps(used_lines[-8:])}
 
 RULES:
-1. "boy_tags": 3-5 visual tags for male lead (e.g., "tall male, short black hair, amber eyes").
-2. "girl_tags": 3-5 visual tags for female lead (e.g., "petite female, long brown hair, blue eyes").
-3. For each of the 8 scenes:
+1. All characters must be adults (male_age and female_age between 19 and 28).
+2. "boy_tags": 3-5 visual tags for male lead (e.g., "tall male, short black hair, amber eyes").
+3. "girl_tags": 3-5 visual tags for female lead (e.g., "petite female, long brown hair, blue eyes").
+4. For each of the 8 scenes:
    - "scene_tags": 5-7 short visual tags for outfit, action, setting, and lighting (do NOT include style names).
    - "male_mode" / "female_mode": "speech" or "thought".
    - "male_line" / "female_line": 4 to 6 English words.
@@ -289,19 +306,16 @@ JSON Schema:
 
 
 # ==============================================================================
-# 2. CLEAN 'MANHWA STYLE' IMAGE GENERATOR (100% FREE TIER)
+# 2. CLEAN 'MANHWA STYLE' IMAGE GENERATOR (100% FREE TIER & GUIDELINE-SAFE)
 # ==============================================================================
 
 def build_clean_tag_prompt(scene, boy_tags, girl_tags):
     """
-    Lean, high-signal prompt: 'manhwa style' alone defines the aesthetic cleanly
-    without redundant style tags or broken weight syntax.
+    Lean, high-signal prompt: 'manhwa style' alone defines the aesthetic cleanly,
+    with adult age clamping (18+) so image filters never block a frame.
     """
-    m_age = int("".join(c for c in str(scene.get("male_age", "21")) if c.isdigit()) or 21)
-    f_age = int("".join(c for c in str(scene.get("female_age", "19")) if c.isdigit()) or 19)
-
-    age_m = f"{m_age}yo" if m_age >= 13 else f"child {m_age}yo"
-    age_f = f"{f_age}yo" if f_age >= 13 else f"child {f_age}yo"
+    m_age = clamp_adult_age(scene.get("male_age", "21"), 21)
+    f_age = clamp_adult_age(scene.get("female_age", "19"), 19)
 
     clean_boy = sanitize_tags(boy_tags, "tall male, short black hair, amber eyes")
     clean_girl = sanitize_tags(girl_tags, "petite female, long chestnut hair, bright eyes")
@@ -317,9 +331,9 @@ def build_clean_tag_prompt(scene, boy_tags, girl_tags):
         "boy on left",
         "girl on right",
         clean_boy,
-        age_m,
+        f"{m_age}yo",
         clean_girl,
-        age_f,
+        f"{f_age}yo",
         clean_scene,
         "upper body two-shot",
         "clean sky headroom at top",
@@ -340,7 +354,6 @@ def is_valid_artwork(raw_bytes):
             if w < 450 or h < 600:
                 return False
             arr = np.array(rgb, dtype=np.float32)
-            # Reject blank or flat text-banner images
             if np.std(arr) < 22.0:
                 return False
         return True
@@ -469,7 +482,7 @@ def draw_age_layer(male_age, female_age, out_path):
     font = load_font(62 * scale)
 
     def draw_num(cx, cy, val, col):
-        txt = "".join(c for c in str(val) if c.isdigit())[:2] or "19"
+        txt = clamp_adult_age(val, 20)
         draw.text(
             (cx, cy), txt, font=font,
             fill=col + (255,), anchor="mm",
@@ -495,11 +508,6 @@ def bezier_curve(p0, p1, p2, steps=28):
 
 
 def draw_bubble_layer(text, mode, side, head_pt, mouth_pt, out_path):
-    """
-    2x supersampled comic bubble with guaranteed center separation (zero overlap):
-    - Left bubble stays strictly in x=[24..515]
-    - Right bubble stays strictly in x=[565..1056]
-    """
     scale = 2
     W, H = 1080 * scale, 1920 * scale
     clean_t = ascii_clean(text)
@@ -510,7 +518,6 @@ def draw_bubble_layer(text, mode, side, head_pt, mouth_pt, out_path):
     bbox = tmp.multiline_textbbox((0, 0), wrapped, font=font, align="center", spacing=8 * scale)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
 
-    # Clamp max horizontal radius so left & right bubbles never collide across center x=540
     rx = max(140 * scale, min(232 * scale, int(tw * 0.5 + 48 * scale)))
     ry = max(74 * scale, int(th * 0.5 + 38 * scale))
 
@@ -657,7 +664,7 @@ def get_indila_audio(needed_sec):
 # ==============================================================================
 
 def build_pipeline():
-    print("=== STARTING MANHWA STYLE FREE-TIER PIPELINE ===")
+    print("=== STARTING GUIDELINE-SAFE MANHWA PIPELINE ===")
     os.makedirs("workspace", exist_ok=True)
     os.makedirs("videos", exist_ok=True)
 
@@ -725,7 +732,6 @@ def build_pipeline():
             )
 
         comp = CompositeVideoClip(layers, size=(1080, 1920)).set_duration(scene_dur)
-        # Alternate subtle zoom-in and zoom-out across scenes for dynamic motion
         if idx % 2 == 0:
             comp = comp.resize(lambda t: 1.0 + (0.014 * t))
         else:
