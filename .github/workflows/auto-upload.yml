@@ -41,10 +41,11 @@ jobs:
         pip install requests groq "yt-dlp[default]" numpy Pillow==9.5.0 "moviepy<2.0"
         pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
 
-    - name: Generate Manhwa Short (100% Free Tier)
+    - name: Clean Workspace & Generate Manhwa Short
       env:
         GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       run: |
+        rm -rf workspace videos
         python generate_vids.py
 
     - name: Upload to YouTube Shorts
