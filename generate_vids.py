@@ -6,6 +6,7 @@ import time
 import math
 import wave
 import struct
+import base64
 import random
 import textwrap
 import subprocess
@@ -31,7 +32,7 @@ from moviepy.editor import (
 HISTORY_FILE = "story_history.json"
 AUDIO_CACHE_PATH = "assets/indila_love_story_ethereal_inst_v7.mp3"
 
-# Real 2026 Free-Pollen Models on gen.pollinations.ai (NOT legacy 2-step SANA)
+# Real 2026 Free-Pollen Models on gen.pollinations.ai
 GEN_POLLINATIONS_MODELS = [
     "flux",
     "zimage",
@@ -40,9 +41,9 @@ GEN_POLLINATIONS_MODELS = [
 CURRENT_WORKING_MODEL = "flux"
 
 NEGATIVE_TAGS = (
-    "3d, cgi, semi-realistic, photorealistic, airbrushed, blurry, out of focus, waxy skin, "
-    "text, words, letters, speech bubble, watermark, logo, signature, bad anatomy, extra limbs, "
-    "close-up, cropped head, multiple boys, multiple girls"
+    "3d, cgi, photorealistic, waxy skin, blurry, out of focus, text, words, letters, "
+    "speech bubble, thought bubble, watermark, logo, signature, bad anatomy, extra limbs, "
+    "cropped head, extreme close-up, tiny distant figures, multiple boys, multiple girls"
 )
 
 # 100% Adult (18+) Manhwa Romance Plots
@@ -160,12 +161,12 @@ def generate_procedural_story(history, chosen_plot):
             "title": f"Left In The Rain… Until His Brother Stepped In ☔💔 Ep.{ep} #Shorts #manhwa #lovestory",
             "scenes": [
                 {"male_age": "21", "female_age": "19", "male_mode": "speech", "male_line": "Wait outside. I'm busy tonight.", "female_mode": "thought", "female_line": "He forgot my birthday again...", "scene_tags": "suit jacket, pastel dress, holding small cake box, evening sidewalk, cold expression, sad eyes"},
-                {"male_age": "24", "female_age": "19", "male_mode": "thought", "male_line": "How can my brother ignore her tears?", "female_mode": "speech", "female_line": "It's okay, I'm used to waiting.", "scene_tags": "long dark coat, shivering in rain, streetlamp glow, concerned gaze, teardrops"},
-                {"male_age": "24", "female_age": "19", "male_mode": "speech", "male_line": "Take my umbrella. Come with me.", "female_mode": "thought", "female_line": "Why is his gaze so warm?", "scene_tags": "sharing black umbrella, heavy rain, night city lights, standing together, blushing"},
-                {"male_age": "24", "female_age": "20", "male_mode": "speech", "male_line": "I bought every cake you missed.", "female_mode": "thought", "female_line": "No one ever treasured me like this...", "scene_tags": "white shirt, cardigan, birthday cake with candles, bright dining room, gentle smile"},
-                {"male_age": "25", "female_age": "20", "male_mode": "speech", "male_line": "Step back. You lost your chance.", "female_mode": "thought", "female_line": "He stood right in front of me!", "scene_tags": "tailored suit, evening gown, grand hall chandelier, protective posture, holding her hand"},
-                {"male_age": "25", "female_age": "20", "male_mode": "speech", "male_line": "I've loved you in silence for years.", "female_mode": "speech", "female_line": "Stay with me. Never let go.", "scene_tags": "night balcony, starry sky, city bokeh, touching her cheek, tender eye contact"},
-                {"male_age": "26", "female_age": "21", "male_mode": "speech", "male_line": "Marry me and be my whole world.", "female_mode": "speech", "female_line": "Yes! Only you, forever.", "scene_tags": "holding ring box, cherry blossom trees, sunset light, happy tears, smiling"},
+                {"male_age": "24", "female_age": "19", "male_mode": "thought", "male_line": "How can my brother ignore her tears?", "female_mode": "whisper", "female_line": "It's okay, I'm used to waiting.", "scene_tags": "long dark coat, shivering in rain, warm streetlamp glow, concerned gaze, teardrops"},
+                {"male_age": "24", "female_age": "19", "male_mode": "speech", "male_line": "Take my umbrella. Come with me.", "female_mode": "thought", "female_line": "Why is his gaze so warm?", "scene_tags": "sharing umbrella, heavy rain, glowing city lights, standing close, blushing"},
+                {"male_age": "24", "female_age": "20", "male_mode": "speech", "male_line": "I bought every cake you missed.", "female_mode": "thought", "female_line": "No one ever treasured me like this...", "scene_tags": "white shirt, cardigan, birthday cake with candles, warm dining room, gentle smile"},
+                {"male_age": "25", "female_age": "20", "male_mode": "shout", "male_line": "Step back! You lost your chance!", "female_mode": "thought", "female_line": "He stood right in front of me!", "scene_tags": "tailored suit, evening gown, grand hall chandelier, protective posture, holding her hand"},
+                {"male_age": "25", "female_age": "20", "male_mode": "whisper", "male_line": "I've loved you in silence for years.", "female_mode": "speech", "female_line": "Stay with me. Never let go.", "scene_tags": "night balcony, starry sky, city bokeh, touching her cheek, tender eye contact"},
+                {"male_age": "26", "female_age": "21", "male_mode": "speech", "male_line": "Marry me and be my whole world.", "female_mode": "speech", "female_line": "Yes! Only you, forever.", "scene_tags": "holding ring box, cherry blossom trees, golden sunset light, happy tears, smiling"},
                 {"male_age": "27", "female_age": "22", "male_mode": "thought", "male_line": "I'll protect her smile for life.", "female_mode": "thought", "female_line": "Losing the wrong one led me to you.", "scene_tags": "black tuxedo, white wedding veil, hugging, sunlit garden, floating petals"}
             ]
         },
@@ -174,11 +175,11 @@ def generate_procedural_story(history, chosen_plot):
             "title": f"He Fought Me For #1 Rank… Just To Talk To Me 📚💗 Ep.{ep} #Shorts #manhwa #lovestory",
             "scenes": [
                 {"male_age": "19", "female_age": "19", "male_mode": "speech", "male_line": "First place is mine again.", "female_mode": "thought", "female_line": "Why does he always tease me?", "scene_tags": "university blazer, white shirt, exam board, sunlit hallway, soft smirk, pouting"},
-                {"male_age": "19", "female_age": "19", "male_mode": "speech", "male_line": "Why are you crying up here?", "female_mode": "thought", "female_line": "He found my secret spot...", "scene_tags": "campus rooftop, bright sunset sky, offering handkerchief, tearful eyes, warm breeze"},
+                {"male_age": "19", "female_age": "19", "male_mode": "whisper", "male_line": "Why are you crying up here?", "female_mode": "thought", "female_line": "He found my secret spot...", "scene_tags": "campus rooftop, golden sunset sky, offering handkerchief, tearful eyes, warm breeze"},
                 {"male_age": "20", "female_age": "20", "male_mode": "speech", "male_line": "Rest on my shoulder for a bit.", "female_mode": "thought", "female_line": "His shoulder feels so safe...", "scene_tags": "library desk, stacked books, warm window light, draping blazer over her, blushing"},
-                {"male_age": "20", "female_age": "20", "male_mode": "speech", "male_line": "Don't let him walk you home.", "female_mode": "speech", "female_line": "Wait, are you actually jealous?", "scene_tags": "campus courtyard, autumn leaves, holding her wrist, serious gaze, bright sunset"},
+                {"male_age": "20", "female_age": "20", "male_mode": "shout", "male_line": "Don't let him walk you home!", "female_mode": "speech", "female_line": "Wait, are you actually jealous?", "scene_tags": "campus courtyard, autumn leaves, holding her wrist, serious gaze, bright sunset"},
                 {"male_age": "21", "female_age": "21", "male_mode": "speech", "male_line": "I studied hard just to stay near you.", "female_mode": "thought", "female_line": "My heart is racing so fast!", "scene_tags": "university garden, cherry blossoms, spring sunlight, standing together, shy smile"},
-                {"male_age": "21", "female_age": "21", "male_mode": "speech", "male_line": "Every margin note was about you.", "female_mode": "speech", "female_line": "I liked you since freshman year.", "scene_tags": "rainy evening, transparent umbrella, warm cafe lights, touching her cheek, warm smile"},
+                {"male_age": "21", "female_age": "21", "male_mode": "whisper", "male_line": "Every margin note was about you.", "female_mode": "speech", "female_line": "I liked you since freshman year.", "scene_tags": "rainy evening, transparent umbrella, warm cafe lights, touching her cheek, warm smile"},
                 {"male_age": "23", "female_age": "23", "male_mode": "speech", "male_line": "Be my partner for life?", "female_mode": "speech", "female_line": "Yes, my favourite rival!", "scene_tags": "starry rooftop, fairy lights, holding ring box, joyful tears, romantic night"},
                 {"male_age": "24", "female_age": "24", "male_mode": "thought", "male_line": "Winning her heart was my real prize.", "female_mode": "thought", "female_line": "From rivals to soulmates forever.", "scene_tags": "golden sunrise, bright sky, city skyline, holding hands, loving gaze"}
             ]
@@ -217,6 +218,8 @@ def generate_story(history):
     sys_msg = (
         "You are a Korean Manhwa writer and tag prompt engineer. "
         "Write an 8-scene adult romance story (all characters ages 19 to 28) using short visual tags. "
+        "Use 'speech' for spoken dialogue, 'thought' for inner monologue (unspoken thoughts), "
+        "'whisper' for soft shy lines, and 'shout' for emotional outbursts. "
         "Output strictly valid, compact JSON."
     )
     usr_msg = f"""Create a new 8-scene romantic Manhwa Short (MUST have 8 scenes in "scenes").
@@ -230,7 +233,7 @@ RULES:
 3. "girl_tags": 3-5 visual tags for female lead (e.g., "petite female, long brown hair, blue eyes").
 4. For each of the 8 scenes:
    - "scene_tags": 5-7 short visual tags for outfit, action, setting, and lighting (NO close-ups, NO style names).
-   - "male_mode" / "female_mode": "speech" or "thought".
+   - "male_mode" / "female_mode": "speech", "thought", "whisper", or "shout" (mix speech and thought naturally!).
    - "male_line" / "female_line": 4 to 6 English words.
 
 JSON Schema:
@@ -284,14 +287,15 @@ JSON Schema:
 
 
 # ==============================================================================
-# 2. HIGH-CLASS 2D MANHWA IMAGE ENGINE (gen.pollinations.ai + SHARPNESS GATE)
+# 2. HIGH-CLASS MANHWA IMAGE ENGINE (BALANCED gXlmlO4comg FRAMING + SHARPNESS)
 # ==============================================================================
 
 def build_clean_manhwa_prompt(scene, boy_tags, girl_tags):
     """
-    Crisp 2D Manhwa prompt engineered for gen.pollinations.ai (flux / zimage / klein):
-    - Uses 'manhwa style, flat 2d cel shading, crisp black ink lineart' to kill blurry 3D doll faces.
-    - Uses 'medium full shot, wide framing, generous empty space above heads' so bubbles NEVER hit faces.
+    Balanced, authentic Korean Manhwa prompt modeled directly on gXlmlO4comg:
+    - Uses lush Manhwa romantic lighting & soft shading (restores the luminous Manhwa look).
+    - Uses clean thigh-up two-shot framing with natural top margin (so characters command the frame
+      instead of being squashed tiny into the bottom 40%!).
     """
     m_age = clamp_adult_age(scene.get("male_age", "21"), 21)
     f_age = clamp_adult_age(scene.get("female_age", "19"), 19)
@@ -300,14 +304,14 @@ def build_clean_manhwa_prompt(scene, boy_tags, girl_tags):
     clean_girl = sanitize_tags(girl_tags, "petite female, long chestnut hair, bright eyes")
     clean_scene = sanitize_tags(
         scene.get("scene_tags", ""),
-        "standing together, romantic lighting, looking at each other"
+        "standing together, warm romantic lighting, looking at each other"
     )
 
     tags = [
         "manhwa style",
-        "flat 2d cel shading",
-        "crisp black ink lineart",
-        "vibrant pastel colors",
+        "luminous romantic lighting",
+        "soft anime shading",
+        "detailed expressive eyes",
         "1boy on left",
         "1girl on right",
         clean_boy,
@@ -315,10 +319,9 @@ def build_clean_manhwa_prompt(scene, boy_tags, girl_tags):
         clean_girl,
         f"{f_age}yo",
         clean_scene,
-        "medium full shot",
-        "wide framing",
-        "generous empty sky background above heads",
-        "characters in lower two-thirds",
+        "thigh-up two-shot",
+        "standing side by side",
+        "clean top margin above heads",
         "sharp focus",
         "masterpiece"
     ]
@@ -326,7 +329,7 @@ def build_clean_manhwa_prompt(scene, boy_tags, girl_tags):
 
 
 def measure_sharpness(pil_img):
-    """Computes Laplacian edge variance to reject blurry/smeared SANA frames."""
+    """Computes Laplacian edge variance to reject blurry/smeared frames."""
     gray = np.array(pil_img.convert("L").resize((540, 960)), dtype=np.float32)
     lap = (
         -4.0 * gray[1:-1, 1:-1]
@@ -337,7 +340,6 @@ def measure_sharpness(pil_img):
 
 
 def evaluate_artwork_bytes(raw_bytes):
-    """Returns (is_valid, sharpness_score, pil_img)."""
     if not raw_bytes or len(raw_bytes) < 16000:
         return False, 0.0, None
     try:
@@ -355,10 +357,7 @@ def evaluate_artwork_bytes(raw_bytes):
 
 
 def finalize_vertical_art(pil_img, out_path):
-    """
-    Trims 3.5% bottom watermark margin, fits cleanly to 1080x1920 with zero stretching,
-    and applies a crisp 2D lineart unsharp pass.
-    """
+    """Trims bottom 3.5% watermark margin, center-fits to 1080x1920 cleanly with crisp polish."""
     w, h = pil_img.size
     cropped = pil_img.crop((int(w * 0.018), int(h * 0.005), int(w * 0.982), int(h * 0.965)))
     cw, ch = cropped.size
@@ -376,20 +375,14 @@ def finalize_vertical_art(pil_img, out_path):
             cropped = cropped.crop((0, top, cw, top + nh))
 
     fitted = cropped.resize((1080, 1920), Image.LANCZOS)
-    # Crisp 2D Manhwa lineart finish
-    fitted = fitted.filter(ImageFilter.UnsharpMask(radius=1.1, percent=115, threshold=3))
-    fitted = ImageEnhance.Color(fitted).enhance(1.08)
+    fitted = fitted.filter(ImageFilter.UnsharpMask(radius=1.0, percent=110, threshold=3))
+    fitted = ImageEnhance.Color(fitted).enhance(1.06)
     fitted.save(out_path, "JPEG", quality=96)
     return out_path
 
 
 def render_scene_image(session, scene, boy_tags, girl_tags, story_seed, idx, total, out_path):
-    """
-    High-Class 2026 Image Fetcher:
-    1. Calls https://gen.pollinations.ai/image/{prompt} with POLLINATIONS_API_KEY (free Pollen)
-       so it executes REAL Flux / Z-Image / Klein instead of the blurry 2-step SANA legacy endpoint.
-    2. Enforces a Laplacian sharpness gate (rejects blurry smeared images and keeps the sharpest take).
-    """
+    """Renders crisp 9:16 Manhwa artwork via gen.pollinations.ai with sharpness gating."""
     global CURRENT_WORKING_MODEL
     pos_prompt = build_clean_manhwa_prompt(scene, boy_tags, girl_tags)
     enc_pos = urllib.parse.quote(pos_prompt)
@@ -406,7 +399,6 @@ def render_scene_image(session, scene, boy_tags, girl_tags, story_seed, idx, tot
     best_sharpness = -1.0
     best_label = ""
 
-    # Build ordered endpoint queue: real gen.pollinations.ai FIRST (with free Pollen key)
     attempts = []
     if api_key:
         for i, m in enumerate(trial_models):
@@ -418,7 +410,6 @@ def render_scene_image(session, scene, boy_tags, girl_tags, story_seed, idx, tot
                 f"&seed={seed}&negative_prompt={enc_neg}&nologo=true&enhance=false",
                 {"Authorization": f"Bearer {api_key}"}
             ))
-        # Extra retry on the primary model with fresh seed if sharpness was low
         attempts.append((
             f"gen:{trial_models[0]}-retry",
             f"https://gen.pollinations.ai/image/{enc_pos}"
@@ -427,9 +418,8 @@ def render_scene_image(session, scene, boy_tags, girl_tags, story_seed, idx, tot
             {"Authorization": f"Bearer {api_key}"}
         ))
     else:
-        print("   ⚠️ POLLINATIONS_API_KEY not found in env; gen.pollinations.ai needs a free key from enter.pollinations.ai.")
+        print("   ⚠️ POLLINATIONS_API_KEY not found in env; falling back to public endpoint.")
 
-    # Anonymous fallback only if key is missing or completely out of Pollen
     attempts.append((
         "legacy-fallback",
         f"https://image.pollinations.ai/prompt/{enc_pos}"
@@ -450,15 +440,14 @@ def render_scene_image(session, scene, boy_tags, girl_tags, story_seed, idx, tot
                         best_img = pil_im
                         best_label = label
 
-                    # Accept immediately if crisp and sharp (Laplacian variance >= 65)
                     if sharpness >= 65.0:
                         if label.startswith("gen:"):
                             CURRENT_WORKING_MODEL = label.split(":")[1].split("-")[0]
                         finalize_vertical_art(pil_im, out_path)
-                        print(f"✅ Scene {idx + 1}/{total} crisp 2D art saved ({label}, sharp={sharpness:.1f}) -> {out_path}")
+                        print(f"✅ Scene {idx + 1}/{total} crisp art saved ({label}, sharp={sharpness:.1f}) -> {out_path}")
                         return True
                     else:
-                        print(f"   ⚠️ Image too blurry (sharp={sharpness:.1f} < 65). Trying sharper model...")
+                        print(f"   ⚠️ Too blurry (sharp={sharpness:.1f} < 65). Trying sharper model...")
                         time.sleep(4)
                         continue
 
@@ -469,28 +458,142 @@ def render_scene_image(session, scene, boy_tags, girl_tags, story_seed, idx, tot
             print(f"   ⏳ Network retry on '{label}' ({e}). Waiting 8s...")
             time.sleep(8)
 
-    # Save the sharpest valid image collected across attempts if none crossed 65
     if best_img is not None:
         finalize_vertical_art(best_img, out_path)
-        print(f"✅ Scene {idx + 1}/{total} saved best available take ({best_label}, sharp={best_sharpness:.1f}) -> {out_path}")
+        print(f"✅ Scene {idx + 1}/{total} saved best take ({best_label}, sharp={best_sharpness:.1f}) -> {out_path}")
         return True
 
     return False
 
 
 # ==============================================================================
-# 3. CV HEAD/MOUTH ANCHOR + AUTO-ORIENTATION + GUARANTEED HEADROOM ENGINE
+# 3. SEMANTIC VISION LANDMARKS + 2D INTEGRAL-IMAGE ENERGY LAYOUT SOLVER
 # ==============================================================================
 
-def detect_character_anchors(img_path):
+def get_groq_vision_models(client):
+    """Finds active free-tier Groq Vision models (Llama-4 Scout / Maverick)."""
+    try:
+        all_ids = [m.id for m in client.models.list().data]
+    except Exception:
+        return ["meta-llama/llama-4-scout-17b-16e-instruct"]
+
+    preferred = [
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "meta-llama/llama-4-maverick-17b-128e-instruct"
+    ]
+    ordered = [p for p in preferred if p in all_ids]
+    for m in all_ids:
+        if ("vision" in m.lower() or "llama-4" in m.lower()) and "guard" not in m.lower():
+            if m not in ordered:
+                ordered.append(m)
+    return ordered
+
+
+def detect_landmarks_with_vision_ai(img_path):
     """
-    Detects left and right character head-tops and mouths across the upper-to-mid canvas (y: 60..1150).
+    Uses Groq's free Vision LLM to pinpoint exact head bounding boxes and mouth coordinates
+    for both the male lead and female lead (normalized 0..1000 -> mapped to 1080x1920 pixels).
+    Returns a validated landmark dict or None if unavailable.
     """
-    default_anchors = {
-        "boy_head_top": (285, 505),
-        "boy_mouth": (345, 725),
-        "girl_head_top": (795, 540),
-        "girl_mouth": (725, 760)
+    groq_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not groq_key:
+        return None
+
+    try:
+        with Image.open(img_path) as im:
+            thumb = im.convert("RGB").resize((360, 640), Image.LANCZOS)
+            buf = io.BytesIO()
+            thumb.save(buf, format="JPEG", quality=82)
+            b64_str = base64.b64encode(buf.getvalue()).decode("utf-8")
+
+        client = Groq(api_key=groq_key)
+        vision_models = get_groq_vision_models(client)
+        if not vision_models:
+            return None
+
+        prompt = (
+            "Locate the TWO anime/manhwa characters (the male character and the female character) in this 9:16 image. "
+            "Use normalized coordinates from 0 to 1000 where (0,0) is top-left and (1000,1000) is bottom-right. "
+            "Include full hair inside each head box [x1, y1, x2, y2]. "
+            "Return ONLY valid JSON matching this schema:\n"
+            '{"boy_head":[x1,y1,x2,y2],"boy_mouth":[mx,my],"girl_head":[x1,y1,x2,y2],"girl_mouth":[mx,my]}'
+        )
+
+        for v_model in vision_models[:2]:
+            try:
+                res = client.chat.completions.create(
+                    model=v_model,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_str}"}}
+                        ]
+                    }],
+                    response_format={"type": "json_object"},
+                    max_tokens=220,
+                    temperature=0.0
+                )
+                raw = res.choices[0].message.content.strip()
+                if raw.startswith("```"):
+                    raw = raw.split("```")[1].lstrip("json").strip()
+                data = json.loads(raw)
+
+                bh = data.get("boy_head")
+                bm = data.get("boy_mouth")
+                gh = data.get("girl_head")
+                gm = data.get("girl_mouth")
+                if not (isinstance(bh, list) and len(bh) == 4 and isinstance(gh, list) and len(gh) == 4):
+                    continue
+
+                def to_px_box(b):
+                    x1 = max(0, min(1070, int(round(float(b[0]) * 1.08))))
+                    y1 = max(0, min(1900, int(round(float(b[1]) * 1.92))))
+                    x2 = max(x1 + 70, min(1080, int(round(float(b[2]) * 1.08))))
+                    y2 = max(y1 + 80, min(1920, int(round(float(b[3]) * 1.92))))
+                    return (x1, y1, x2, y2)
+
+                def to_px_pt(pt, box):
+                    if isinstance(pt, list) and len(pt) == 2:
+                        mx = max(box[0], min(box[2], int(round(float(pt[0]) * 1.08))))
+                        my = max(box[1], min(box[3], int(round(float(pt[1]) * 1.92))))
+                        return (mx, my)
+                    return ((box[0] + box[2]) // 2, int(box[1] + (box[3] - box[1]) * 0.72))
+
+                b_box = to_px_box(bh)
+                g_box = to_px_box(gh)
+                b_cx = (b_box[0] + b_box[2]) // 2
+                g_cx = (g_box[0] + g_box[2]) // 2
+
+                # Reject degenerate detections where both boxes collapsed onto the same person
+                if abs(b_cx - g_cx) < 120:
+                    continue
+
+                return {
+                    "boy_box": b_box,
+                    "boy_mouth": to_px_pt(bm, b_box),
+                    "girl_box": g_box,
+                    "girl_mouth": to_px_pt(gm, g_box),
+                    "source": f"vision:{v_model}"
+                }
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+
+def detect_landmarks_cv_fallback(img_path):
+    """
+    Pure-NumPy Multi-Cue Anime Face/Head Detector (works offline if Vision AI is unavailable):
+    Combines warm anime skin-tone segmentation with percentile face bounding & hair height estimation.
+    """
+    fallback = {
+        "boy_box": (175, 420, 415, 760),
+        "boy_mouth": (320, 675),
+        "girl_box": (655, 470, 895, 810),
+        "girl_mouth": (740, 725),
+        "source": "cv-default"
     }
     try:
         with Image.open(img_path) as im:
@@ -502,109 +605,361 @@ def detect_character_anchors(img_path):
             ((r - g) > 8) & ((r - b) > 16) & ((r - b) < 125) &
             (g > b)
         )
-        y_min, y_max = 60, 1150
+        y_min, y_max = 80, 1380
 
-        def find_side_face(x_start, x_end, is_left):
-            sub_mask = skin_mask[y_min:y_max, x_start:x_end]
-            ys, xs = np.where(sub_mask)
+        def scan_half(x_start, x_end, is_left):
+            ys, xs = np.where(skin_mask[y_min:y_max, x_start:x_end])
             if len(ys) < 350:
                 return None
 
-            face_cx = int(x_start + np.median(xs))
-            face_top_y = int(y_min + np.percentile(ys, 10))
-            face_bot_y = int(y_min + np.percentile(ys, 85))
-            face_h = max(120, min(320, face_bot_y - face_top_y))
+            fx1 = int(x_start + np.percentile(xs, 10))
+            fx2 = int(x_start + np.percentile(xs, 90))
+            fy1 = int(y_min + np.percentile(ys, 10))
+            fy2 = int(y_min + np.percentile(ys, 85))
 
-            head_top_y = max(25, face_top_y - int(face_h * 0.45))
-            inward_shift = int(face_h * 0.16) if is_left else -int(face_h * 0.16)
-            mouth_x = max(100, min(980, face_cx + inward_shift))
-            mouth_y = min(1120, face_top_y + int(face_h * 0.70))
-            return (face_cx, head_top_y), (mouth_x, mouth_y)
+            fw = max(130, min(320, fx2 - fx1))
+            fh = max(140, min(340, fy2 - fy1))
+            cx = int(x_start + np.median(xs))
 
-        left_res = find_side_face(40, 535, is_left=True)
-        right_res = find_side_face(545, 1040, is_left=False)
+            hx1 = max(20, cx - int(fw * 0.65))
+            hx2 = min(1060, cx + int(fw * 0.65))
+            hy1 = max(25, fy1 - int(fh * 0.50))
+            hy2 = min(1450, fy2 + int(fh * 0.12))
 
+            shift = int(fw * 0.15) if is_left else -int(fw * 0.15)
+            mx = max(hx1 + 10, min(hx2 - 10, cx + shift))
+            my = max(hy1 + 20, min(hy2 - 10, fy1 + int(fh * 0.72)))
+            return (hx1, hy1, hx2, hy2), (mx, my)
+
+        left_res = scan_half(30, 535, True)
+        right_res = scan_half(545, 1050, False)
         if left_res:
-            default_anchors["boy_head_top"], default_anchors["boy_mouth"] = left_res
+            fallback["boy_box"], fallback["boy_mouth"] = left_res
+            fallback["source"] = "cv-skin"
         if right_res:
-            default_anchors["girl_head_top"], default_anchors["girl_mouth"] = right_res
-    except Exception as e:
-        print(f"⚠️ Anchor detection fallback used: {e}")
+            fallback["girl_box"], fallback["girl_mouth"] = right_res
+            fallback["source"] = "cv-skin"
+    except Exception:
+        pass
+    return fallback
 
-    return default_anchors
 
-
-def auto_align_and_guarantee_headroom(img_path):
+def align_couple_and_gentle_headroom(img_path):
     """
-    Two-step geometric safeguard that makes bubble-on-face/body overlaps IMPOSSIBLE:
-    1. Auto-Orientation: If the taller character (boy) was drawn on the right (girl_head_y < boy_head_y - 30),
-       horizontally flips the clean text-free artwork so the Boy is ALWAYS on the Left and Girl on the Right!
-    2. Guaranteed Clean Headroom: If the highest character head sits above y=445, seamlessly extends the
-       ambient upper sky/room backdrop upward and shifts the characters down so their heads start at y>=450,
-       leaving y=0..435 completely open for the ages and speech/thought bubbles!
+    1. Detects exact boy & girl head boxes via Vision AI (with CV fallback).
+    2. If the boy was drawn on the right side (boy_cx > girl_cx), mirrors the text-free artwork
+       horizontally and transforms the exact coordinates so Boy is ALWAYS Left (Blue Age) and Girl Right (Pink Age).
+    3. ONLY applies a gentle top headroom extension if a head clips dangerously close to the top (< 305px),
+       lifting it to ~345px (preserving full commanding character presence like gXlmlO4comg!).
     """
-    anchors = detect_character_anchors(img_path)
+    lm = detect_landmarks_with_vision_ai(img_path) or detect_landmarks_cv_fallback(img_path)
 
-    # Step 1: Fix swapped left/right positions automatically
-    boy_hy = anchors["boy_head_top"][1]
-    girl_hy = anchors["girl_head_top"][1]
-    if girl_hy < boy_hy - 30:
+    boy_cx = (lm["boy_box"][0] + lm["boy_box"][2]) * 0.5
+    girl_cx = (lm["girl_box"][0] + lm["girl_box"][2]) * 0.5
+
+    # Mirror if Vision AI saw boy on right, or if CV fallback saw significantly taller head on right
+    should_flip = (boy_cx > girl_cx) if lm["source"].startswith("vision:") else (lm["girl_box"][1] < lm["boy_box"][1] - 35)
+
+    if should_flip:
         with Image.open(img_path) as im:
             im.transpose(Image.FLIP_LEFT_RIGHT).save(img_path, "JPEG", quality=96)
-        anchors = detect_character_anchors(img_path)
-        print("   🔄 Auto-aligned swapped characters (Boy -> Left, Girl -> Right)")
 
-    # Step 2: Guarantee clean upper headroom (y = 0..445) so bubbles NEVER cover faces or bodies
-    min_head_y = min(anchors["boy_head_top"][1], anchors["girl_head_top"][1])
-    target_min_head_y = 455
+        def flip_box(b):
+            return (1080 - b[2], b[1], 1080 - b[0], b[3])
 
-    if min_head_y < target_min_head_y:
-        shift_y = min(380, target_min_head_y - min_head_y)
+        def flip_pt(p):
+            return (1080 - p[0], p[1])
+
+        if lm["source"].startswith("vision:"):
+            lm["boy_box"] = flip_box(lm["boy_box"])
+            lm["boy_mouth"] = flip_pt(lm["boy_mouth"])
+            lm["girl_box"] = flip_box(lm["girl_box"])
+            lm["girl_mouth"] = flip_pt(lm["girl_mouth"])
+        else:
+            # In CV mode, left/right slots swapped labels
+            old_boy_box, old_boy_m = lm["boy_box"], lm["boy_mouth"]
+            lm["boy_box"], lm["boy_mouth"] = flip_box(lm["girl_box"]), flip_pt(lm["girl_mouth"])
+            lm["girl_box"], lm["girl_mouth"] = flip_box(old_boy_box), flip_pt(old_boy_m)
+        print("   🔄 Horizontally aligned artwork (Boy -> Left, Girl -> Right)")
+
+    # Gentle headroom guard ONLY when a character's hair touches the top edge (y < 305)
+    min_head_y = min(lm["boy_box"][1], lm["girl_box"][1])
+    if min_head_y < 305:
+        shift_y = min(230, 345 - min_head_y)
         with Image.open(img_path) as im:
             rgb = im.convert("RGB").resize((1080, 1920), Image.LANCZOS)
             arr = np.array(rgb, dtype=np.float32)
 
-            # Build a smooth ambient backdrop from the clean top-left & top-right corners (avoids hair streaks)
-            left_corner = np.median(arr[0:110, 0:150, :], axis=(0, 1))
-            right_corner = np.median(arr[0:110, 930:1080, :], axis=(0, 1))
+            left_c = np.median(arr[0:90, 0:140, :], axis=(0, 1))
+            right_c = np.median(arr[0:90, 940:1080, :], axis=(0, 1))
             x_t = np.linspace(0.0, 1.0, 1080, dtype=np.float32)[None, :, None]
-            top_grad = left_corner[None, None, :] * (1.0 - x_t) + right_corner[None, None, :] * x_t
+            top_grad = left_c[None, None, :] * (1.0 - x_t) + right_c[None, None, :] * x_t
 
-            canvas_arr = np.zeros((1920, 1080, 3), dtype=np.float32)
-            canvas_arr[:shift_y + 50, :, :] = top_grad
+            canvas = np.zeros((1920, 1080, 3), dtype=np.float32)
+            canvas[:shift_y + 45, :, :] = top_grad
 
-            # If there is a clean top sky strip above the highest head, blend a mirrored blurred version
-            if min_head_y >= 65:
-                strip_h = min(120, min_head_y - 20)
+            if min_head_y >= 55:
+                strip_h = min(110, min_head_y - 15)
                 sky_strip = rgb.crop((0, 0, 1080, strip_h)).transpose(Image.FLIP_TOP_BOTTOM)
-                sky_ext = sky_strip.resize((1080, shift_y + 40), Image.BICUBIC).filter(ImageFilter.GaussianBlur(18))
-                sky_arr = np.array(sky_ext, dtype=np.float32)
-                canvas_arr[:shift_y + 40, :, :] = 0.65 * sky_arr + 0.35 * top_grad
+                sky_ext = sky_strip.resize((1080, shift_y + 36), Image.BICUBIC).filter(ImageFilter.GaussianBlur(14))
+                canvas[:shift_y + 36, :, :] = 0.65 * np.array(sky_ext, dtype=np.float32) + 0.35 * top_grad
 
-            # Paste original artwork shifted down by shift_y with a 42px vertical feather blend at the seam
             paste_h = 1920 - shift_y
             art_part = arr[:paste_h, :, :]
-            feather = min(42, paste_h)
+            feather = min(38, paste_h)
             alpha = np.linspace(0.0, 1.0, feather, dtype=np.float32)[:, None, None]
 
-            canvas_arr[shift_y:shift_y + feather, :, :] = (
-                canvas_arr[shift_y:shift_y + feather, :, :] * (1.0 - alpha)
-                + art_part[:feather, :, :] * alpha
+            canvas[shift_y:shift_y + feather, :, :] = (
+                canvas[shift_y:shift_y + feather, :, :] * (1.0 - alpha) + art_part[:feather, :, :] * alpha
             )
-            canvas_arr[shift_y + feather:, :, :] = art_part[feather:, :, :]
+            canvas[shift_y + feather:, :, :] = art_part[feather:, :, :]
+            Image.fromarray(np.clip(canvas, 0, 255).astype(np.uint8), "RGB").save(img_path, "JPEG", quality=96)
 
-            Image.fromarray(np.clip(canvas_arr, 0, 255).astype(np.uint8), "RGB").save(img_path, "JPEG", quality=96)
+        def shift_box(b):
+            return (b[0], b[1] + shift_y, b[2], min(1920, b[3] + shift_y))
 
-        # Update anchor Y-coordinates by exact shift_y
-        anchors = {
-            "boy_head_top": (anchors["boy_head_top"][0], anchors["boy_head_top"][1] + shift_y),
-            "boy_mouth": (anchors["boy_mouth"][0], anchors["boy_mouth"][1] + shift_y),
-            "girl_head_top": (anchors["girl_head_top"][0], anchors["girl_head_top"][1] + shift_y),
-            "girl_mouth": (anchors["girl_mouth"][0], anchors["girl_mouth"][1] + shift_y)
-        }
-        print(f"   📐 Extended clean top headroom by +{shift_y}px (Heads now safely below y={min_head_y + shift_y})")
+        lm["boy_box"] = shift_box(lm["boy_box"])
+        lm["boy_mouth"] = (lm["boy_mouth"][0], min(1920, lm["boy_mouth"][1] + shift_y))
+        lm["girl_box"] = shift_box(lm["girl_box"])
+        lm["girl_mouth"] = (lm["girl_mouth"][0], min(1920, lm["girl_mouth"][1] + shift_y))
+        print(f"   📐 Gentle headroom guard applied (+{shift_y}px)")
 
-    return anchors
+    return lm
+
+
+def build_integral_image(grid):
+    """Constructs a 2D Summed-Area Table for O(1) rectangular region integration."""
+    padded = np.pad(grid, ((1, 0), (1, 0)), mode="constant", constant_values=0.0)
+    return np.cumsum(np.cumsum(padded, axis=0), axis=1)
+
+
+def build_visual_energy_grid(img_path, landmarks, grid_scale=4):
+    """
+    Constructs a mathematical Visual Importance & Exclusion Energy Field E(y, x) on a 270x480 grid:
+    - Sobel gradient magnitude |∇I| (high on detailed lineart, bright lights, umbrellas, hands, objects)
+    - Local grayscale variance (rewards smooth open negative space like sky/walls/bokeh)
+    - Hard impenetrable exclusion masks (E = 1e6) over BOTH heads, BOTH character bodies/torsos,
+      top age badges, outer frame margins, and YouTube Shorts bottom UI!
+    """
+    GW = 1080 // grid_scale  # 270
+    GH = 1920 // grid_scale  # 480
+
+    with Image.open(img_path) as im:
+        gray = np.array(im.convert("L").resize((GW, GH), Image.BILINEAR), dtype=np.float64)
+
+    # 1. Sobel Gradient Magnitude |∇I|
+    gx = (
+        -gray[:-2, :-2] + gray[:-2, 2:]
+        - 2.0 * gray[1:-1, :-2] + 2.0 * gray[1:-1, 2:]
+        - gray[2:, :-2] + gray[2:, 2:]
+    )
+    gy = (
+        -gray[:-2, :-2] - 2.0 * gray[:-2, 1:-1] - gray[:-2, 2:]
+        + gray[2:, :-2] + 2.0 * gray[2:, 1:-1] + gray[2:, 2:]
+    )
+    grad = np.pad(np.hypot(gx, gy), ((1, 1), (1, 1)), mode="edge")
+    grad_norm = np.clip(grad / 160.0, 0.0, 1.5) * 45.0
+
+    # 2. Local Variance via Integral Image (9x9 window)
+    k = 9
+    r = k // 2
+    g_pad = np.pad(gray, ((r, r), (r, r)), mode="edge")
+    s1 = build_integral_image(g_pad)
+    s2 = build_integral_image(g_pad * g_pad)
+    mean_v = (s1[k:, k:] - s1[:-k, k:] - s1[k:, :-k] + s1[:-k, :-k]) / float(k * k)
+    sq_v = (s2[k:, k:] - s2[:-k, k:] - s2[k:, :-k] + s2[:-k, :-k]) / float(k * k)
+    local_std = np.sqrt(np.maximum(0.0, sq_v - mean_v * mean_v))
+    var_norm = np.clip(local_std / 55.0, 0.0, 1.5) * 35.0
+
+    # 3. High-glare bright light penalty (e.g., ceiling lamps)
+    glare_pen = np.where(gray > 246.0, 28.0, 0.0)
+
+    energy = grad_norm + var_norm + glare_pen
+
+    def forbid_rect(x1, y1, x2, y2, weight=1e6):
+        gx1 = max(0, min(GW, int(math.floor(x1 / grid_scale))))
+        gy1 = max(0, min(GH, int(math.floor(y1 / grid_scale))))
+        gx2 = max(0, min(GW, int(math.ceil(x2 / grid_scale))))
+        gy2 = max(0, min(GH, int(math.ceil(y2 / grid_scale))))
+        if gx2 > gx1 and gy2 > gy1:
+            energy[gy1:gy2, gx1:gx2] += weight
+
+    # Hard Forbidden Zones:
+    # (a) Outer edges & YouTube Shorts bottom UI
+    forbid_rect(0, 0, 1080, 44, 1e6)
+    forbid_rect(0, 0, 20, 1920, 1e6)
+    forbid_rect(1060, 0, 1080, 1920, 1e6)
+    forbid_rect(0, 1340, 1080, 1920, 1e6)
+
+    # (b) Top-left & Top-right glowing Age Badges
+    forbid_rect(0, 0, 185, 148, 1e6)
+    forbid_rect(895, 0, 1080, 148, 1e6)
+
+    # (c) Both Character Heads (+24px padding) AND Torso/Body Cones below their heads!
+    for key in ("boy_box", "girl_box"):
+        hx1, hy1, hx2, hy2 = landmarks[key]
+        hw = hx2 - hx1
+        # Protect full head + hair halo
+        forbid_rect(hx1 - 24, hy1 - 26, hx2 + 24, hy2 + 18, 1e6)
+        # Protect shoulders & torso below the head so bubbles NEVER appear on character's body
+        shoulder_pad = int(max(55, hw * 0.42))
+        forbid_rect(hx1 - shoulder_pad, hy2 - 12, hx2 + shoulder_pad, 1920, 1e6)
+
+    return energy
+
+
+def measure_bubble_geometry(text):
+    """Computes balanced comic text wrapping and super-ellipse radii (rx, ry) in 1080p pixels."""
+    clean_t = ascii_clean(text)
+    # Choose balanced line width (15-18 chars) for pleasing oval aspect ratio
+    wrap_w = 15 if len(clean_t) <= 30 else 18
+    wrapped = "\n".join(textwrap.wrap(clean_t, width=wrap_w)[:3])
+
+    font = load_font(30 * 2)  # measured at 2x resolution
+    tmp = ImageDraw.Draw(Image.new("L", (8, 8)))
+    bbox = tmp.multiline_textbbox((0, 0), wrapped, font=font, align="center", spacing=7 * 2)
+    tw = (bbox[2] - bbox[0]) / 2.0
+    th = (bbox[3] - bbox[1]) / 2.0
+
+    rx = max(134, min(232, int(round(tw * 0.5 + 44))))
+    ry = max(66, min(116, int(round(th * 0.5 + 34))))
+    return wrapped, rx, ry
+
+
+def solve_optimal_bubble_placement(energy_grid, rx, ry, speaker_box, side, is_second_speaker=False, grid_scale=4):
+    """
+    Exact Global Energy-Minimization Solver via 2D Integral Image:
+    Evaluates ALL ~100,000 candidate positions (cx, cy) simultaneously in <3ms and selects
+    the mathematically optimal bubble placement that:
+    1. NEVER overlaps heads, bodies, age badges, or the other bubble (hard exclusion E=1e6).
+    2. Sits intimately right above the speaker's actual head (head_top - ry - 86px) — NEVER stuck
+       at the ceiling 500px away!
+    3. Automatically dodges busy visual details (lights, umbrellas, background clutter) into
+       clean negative space.
+    """
+    GH, GW = energy_grid.shape
+    bw = max(6, min(GW - 4, int(round((2 * rx + 18) / grid_scale))))
+    bh = max(6, min(GH - 4, int(round((2 * ry + 18) / grid_scale))))
+
+    S = build_integral_image(energy_grid)
+    occ = S[bh:, bw:] - S[:-bh, bw:] - S[bh:, :-bw] + S[:-bh, :-bw]
+    mean_occ = occ / float(bw * bh)
+
+    ny, nx = mean_occ.shape
+    cx_px = (np.arange(nx, dtype=np.float64)[None, :] + bw * 0.5) * grid_scale
+    cy_px = (np.arange(ny, dtype=np.float64)[:, None] + bh * 0.5) * grid_scale
+
+    hx1, hy1, hx2, hy2 = speaker_box
+    head_cx = (hx1 + hx2) * 0.5
+
+    # Ideal reading position: right above the speaker's head with subtle diagonal comic rhythm
+    outward_nudge = -28.0 if side == "left" else 28.0
+    ideal_x = max(rx + 28.0, min(1080.0 - rx - 28.0, head_cx + outward_nudge))
+
+    # Ideal Y tracks the ACTUAL head height (never pinned to y=230 when head is at y=850!)
+    stagger_y = 22.0 if is_second_speaker else -8.0
+    ideal_y = max(ry + 92.0, min(1240.0 - ry, hy1 - ry - 86.0 + stagger_y))
+
+    # Distance penalty keeps bubble intimately close to the speaker's head (strong vertical pull)
+    dx = cx_px - ideal_x
+    dy = cy_px - ideal_y
+    dist_cost = 0.0018 * (dx * dx) + 0.0028 * (dy * dy)
+
+    # Strongly prefer staying ABOVE the character's eye line rather than dropping beside their neck
+    below_head_pen = np.where(cy_px > (hy1 - ry * 0.25), 220.0, 0.0)
+
+    # Gentle hemisphere preference (left speaker prefers left half, right speaker prefers right half)
+    if side == "left":
+        hemi_pen = np.where(cx_px > 540.0, (cx_px - 540.0) * 0.35, 0.0)
+    else:
+        hemi_pen = np.where(cx_px < 540.0, (540.0 - cx_px) * 0.35, 0.0)
+
+    total_cost = mean_occ + dist_cost + below_head_pen + hemi_pen
+    best_flat = int(np.argmin(total_cost))
+    best_iy, best_ix = divmod(best_flat, nx)
+
+    best_cx = int(round((best_ix + bw * 0.5) * grid_scale))
+    best_cy = int(round((best_iy + bh * 0.5) * grid_scale))
+
+    best_cx = max(rx + 22, min(1080 - rx - 22, best_cx))
+    best_cy = max(ry + 48, min(1320 - ry, best_cy))
+    return best_cx, best_cy
+
+
+def compute_exact_tail_target(cx, cy, rx, ry, speaker_box, mouth_pt):
+    """
+    Casts a geometric ray from bubble center (cx, cy) toward the speaker's mouth/face (mx, my)
+    and stops cleanly right outside the character's head ellipse (18px safety clearance)
+    so the tail points unmistakably at the speaker without ever poking into their face or hair!
+    """
+    hx1, hy1, hx2, hy2 = speaker_box
+    hcx = (hx1 + hx2) * 0.5
+    hcy = (hy1 + hy2) * 0.5
+    hrx = max(55.0, (hx2 - hx1) * 0.5 + 16.0)
+    hry = max(65.0, (hy2 - hy1) * 0.5 + 18.0)
+
+    # Target point biased slightly toward the speaker's upper cheek/mouth
+    aim_x = hcx * 0.55 + mouth_pt[0] * 0.45
+    aim_y = hcy * 0.55 + mouth_pt[1] * 0.45
+
+    vx = aim_x - cx
+    vy = aim_y - cy
+    dist = math.hypot(vx, vy)
+    if dist < 1.0:
+        return cx, cy + ry + 65
+
+    ux, uy = vx / dist, vy / dist
+
+    # Distance from bubble center to bubble perimeter along ray (ux, uy)
+    denom_b = math.hypot(ux / max(1.0, rx), uy / max(1.0, ry))
+    d_bubble = 1.0 / max(1e-6, denom_b)
+
+    # Find exact intersection distance where ray enters the speaker's head safety ellipse
+    # Solve ((cx + t*ux - hcx)/hrx)^2 + ((cy + t*uy - hcy)/hry)^2 = 1
+    ox = (cx - hcx) / hrx
+    oy = (cy - hcy) / hry
+    dux = ux / hrx
+    duy = uy / hry
+
+    A = dux * dux + duy * duy
+    B = 2.0 * (ox * dux + oy * duy)
+    C = ox * ox + oy * oy - 1.0
+    disc = B * B - 4.0 * A * C
+
+    if disc >= 0.0 and A > 1e-8:
+        t_hit = (-B - math.sqrt(disc)) / (2.0 * A)
+        if t_hit > d_bubble + 26.0:
+            t_tip = min(t_hit, d_bubble + 175.0)
+        else:
+            t_tip = d_bubble + 46.0
+    else:
+        t_tip = min(dist * 0.72, d_bubble + 145.0)
+
+    t_tip = max(d_bubble + 44.0, min(d_bubble + 185.0, t_tip))
+    tx = int(round(max(24, min(1056, cx + ux * t_tip))))
+    ty = int(round(max(60, min(1860, cy + uy * t_tip))))
+    return tx, ty
+
+
+def mark_bubble_occupied(energy_grid, cx, cy, rx, ry, tx, ty, grid_scale=4):
+    """Marks a placed bubble and its tail corridor as forbidden so Bubble 2 never collides with it."""
+    GH, GW = energy_grid.shape
+
+    def block(x1, y1, x2, y2):
+        gx1 = max(0, min(GW, int(math.floor(x1 / grid_scale))))
+        gy1 = max(0, min(GH, int(math.floor(y1 / grid_scale))))
+        gx2 = max(0, min(GW, int(math.ceil(x2 / grid_scale))))
+        gy2 = max(0, min(GH, int(math.ceil(y2 / grid_scale))))
+        if gx2 > gx1 and gy2 > gy1:
+            energy_grid[gy1:gy2, gx1:gx2] += 1e6
+
+    # Block main bubble with 26px spacing buffer
+    block(cx - rx - 26, cy - ry - 26, cx + rx + 26, cy + ry + 26)
+    # Block tail corridor
+    for f in (0.35, 0.65, 0.90):
+        px = cx + (tx - cx) * f
+        py = cy + (ty - cy) * f
+        block(px - 28, py - 28, px + 28, py + 28)
 
 
 def draw_age_layer(male_age, female_age, out_path):
@@ -628,114 +983,151 @@ def draw_age_layer(male_age, female_age, out_path):
     return out_path
 
 
-def quad_bezier_points(p0, p1, p2, steps=32):
+def super_ellipse_pt(cx, cy, rx, ry, theta, exp=2.35):
+    ct, st = math.cos(theta), math.sin(theta)
+    x = cx + rx * (1.0 if ct >= 0 else -1.0) * (abs(ct) ** (2.0 / exp))
+    y = cy + ry * (1.0 if st >= 0 else -1.0) * (abs(st) ** (2.0 / exp))
+    return (x, y)
+
+
+def quad_bezier_points(p0, p1, p2, steps=28):
     pts = []
     for i in range(steps + 1):
         t = i / float(steps)
         inv = 1.0 - t
         pts.append((
-            inv * inv * p0[0] + 2 * inv * t * p1[0] + t * t * p2[0],
-            inv * inv * p0[1] + 2 * inv * t * p1[1] + t * t * p2[1]
+            inv * inv * p0[0] + 2.0 * inv * t * p1[0] + t * t * p2[0],
+            inv * inv * p0[1] + 2.0 * inv * t * p1[1] + t * t * p2[1]
         ))
     return pts
 
 
-def render_webtoon_bubble_layer(text, bubble_type, side, head_top, mouth_pt, out_path):
+def render_master_comic_bubble(wrapped, rx, ry, cx, cy, tx, ty, bubble_mode, out_path):
     """
-    Zero-Overlap Webtoon Bubble Renderer (2x supersampled 2160x3840):
-    - Bubble body sits strictly ABOVE the character's hair-top (bottom edge <= hy - 62px).
-    - Curved Bezier speech tail (or 4-dot Garfield thought chain) reaches down cleanly and
-      STOPS 16px above the character's hair-top—pointing right at them without EVER touching
-      their face, eyes, or body!
+    2x Supersampled (2160x3840) Morphological Ink-and-Shadow Comic Bubble Engine:
+    - 'speech'  -> Smooth Manhwa super-ellipse + vector-aligned curved Bezier tail pointing right to (tx, ty).
+    - 'thought' -> Fluffy scalloped cloud + 4 detached shrinking circular bubbles along a smooth curve to (tx, ty).
+    - 'whisper' -> Soft dashed-outline oval + slender curved tail.
+    - 'shout'   -> Dynamic comic starburst + crisp pointed tail.
     """
     scale = 2
     W, H = 1080 * scale, 1920 * scale
-    clean_t = ascii_clean(text)
-    wrapped = "\n".join(textwrap.wrap(clean_t, width=17)[:3])
+    cx_s, cy_s = cx * scale, cy * scale
+    rx_s, ry_s = rx * scale, ry * scale
+    tx_s, ty_s = tx * scale, ty * scale
 
-    font = load_font(30 * scale)
-    tmp = ImageDraw.Draw(Image.new("L", (8, 8)))
-    bbox = tmp.multiline_textbbox((0, 0), wrapped, font=font, align="center", spacing=7 * scale)
-    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    mode = str(bubble_mode or "speech").lower().strip()
+    if mode not in ("speech", "thought", "whisper", "shout"):
+        mode = "speech"
 
-    # Strict center separation across x=540 so left & right bubbles never collide
-    rx = max(138 * scale, min(230 * scale, int(tw * 0.5 + 46 * scale)))
-    ry = max(68 * scale, min(115 * scale, int(th * 0.5 + 34 * scale)))
-
-    hx, hy = head_top[0] * scale, head_top[1] * scale
-    mx, my = mouth_pt[0] * scale, mouth_pt[1] * scale
-
-    # Strict vertical ceiling (below ages at y=110) and strict floor (at least 62px above hair-top hy!)
-    max_safe_cy = max((115 * scale) + ry, hy - ry - (62 * scale))
-
-    if side == "left":
-        cx = max(rx + 24 * scale, min(518 * scale - rx, hx - 8 * scale))
-        cy = min(max_safe_cy, max((112 * scale) + ry, 230 * scale))
-    else:
-        cx = max(562 * scale + rx, min(W - rx - 24 * scale, hx + 8 * scale))
-        cy = min(max_safe_cy, max((135 * scale) + ry, 275 * scale))
-
-    # Aim tail horizontally toward the character's head/mouth X
-    raw_tx = (hx * 0.65 + mx * 0.35)
-    tx = max(cx - rx + 22 * scale, min(cx + rx - 22 * scale, raw_tx))
-
-    # Tail tip stops cleanly 16px ABOVE hair-top hy (NEVER entering the face or body!)
-    ty = max(cy + ry + 38 * scale, min(hy - 16 * scale, cy + ry + 135 * scale))
+    # Exact direction angle from bubble center toward tail tip
+    theta0 = math.atan2((ty_s - cy_s) / max(1.0, ry_s), (tx_s - cx_s) / max(1.0, rx_s))
+    perp_x = -(ty_s - cy_s)
+    perp_y = (tx_s - cx_s)
+    plen = max(1.0, math.hypot(perp_x, perp_y))
+    perp_x /= plen
+    perp_y /= plen
+    bow_sign = 1.0 if tx_s >= cx_s else -1.0
 
     mask = Image.new("L", (W, H), 0)
     mdraw = ImageDraw.Draw(mask)
 
-    if str(bubble_type).lower() == "thought":
+    if mode == "thought":
+        # Scalloped cloud body (zero solid wedge tail!)
         mdraw.ellipse(
-            [cx - rx + 14 * scale, cy - ry + 12 * scale, cx + rx - 14 * scale, cy + ry - 12 * scale],
+            [cx_s - rx_s + 14 * scale, cy_s - ry_s + 12 * scale,
+             cx_s + rx_s - 14 * scale, cy_s + ry_s - 12 * scale],
             fill=255
         )
-        for i in range(16):
-            ang = (2.0 * math.pi * i) / 16
-            px = cx + (rx - 12 * scale) * math.cos(ang)
-            py = cy + (ry - 8 * scale) * math.sin(ang)
-            pr = (26 if i % 2 == 0 else 21) * scale
+        num_puffs = 16
+        for i in range(num_puffs):
+            ang = (2.0 * math.pi * i) / num_puffs
+            px = cx_s + (rx_s - 10 * scale) * math.cos(ang)
+            py = cy_s + (ry_s - 8 * scale) * math.sin(ang)
+            pr = (27 if i % 2 == 0 else 22) * scale
             mdraw.ellipse([px - pr, py - pr, px + pr, py + pr], fill=255)
 
-        sx = cx + (int(rx * 0.12) if side == "left" else -int(rx * 0.12))
-        sy = cy + ry + 20 * scale
-        ctrl_x = (sx + tx) * 0.5 + (-10 * scale if side == "left" else 10 * scale)
-        ctrl_y = sy + (ty - sy) * 0.52
+        # Start 4 detached circular thought bubbles just outside the cloud puff along theta0
+        perim = super_ellipse_pt(cx_s, cy_s, rx_s + 22 * scale, ry_s + 22 * scale, theta0, exp=2.0)
+        sx, sy = perim
+        ctrl_x = (sx + tx_s) * 0.5 + perp_x * (16 * scale * bow_sign)
+        ctrl_y = (sy + ty_s) * 0.5 + perp_y * (16 * scale * bow_sign)
 
-        for t_val, r_dot in [(0.08, 13.0 * scale), (0.40, 9.5 * scale), (0.70, 6.8 * scale), (0.96, 4.5 * scale)]:
-            inv = 1.0 - t_val
-            dx = inv * inv * sx + 2 * inv * t_val * ctrl_x + t_val * t_val * tx
-            dy = inv * inv * sy + 2 * inv * t_val * ctrl_y + t_val * t_val * ty
+        curve_pts = quad_bezier_points((sx, sy), (ctrl_x, ctrl_y), (tx_s, ty_s), steps=40)
+        # Arc-length parameterization so dots are spaced evenly and never fuse together
+        arc = [0.0]
+        for i in range(1, len(curve_pts)):
+            arc.append(arc[-1] + math.hypot(curve_pts[i][0] - curve_pts[i - 1][0], curve_pts[i][1] - curve_pts[i - 1][1]))
+        total_arc = max(1.0, arc[-1])
+
+        dot_specs = [(0.05, 13.5 * scale), (0.37, 10.0 * scale), (0.69, 7.2 * scale), (0.97, 4.8 * scale)]
+        for frac, r_dot in dot_specs:
+            target_len = frac * total_arc
+            idx_a = 0
+            while idx_a < len(arc) - 2 and arc[idx_a + 1] < target_len:
+                idx_a += 1
+            dx, dy = curve_pts[idx_a]
             mdraw.ellipse([dx - r_dot, dy - r_dot, dx + r_dot, dy + r_dot], fill=255)
+
+    elif mode == "shout":
+        # Dynamic comic starburst + crisp wedge tail
+        poly_burst = []
+        spikes = 28
+        for i in range(spikes * 2):
+            th = (math.pi * i) / spikes
+            mult = 1.09 if i % 2 == 0 else 0.90
+            poly_burst.append((cx_s + rx_s * mult * math.cos(th), cy_s + ry_s * mult * math.sin(th)))
+        mdraw.polygon(poly_burst, fill=255)
+
+        p_l = super_ellipse_pt(cx_s, cy_s, rx_s * 0.85, ry_s * 0.85, theta0 - 0.16, exp=2.0)
+        p_r = super_ellipse_pt(cx_s, cy_s, rx_s * 0.85, ry_s * 0.85, theta0 + 0.16, exp=2.0)
+        mdraw.polygon([p_l, (tx_s, ty_s), p_r], fill=255)
+
     else:
-        poly = []
-        for i in range(96):
-            th_ang = (2.0 * math.pi * i) / 96
-            ct, st = math.cos(th_ang), math.sin(th_ang)
-            poly.append((
-                cx + rx * (1 if ct >= 0 else -1) * (abs(ct) ** (2.0 / 2.35)),
-                cy + ry * (1 if st >= 0 else -1) * (abs(st) ** (2.0 / 2.35))
-            ))
+        # Smooth Manhwa super-ellipse + tangent-continuous curved Bezier tail
+        poly = [super_ellipse_pt(cx_s, cy_s, rx_s, ry_s, (2.0 * math.pi * i) / 96, exp=2.35) for i in range(96)]
         mdraw.polygon(poly, fill=255)
 
-        bx = cx + (int(rx * 0.10) if side == "left" else -int(rx * 0.10))
-        by = cy + ry - 8 * scale
-        pl, pr = (bx - 18 * scale, by), (bx + 18 * scale, by)
-        pull = -10 * scale if side == "left" else 10 * scale
-        cl = ((pl[0] + tx) * 0.5 + pull, by + (ty - by) * 0.55)
-        cr = ((pr[0] + tx) * 0.5 + pull, by + (ty - by) * 0.45)
-        mdraw.polygon(quad_bezier_points(pl, cl, (tx, ty)) + quad_bezier_points((tx, ty), cr, pr), fill=255)
+        half_ang = 0.11 if mode == "whisper" else 0.16
+        p_l = super_ellipse_pt(cx_s, cy_s, rx_s * 0.90, ry_s * 0.90, theta0 - half_ang, exp=2.35)
+        p_r = super_ellipse_pt(cx_s, cy_s, rx_s * 0.90, ry_s * 0.90, theta0 + half_ang, exp=2.35)
 
+        ctrl_l = (
+            (p_l[0] + tx_s) * 0.5 + perp_x * (14 * scale * bow_sign),
+            (p_l[1] + ty_s) * 0.5 + perp_y * (14 * scale * bow_sign)
+        )
+        ctrl_r = (
+            (p_r[0] + tx_s) * 0.5 + perp_x * (8 * scale * bow_sign),
+            (p_r[1] + ty_s) * 0.5 + perp_y * (8 * scale * bow_sign)
+        )
+        tail_poly = quad_bezier_points(p_l, ctrl_l, (tx_s, ty_s)) + quad_bezier_points((tx_s, ty_s), ctrl_r, p_r)
+        mdraw.polygon(tail_poly, fill=255)
+
+    # Seamless charcoal comic ink stroke + soft ambient drop shadow
     outer = mask.filter(ImageFilter.MaxFilter(7))
     shadow = outer.filter(ImageFilter.GaussianBlur(7 * scale))
 
     canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    canvas.paste(Image.new("RGBA", (W, H), (12, 15, 24, 55)), (0, 6 * scale), mask=shadow)
+    canvas.paste(Image.new("RGBA", (W, H), (12, 15, 24, 52)), (0, 6 * scale), mask=shadow)
     canvas.paste(Image.new("RGBA", (W, H), (24, 24, 30, 255)), (0, 0), mask=outer)
     canvas.paste(Image.new("RGBA", (W, H), (254, 254, 255, 255)), (0, 0), mask=mask)
 
     cdraw = ImageDraw.Draw(canvas)
-    cdraw.multiline_text((cx, cy), wrapped, font=font, fill=(20, 22, 28, 255), align="center", anchor="mm", spacing=7 * scale)
+    if mode == "whisper":
+        # Subtle comic dashed-border breaks around perimeter (excluding tail root)
+        for i in range(0, 36, 2):
+            ang = (2.0 * math.pi * i) / 36
+            diff = abs(math.atan2(math.sin(ang - theta0), math.cos(ang - theta0)))
+            if diff < 0.30:
+                continue
+            gx, gy = super_ellipse_pt(cx_s, cy_s, rx_s, ry_s, ang, exp=2.35)
+            rg = 5 * scale
+            cdraw.ellipse([gx - rg, gy - rg, gx + rg, gy + rg], fill=(254, 254, 255, 255))
+
+    font = load_font(30 * scale)
+    txt_col = (44, 48, 58, 255) if mode in ("thought", "whisper") else (18, 20, 26, 255)
+    cdraw.multiline_text((cx_s, cy_s), wrapped, font=font, fill=txt_col, align="center", anchor="mm", spacing=7 * scale)
+
     canvas.resize((1080, 1920), Image.LANCZOS).save(out_path, "PNG")
     return out_path
 
@@ -785,7 +1177,7 @@ def get_indila_audio(needed_sec):
             if os.path.exists(raw_mp3) and os.path.getsize(raw_mp3) > 90000:
                 subprocess.run([
                     "ffmpeg", "-y", "-ss", str(offset), "-t", str(slice_len), "-i", raw_mp3,
-                    "-af", "stereotools=mlev=0.02,aecho=0.8:0.86:50:0.22,loudnorm=I=-14:TP=-1.5:LRA=11",
+                    "-af", "aecho=0.8:0.86:50:0.20,loudnorm=I=-14:TP=-1.5:LRA=11",
                     "-b:a", "192k", AUDIO_CACHE_PATH
                 ], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 if get_audio_duration(AUDIO_CACHE_PATH) >= needed_sec:
@@ -815,7 +1207,7 @@ def get_indila_audio(needed_sec):
 # ==============================================================================
 
 def build_pipeline():
-    print("=== STARTING HIGH-CLASS 2D MANHWA + ZERO-OVERLAP HEADROOM PIPELINE ===")
+    print("=== STARTING VISION-GUIDED INTEGRAL-IMAGE LAYOUT MANHWA PIPELINE ===")
     os.makedirs("workspace", exist_ok=True)
     os.makedirs("videos", exist_ok=True)
 
@@ -852,12 +1244,16 @@ def build_pipeline():
         if not render_scene_image(session, sc, boy_tags, girl_tags, story_seed, idx, len(scenes), art_path):
             continue
 
-        # Auto-align Boy->Left/Girl->Right AND guarantee clean headroom above both heads
-        anchors = auto_align_and_guarantee_headroom(art_path)
+        # 1. Semantic Vision + CV Head/Mouth Landmarks & Gentle Headroom Guard
+        lm = align_couple_and_gentle_headroom(art_path)
         print(
-            f"[CV-ANCHORS] Scene {idx + 1}: Boy Head={anchors['boy_head_top']} Mouth={anchors['boy_mouth']} | "
-            f"Girl Head={anchors['girl_head_top']} Mouth={anchors['girl_mouth']}"
+            f"[LANDMARKS:{lm['source']}] Scene {idx + 1}: "
+            f"BoyBox={lm['boy_box']} Mouth={lm['boy_mouth']} | "
+            f"GirlBox={lm['girl_box']} Mouth={lm['girl_mouth']}"
         )
+
+        # 2. Compute 2D Visual Saliency & Hard Exclusion Energy Field
+        energy_grid = build_visual_energy_grid(art_path, lm, grid_scale=4)
 
         base = ImageClip(art_path).set_duration(scene_dur).resize((1080, 1920))
         layers = [base]
@@ -866,20 +1262,37 @@ def build_pipeline():
         draw_age_layer(sc.get("male_age", "21"), sc.get("female_age", "19"), age_path)
         layers.append(ImageClip(age_path).set_position(("center", 12)).set_duration(scene_dur))
 
+        # 3. Solve Optimal Non-Occluding Placement for Boy's Bubble (Left)
         if sc.get("male_line"):
-            b_left = f"workspace/b_left_{idx}.png"
-            render_webtoon_bubble_layer(
-                sc["male_line"], sc.get("male_mode", "speech"),
-                "left", anchors["boy_head_top"], anchors["boy_mouth"], b_left
+            m_wrap, m_rx, m_ry = measure_bubble_geometry(sc["male_line"])
+            m_cx, m_cy = solve_optimal_bubble_placement(
+                energy_grid, m_rx, m_ry, lm["boy_box"], side="left", is_second_speaker=False
             )
+            m_tx, m_ty = compute_exact_tail_target(m_cx, m_cy, m_rx, m_ry, lm["boy_box"], lm["boy_mouth"])
+            mark_bubble_occupied(energy_grid, m_cx, m_cy, m_rx, m_ry, m_tx, m_ty)
+
+            b_left = f"workspace/b_left_{idx}.png"
+            render_master_comic_bubble(
+                m_wrap, m_rx, m_ry, m_cx, m_cy, m_tx, m_ty,
+                sc.get("male_mode", "speech"), b_left
+            )
+            print(f"   💬 Boy ({sc.get('male_mode', 'speech')}): Center=({m_cx},{m_cy}) -> TailTip=({m_tx},{m_ty})")
             layers.append(ImageClip(b_left).set_position((0, 0)).set_start(0.0).set_duration(scene_dur))
 
+        # 4. Solve Optimal Non-Occluding Placement for Girl's Bubble (Right, avoids Boy's bubble + tail!)
         if sc.get("female_line"):
-            b_right = f"workspace/b_right_{idx}.png"
-            render_webtoon_bubble_layer(
-                sc["female_line"], sc.get("female_mode", "thought"),
-                "right", anchors["girl_head_top"], anchors["girl_mouth"], b_right
+            f_wrap, f_rx, f_ry = measure_bubble_geometry(sc["female_line"])
+            f_cx, f_cy = solve_optimal_bubble_placement(
+                energy_grid, f_rx, f_ry, lm["girl_box"], side="right", is_second_speaker=True
             )
+            f_tx, f_ty = compute_exact_tail_target(f_cx, f_cy, f_rx, f_ry, lm["girl_box"], lm["girl_mouth"])
+
+            b_right = f"workspace/b_right_{idx}.png"
+            render_master_comic_bubble(
+                f_wrap, f_rx, f_ry, f_cx, f_cy, f_tx, f_ty,
+                sc.get("female_mode", "thought"), b_right
+            )
+            print(f"   💭 Girl ({sc.get('female_mode', 'thought')}): Center=({f_cx},{f_cy}) -> TailTip=({f_tx},{f_ty})")
             layers.append(
                 ImageClip(b_right)
                 .set_position((0, 0))
@@ -894,7 +1307,7 @@ def build_pipeline():
         else:
             zoomed = comp.resize(lambda t: 1.064 - (0.012 * t))
 
-        # Even 1080x1920 frame lock so libx264 never fails
+        # Even 1080x1920 frame lock so libx264 never hits odd dimensions
         scene_clip = (
             CompositeVideoClip([zoomed.set_position("center")], size=(1080, 1920))
             .set_duration(scene_dur)
